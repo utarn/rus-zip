@@ -6,16 +6,23 @@
         x:DataType="vm:MainWindowViewModel"
         Title="rus-zip - Compression Suite"
         Width="900" Height="600"
-        MinWidth="700" MinHeight="450">
+        MinWidth="700" MinHeight="450"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="46"
+        ExtendClientAreaChromeHints="PreferSystemChrome"
+        TransparencyLevelHint="Mica, AcrylicBlur, Blur"
+        Background="Transparent">
 
     <Grid RowDefinitions="Auto,*,Auto">
-        <!-- Modern Ribbon / Toolbar -->
+        <!-- Modern Ribbon / Toolbar & Custom Title Bar -->
         <Border Grid.Row="0"
+                x:Name="TitleBarArea"
                 Background="{DynamicResource CardBackgroundFillColorDefault}"
                 BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
                 BorderThickness="0,0,0,1"
-                Padding="12,8">
-            <Grid ColumnDefinitions="*,Auto">
+                Padding="12,8"
+                PointerPressed="OnTitleBarPointerPressed">
+            <Grid ColumnDefinitions="*,Auto" x:Name="TitleBarContentGrid">
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
                     <Button Command="{Binding ShowCompressDialogCommand}"
                             Padding="12,8">
