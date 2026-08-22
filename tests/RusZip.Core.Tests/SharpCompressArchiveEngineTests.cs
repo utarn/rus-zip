@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security;
 using System.Text;
 using RusZip.Core.Engines;
@@ -182,9 +183,14 @@ public class SharpCompressArchiveEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Zip_CompressAndExtract_LargeFile_ChunkedProgressAndZip64()
+    public async Task Zip_CompressAndExtract_LargeFile_ChunkedProgress()
     {
-        // Arrange - 2 MB payload to verify chunked reading
+        // NOTE: this test covers chunked reading and progress reporting for a large single entry.
+        // It deliberately does NOT cross a Zip64 boundary — Zip64 engages only >4 GB per entry or
+        // >65535 entries per archive. The entry-count boundary is covered by
+        // Zip_CompressAndExtract_ManyTinyEntries_CrossesZip64Boundary below; the per-entry >4 GB
+        // case is out of scope for the test suite entirely (it would need ~4 GB of disk + RAM and
+        // minutes of compression for a single entry — see the DoD note for issue #55).
         var sourceDir = Path.Combine(_testDir, "large_src");
         Directory.CreateDirectory(sourceDir);
         var largeFile = Path.Combine(sourceDir, "large.bin");
@@ -216,6 +222,50 @@ public class SharpCompressArchiveEngineTests : IDisposable
         // Chunked 80KB stream reading yields multiple progress reports
         Assert.True(compressProgress.Count > 1, $"Expected multiple progress reports during compression, got {compressProgress.Count}");
         Assert.True(extractProgress.Count > 1, $"Expected multiple progress reports during extraction, got {extractProgress.Count}");
+    }
+
+    [Fact]
+    public async Task Zip_CompressAndExtract_ManyTinyEntries_CrossesZip64Boundary()
+    {
+        // F-24 regression: ZipWriter sets UseZip64 = true (SharpCompressArchiveEngine) but no test
+        // ever crossed a Zip64 boundary — Zip64 engages only when a single entry exceeds 4 GB or
+        // when the archive holds more than 65535 entries. The per-entry >4 GB case is out of scope
+        // (disk/time, see the comment on Zip_CompressAndExtract_LargeFile_ChunkedProgress), so this
+        // test crosses the entry-count boundary: 65,536 + 32 one-byte files.
+        var sw = Stopwatch.StartNew();
+        const int entryCount = 65_536 + 32; // classic EOCD total-entry count is a ushort (max 65535)
+
+        var sourceDir = Path.Combine(_testDir, "many_entries_src");
+        Directory.CreateDirectory(sourceDir);
+
+        var payload = new byte[1] { 0x5A };
+        for (int i = 0; i < entryCount; i++)
+        {
+            await File.WriteAllBytesAsync(Path.Combine(sourceDir, $"f{i:D5}.dat"), payload);
+        }
+
+        var zipPath = Path.Combine(_testDir, "many_entries.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 1));
+
+        // >65535 entries cannot be represented in the classic EOCD total-entry field, so the writer
+        // must emit Zip64 structures (a Zip64 EOCD locator and/or the 0xFFFF sentinel).
+        var entries = await _engine.ListEntriesAsync(zipPath);
+        Assert.True(entries.Count > 65_535, $"Expected >65535 entries, got {entries.Count}");
+        AssertZipUsesZip64(zipPath);
+
+        var extractDir = Path.Combine(_testDir, "many_entries_extracted");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+        Assert.Equal(entryCount, result.FilesExtracted);
+
+        // Sampled contents round-trip intact, including the boundary indices around 65535.
+        foreach (int i in new[] { 0, 1, 65_534, 65_535, entryCount - 1 })
+        {
+            Assert.Equal(payload, await File.ReadAllBytesAsync(Path.Combine(extractDir, $"f{i:D5}.dat")));
+        }
+
+        sw.Stop();
+        // Runtime budget for this test (DoD for issue #55): a 65k-entry corpus must stay under 60 s.
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(60), $"Zip64 entry-count test exceeded 60s budget: {sw.Elapsed.TotalSeconds:F1}s");
     }
 
     [Fact]
@@ -1292,5 +1342,38 @@ public class SharpCompressArchiveEngineTests : IDisposable
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Asserts that a zip archive actually uses Zip64 structures: either a Zip64 EOCD locator
+    /// (signature PK\x06\x07) sits immediately before the EOCD, or the classic EOCD total-entry
+    /// field holds the 0xFFFF sentinel (the real count lives in the Zip64 EOCD). A zip that crosses
+    /// a Zip64 boundary but fails to emit these structures would silently truncate entry counts and
+    /// offsets (F-24).
+    /// </summary>
+    private static void AssertZipUsesZip64(string zipPath)
+    {
+        var bytes = File.ReadAllBytes(zipPath);
+
+        int eocd = -1;
+        for (int i = bytes.Length - 22; i >= 0; i--)
+        {
+            if (bytes[i] == 0x50 && bytes[i + 1] == 0x4B && bytes[i + 2] == 0x05 && bytes[i + 3] == 0x06)
+            {
+                eocd = i;
+                break;
+            }
+        }
+
+        Assert.True(eocd >= 0, "EOCD record not found in zip archive.");
+
+        int totalEntries = bytes[eocd + 10] | (bytes[eocd + 11] << 8);
+        bool hasZip64Locator = eocd >= 20 &&
+            bytes[eocd - 20] == 0x50 && bytes[eocd - 19] == 0x4B &&
+            bytes[eocd - 18] == 0x06 && bytes[eocd - 17] == 0x07;
+
+        Assert.True(
+            hasZip64Locator || totalEntries == 0xFFFF,
+            $"Archive does not use Zip64 structures: EOCD totalEntries=0x{totalEntries:X4}, hasZip64Locator={hasZip64Locator}.");
     }
 }

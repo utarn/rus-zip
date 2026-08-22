@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using RusZip.Cli.Models;
 using RusZip.Core.Tests;
 using Xunit;
@@ -73,24 +74,57 @@ public sealed class CliEndToEndRegressionTests : CliTestBase
         Assert.Equal(gammaContent, await File.ReadAllBytesAsync(Path.Combine(extractDir, "sub", "deep", "gamma.bin")));
     }
 
-    [Theory]
-    [InlineData("fast", 3)]
-    [InlineData("balanced", 9)]
-    [InlineData("high", 15)]
-    [InlineData("ultra", 22)]
-    public async Task EndToEnd_Compress_AllPresetProfiles_ExecuteSuccessfully(string profile, int expectedLevel)
+    [Fact]
+    public async Task EndToEnd_Compress_AllPresetProfiles_ExecuteSuccessfully_WithDistinctCompressionPerLevel()
     {
-        var src = CreateTempFile($"file_{profile}.txt", $"Payload for profile {profile} (level {expectedLevel})");
-        var archive = Path.Combine(TempDirectory, $"archive_{profile}.zrus");
+        // F-25: the previous theory asserted nothing about the level actually applied — `expectedLevel`
+        // only appeared in a filename. Compress the SAME deterministic corpus at every preset and assert
+        // the archives' actual compression characteristics differ per level: on a repetitive text corpus
+        // the higher Zstd presets must produce a strictly smaller archive (fast > balanced, fast > ultra)
+        // and the four archives must not be byte-identical. This fails if ResolveLevel ever stops mapping
+        // profiles to distinct levels (e.g. always returning the default 9). The exact level that reaches
+        // the engine is locked by CompressCommandTests.Compress_Profile_ResolveLevelReachesEngine.
+        var corpus = Path.Combine(TempDirectory, "profile_corpus.txt");
+        await File.WriteAllTextAsync(corpus, BuildProfileCorpus());
 
-        var (exitCode, stdout) = await RunCliAsync("compress", src, archive, "-p", profile, "--json");
+        var profiles = new[] { ("fast", 3), ("balanced", 9), ("high", 15), ("ultra", 22) };
+        var sizes = new Dictionary<string, long>(StringComparer.Ordinal);
 
-        Assert.Equal(0, exitCode);
-        Assert.True(File.Exists(archive));
+        foreach (var (profile, _) in profiles)
+        {
+            var archive = Path.Combine(TempDirectory, $"archive_{profile}.zrus");
+            var (exitCode, stdout) = await RunCliAsync("compress", corpus, archive, "-p", profile, "--json");
 
-        var res = ParseJson<CompressResult>(stdout);
-        Assert.True(res.Success);
-        Assert.Equal(1, res.TotalFiles);
+            Assert.Equal(0, exitCode);
+            Assert.True(File.Exists(archive));
+
+            var res = ParseJson<CompressResult>(stdout);
+            Assert.True(res.Success);
+            Assert.Equal(1, res.TotalFiles);
+            sizes[profile] = res.CompressedBytes;
+        }
+
+        Assert.True(sizes["ultra"] < sizes["fast"],
+            $"Expected ultra preset to compress the corpus strictly smaller than fast (fast={sizes["fast"]}, ultra={sizes["ultra"]}).");
+        Assert.True(sizes["balanced"] < sizes["fast"],
+            $"Expected balanced preset to compress the corpus smaller than fast (fast={sizes["fast"]}, balanced={sizes["balanced"]}).");
+        Assert.True(sizes.Values.Distinct().Count() > 1,
+            $"All profiles produced identical archives; ResolveLevel likely regressed (sizes={string.Join(", ", sizes.Values)}).");
+    }
+
+    /// <summary>
+    /// Deterministic repetitive text corpus (fixed seed) whose Zstd output is measurably smaller at
+    /// higher presets. Used by the profile e2e test so compressed-size assertions are reproducible.
+    /// </summary>
+    private static string BuildProfileCorpus()
+    {
+        var random = new Random(42);
+        var sb = new StringBuilder();
+        for (int i = 0; i < 2500; i++)
+        {
+            sb.Append($"2026-08-22 12:{i % 60:00}:{(i * 7) % 60:00} INFO request={i} user=alice action={new[] { "read", "write", "delete", "list" }[i % 4]} item=item_{i % 100} size={random.Next(1, 9999)} flag={i % 7 == 0}\n");
+        }
+        return sb.ToString();
     }
 
     [Fact]
