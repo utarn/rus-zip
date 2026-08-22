@@ -13,7 +13,11 @@ public class OperationProgressViewModelTests
         Assert.False(vm.IsOperationRunning);
         Assert.Equal(0, vm.ProgressPercentage);
         Assert.Equal("-", vm.SpeedFormatted);
+        Assert.Equal("-", vm.FormattedSpeed);
+        Assert.Equal("-", vm.TransferSpeed);
         Assert.Equal("-", vm.EtaFormatted);
+        Assert.Equal("-", vm.FormattedEta);
+        Assert.Equal("-", vm.TimeRemaining);
         Assert.Equal("0 B / 0 B", vm.BytesProgressFormatted);
         Assert.Equal(string.Empty, vm.CurrentFileName);
         Assert.Equal("Preparing...", vm.StatusMessage);
@@ -32,7 +36,11 @@ public class OperationProgressViewModelTests
         Assert.Equal(0, vm.ProgressPercentage);
         Assert.Equal("Starting...", vm.StatusMessage);
         Assert.Equal("-", vm.SpeedFormatted);
+        Assert.Equal("-", vm.FormattedSpeed);
+        Assert.Equal("-", vm.TransferSpeed);
         Assert.Equal("-", vm.EtaFormatted);
+        Assert.Equal("-", vm.FormattedEta);
+        Assert.Equal("-", vm.TimeRemaining);
     }
 
     [Fact]
@@ -94,6 +102,60 @@ public class OperationProgressViewModelTests
         Assert.Equal("1 MB / ...", vm.BytesProgressFormatted);
     }
 
+    [Fact]
+    public async Task ReportProgress_AfterDelay_CalculatesSpeedAndEta()
+    {
+        var vm = new OperationProgressViewModel();
+        vm.CreateCancellationTokenSource();
+
+        // Wait to allow stopwatch to accumulate elapsed time
+        await Task.Delay(150);
+
+        var report = new ProgressReport(
+            ProcessedBytes: 10485760, // 10 MB
+            TotalBytes: 52428800,     // 50 MB
+            CurrentFileName: "large.bin",
+            Percentage: 20.0,
+            ProcessedFiles: 1,
+            TotalFiles: 5,
+            IsIndeterminate: false
+        );
+
+        vm.ReportProgress(report);
+
+        Assert.NotEqual("-", vm.SpeedFormatted);
+        Assert.Equal(vm.SpeedFormatted, vm.FormattedSpeed);
+        Assert.Equal(vm.SpeedFormatted, vm.TransferSpeed);
+        Assert.NotEqual("-", vm.EtaFormatted);
+        Assert.Equal(vm.EtaFormatted, vm.FormattedEta);
+        Assert.Equal(vm.EtaFormatted, vm.TimeRemaining);
+    }
+
+    [Fact]
+    public async Task ReportProgress_WhenCompleted_SetsEtaToZero()
+    {
+        var vm = new OperationProgressViewModel();
+        vm.CreateCancellationTokenSource();
+
+        await Task.Delay(150);
+
+        var report = new ProgressReport(
+            ProcessedBytes: 10485760,
+            TotalBytes: 10485760,
+            CurrentFileName: "finished.bin",
+            Percentage: 100.0,
+            ProcessedFiles: 1,
+            TotalFiles: 1,
+            IsIndeterminate: false
+        );
+
+        vm.ReportProgress(report);
+
+        Assert.Equal("00:00", vm.EtaFormatted);
+        Assert.Equal("00:00", vm.FormattedEta);
+        Assert.Equal("00:00", vm.TimeRemaining);
+    }
+
     [Theory]
     [InlineData(0, "0 B/s")]
     [InlineData(-10, "0 B/s")]
@@ -112,10 +174,22 @@ public class OperationProgressViewModelTests
     [InlineData(45, "00:45")]
     [InlineData(90, "01:30")]
     [InlineData(3665, "01:01:05")]
-    public void FormatEta_FormatsCorrectly(int totalSeconds, string expected)
+    public void FormatEta_FromTimeSpan_FormatsCorrectly(int totalSeconds, string expected)
     {
         var timeSpan = TimeSpan.FromSeconds(totalSeconds);
         var formatted = OperationProgressViewModel.FormatEta(timeSpan);
+        Assert.Equal(expected, formatted);
+    }
+
+    [Theory]
+    [InlineData(0, "00:00")]
+    [InlineData(-10, "00:00")]
+    [InlineData(12, "00:12")]
+    [InlineData(75, "01:15")]
+    [InlineData(3600, "01:00:00")]
+    public void FormatEta_FromSecondsDouble_FormatsCorrectly(double seconds, string expected)
+    {
+        var formatted = OperationProgressViewModel.FormatEta(seconds);
         Assert.Equal(expected, formatted);
     }
 
@@ -132,6 +206,27 @@ public class OperationProgressViewModelTests
     {
         var formatted = OperationProgressViewModel.FormatBytes(bytes);
         Assert.Equal(expected, formatted);
+    }
+
+    [Fact]
+    public void PropertyChanged_FiresForSpeedAndEtaAliases()
+    {
+        var vm = new OperationProgressViewModel();
+        var changedProps = new List<string>();
+        vm.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName != null) changedProps.Add(e.PropertyName);
+        };
+
+        vm.SpeedFormatted = "45.2 MB/s";
+        Assert.Contains(nameof(OperationProgressViewModel.SpeedFormatted), changedProps);
+        Assert.Contains(nameof(OperationProgressViewModel.FormattedSpeed), changedProps);
+        Assert.Contains(nameof(OperationProgressViewModel.TransferSpeed), changedProps);
+
+        vm.EtaFormatted = "00:12";
+        Assert.Contains(nameof(OperationProgressViewModel.EtaFormatted), changedProps);
+        Assert.Contains(nameof(OperationProgressViewModel.FormattedEta), changedProps);
+        Assert.Contains(nameof(OperationProgressViewModel.TimeRemaining), changedProps);
     }
 
     [Fact]

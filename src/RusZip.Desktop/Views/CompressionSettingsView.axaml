@@ -43,7 +43,7 @@
                       HorizontalAlignment="Stretch" />
         </Grid>
 
-        <!-- Compression Level Slider & Dynamic Badge -->
+        <!-- Modern Compression Preset Cards & Slider -->
         <Border BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
                 BorderThickness="1"
                 CornerRadius="8"
@@ -54,6 +54,8 @@
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBlock Text="Compression Level:" FontWeight="SemiBold" VerticalAlignment="Center" />
                         <TextBlock Text="{Binding CompressionLevel}" FontWeight="Bold" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding CurrentRatioEstimate, StringFormat='({0}'}" Foreground="{DynamicResource TextFillColorSecondary}" VerticalAlignment="Center" FontSize="12" />
+                        <TextBlock Text="{Binding CurrentThroughputEstimate, StringFormat='- {0})'}" Foreground="{DynamicResource TextFillColorSecondary}" VerticalAlignment="Center" FontSize="12" />
                     </StackPanel>
 
                     <!-- Dynamic Profile Badge -->
@@ -68,52 +70,105 @@
                     </Border>
                 </Grid>
 
+                <!-- Slider with Bi-directional Binding -->
                 <Slider Minimum="1"
                         Maximum="22"
                         Value="{Binding CompressionLevel}"
                         TickFrequency="1"
                         IsSnapToTickEnabled="True" />
 
-                <!-- Preset Buttons -->
+                <!-- Segmented Preset Cards -->
                 <Grid ColumnDefinitions="*,*,*,*">
-                    <Button Grid.Column="0" Content="Fast (3)"
+                    <!-- Fast Card (3) -->
+                    <Button Grid.Column="0"
+                            Command="{Binding SelectPresetCommand}"
+                            Margin="3"
+                            Padding="10,8"
                             HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Center"
-                            Margin="2"
-                            Command="{Binding SetPresetCommand}">
+                            HorizontalContentAlignment="Stretch"
+                            CornerRadius="8">
                         <Button.CommandParameter>
                             <x:Int32>3</x:Int32>
                         </Button.CommandParameter>
+                        <StackPanel Spacing="3">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Text="Fast" FontWeight="Bold" FontSize="13" />
+                                <Border Grid.Column="1" Background="#28A745" CornerRadius="4" Padding="5,1">
+                                    <TextBlock Text="3" FontSize="10" FontWeight="Bold" Foreground="White" />
+                                </Border>
+                            </Grid>
+                            <TextBlock Text="Ratio: ~50%" FontSize="11" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <TextBlock Text="⚡ Fastest" FontSize="11" Foreground="{DynamicResource TextFillColorTertiary}" />
+                        </StackPanel>
                     </Button>
 
-                    <Button Grid.Column="1" Content="Balanced (9)"
+                    <!-- Balanced Card (9) -->
+                    <Button Grid.Column="1"
+                            Command="{Binding SelectPresetCommand}"
+                            Margin="3"
+                            Padding="10,8"
                             HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Center"
-                            Margin="2"
-                            Command="{Binding SetPresetCommand}">
+                            HorizontalContentAlignment="Stretch"
+                            CornerRadius="8">
                         <Button.CommandParameter>
                             <x:Int32>9</x:Int32>
                         </Button.CommandParameter>
+                        <StackPanel Spacing="3">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Text="Balanced" FontWeight="Bold" FontSize="13" />
+                                <Border Grid.Column="1" Background="#0078D4" CornerRadius="4" Padding="5,1">
+                                    <TextBlock Text="9" FontSize="10" FontWeight="Bold" Foreground="White" />
+                                </Border>
+                            </Grid>
+                            <TextBlock Text="Ratio: ~65%" FontSize="11" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <TextBlock Text="⚡ Balanced" FontSize="11" Foreground="{DynamicResource TextFillColorTertiary}" />
+                        </StackPanel>
                     </Button>
 
-                    <Button Grid.Column="2" Content="High (15)"
+                    <!-- High Card (15) -->
+                    <Button Grid.Column="2"
+                            Command="{Binding SelectPresetCommand}"
+                            Margin="3"
+                            Padding="10,8"
                             HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Center"
-                            Margin="2"
-                            Command="{Binding SetPresetCommand}">
+                            HorizontalContentAlignment="Stretch"
+                            CornerRadius="8">
                         <Button.CommandParameter>
                             <x:Int32>15</x:Int32>
                         </Button.CommandParameter>
+                        <StackPanel Spacing="3">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Text="High" FontWeight="Bold" FontSize="13" />
+                                <Border Grid.Column="1" Background="#E67E22" CornerRadius="4" Padding="5,1">
+                                    <TextBlock Text="15" FontSize="10" FontWeight="Bold" Foreground="White" />
+                                </Border>
+                            </Grid>
+                            <TextBlock Text="Ratio: ~75%" FontSize="11" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <TextBlock Text="⚡ High Ratio" FontSize="11" Foreground="{DynamicResource TextFillColorTertiary}" />
+                        </StackPanel>
                     </Button>
 
-                    <Button Grid.Column="3" Content="Ultra (22)"
+                    <!-- Ultra Card (22) -->
+                    <Button Grid.Column="3"
+                            Command="{Binding SelectPresetCommand}"
+                            Margin="3"
+                            Padding="10,8"
                             HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Center"
-                            Margin="2"
-                            Command="{Binding SetPresetCommand}">
+                            HorizontalContentAlignment="Stretch"
+                            CornerRadius="8">
                         <Button.CommandParameter>
                             <x:Int32>22</x:Int32>
                         </Button.CommandParameter>
+                        <StackPanel Spacing="3">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Text="Ultra" FontWeight="Bold" FontSize="13" />
+                                <Border Grid.Column="1" Background="#D83B01" CornerRadius="4" Padding="5,1">
+                                    <TextBlock Text="22" FontSize="10" FontWeight="Bold" Foreground="White" />
+                                </Border>
+                            </Grid>
+                            <TextBlock Text="Ratio: ~80%" FontSize="11" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <TextBlock Text="⚡ Maximum" FontSize="11" Foreground="{DynamicResource TextFillColorTertiary}" />
+                        </StackPanel>
                     </Button>
                 </Grid>
 

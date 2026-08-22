@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using RusZip.Desktop.Models;
 using RusZip.Desktop.ViewModels;
 
 namespace RusZip.Desktop.Tests;
@@ -19,6 +20,50 @@ public class CompressionSettingsViewModelTests
         Assert.Equal(string.Empty, vm.SourcePath);
         Assert.Equal(string.Empty, vm.DestinationPath);
         Assert.Contains("Level 6–11", vm.ProfileDescription);
+        Assert.Equal("Balanced", vm.ActivePreset);
+        Assert.True(vm.IsBalancedSelected);
+        Assert.False(vm.IsFastSelected);
+        Assert.False(vm.IsHighSelected);
+        Assert.False(vm.IsUltraSelected);
+        Assert.False(vm.IsCustomSelected);
+        Assert.Equal("~65%", vm.CurrentRatioEstimate);
+        Assert.Equal("Balanced", vm.CurrentThroughputEstimate);
+    }
+
+    [Fact]
+    public void Presets_ContainsFourSegmentedProfiles()
+    {
+        var vm = new CompressionSettingsViewModel();
+
+        Assert.Equal(4, vm.Presets.Count);
+
+        var fast = vm.Presets[0];
+        Assert.Equal(3, fast.Level);
+        Assert.Equal("Fast", fast.Name);
+        Assert.Equal("~50%", fast.Ratio);
+        Assert.Equal("Fastest", fast.Throughput);
+        Assert.Equal("#28A745", fast.BadgeColor);
+
+        var balanced = vm.Presets[1];
+        Assert.Equal(9, balanced.Level);
+        Assert.Equal("Balanced", balanced.Name);
+        Assert.Equal("~65%", balanced.Ratio);
+        Assert.Equal("Balanced", balanced.Throughput);
+        Assert.Equal("#0078D4", balanced.BadgeColor);
+
+        var high = vm.Presets[2];
+        Assert.Equal(15, high.Level);
+        Assert.Equal("High", high.Name);
+        Assert.Equal("~75%", high.Ratio);
+        Assert.Equal("High Ratio", high.Throughput);
+        Assert.Equal("#E67E22", high.BadgeColor);
+
+        var ultra = vm.Presets[3];
+        Assert.Equal(22, ultra.Level);
+        Assert.Equal("Ultra", ultra.Name);
+        Assert.Equal("~80%", ultra.Ratio);
+        Assert.Equal("Maximum", ultra.Throughput);
+        Assert.Equal("#D83B01", ultra.BadgeColor);
     }
 
     [Theory]
@@ -36,6 +81,97 @@ public class CompressionSettingsViewModelTests
         Assert.Equal(expectedName, vm.ProfileName);
         Assert.Equal(expectedColor, vm.ProfileBadgeColor);
         Assert.StartsWith(expectedDescPrefix, vm.ProfileDescription);
+    }
+
+    [Theory]
+    [InlineData(3, "Fast", true, false, false, false)]
+    [InlineData(9, "Balanced", false, true, false, false)]
+    [InlineData(15, "High", false, false, true, false)]
+    [InlineData(22, "Ultra", false, false, false, true)]
+    public void SelectPresetCommand_WithInt_SynchronizesSelectionAndSlider(
+        int level,
+        string expectedActivePreset,
+        bool expectFast,
+        bool expectBalanced,
+        bool expectHigh,
+        bool expectUltra)
+    {
+        var vm = new CompressionSettingsViewModel();
+
+        vm.SelectPresetCommand.Execute(level);
+
+        Assert.Equal(level, vm.CompressionLevel);
+        Assert.Equal(expectedActivePreset, vm.ActivePreset);
+        Assert.Equal(expectFast, vm.IsFastSelected);
+        Assert.Equal(expectBalanced, vm.IsBalancedSelected);
+        Assert.Equal(expectHigh, vm.IsHighSelected);
+        Assert.Equal(expectUltra, vm.IsUltraSelected);
+        Assert.False(vm.IsCustomSelected);
+    }
+
+    [Theory]
+    [InlineData("Fast", 3)]
+    [InlineData("fast", 3)]
+    [InlineData("Balanced", 9)]
+    [InlineData("High", 15)]
+    [InlineData("Ultra", 22)]
+    public void SelectPresetCommand_WithString_SetsLevel(string name, int expectedLevel)
+    {
+        var vm = new CompressionSettingsViewModel();
+
+        vm.SelectPresetCommand.Execute(name);
+
+        Assert.Equal(expectedLevel, vm.CompressionLevel);
+        Assert.Equal(name, vm.ActivePreset, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SelectPresetCommand_WithPresetObject_SetsLevel()
+    {
+        var vm = new CompressionSettingsViewModel();
+        var preset = vm.Presets.First(p => p.Name == "High");
+
+        vm.SelectPresetCommand.Execute(preset);
+
+        Assert.Equal(15, vm.CompressionLevel);
+        Assert.Equal("High", vm.ActivePreset);
+        Assert.True(vm.IsHighSelected);
+    }
+
+    [Fact]
+    public void DirectSelectPresetMethods_WorkAsExpected()
+    {
+        var vm = new CompressionSettingsViewModel();
+
+        vm.SelectPreset(3);
+        Assert.Equal(3, vm.CompressionLevel);
+        Assert.Equal("Fast", vm.ActivePreset);
+
+        vm.SelectPreset("Ultra");
+        Assert.Equal(22, vm.CompressionLevel);
+        Assert.Equal("Ultra", vm.ActivePreset);
+    }
+
+    [Theory]
+    [InlineData(1, null, true, "~50%", "Fastest")]
+    [InlineData(5, null, true, "~50%", "Fastest")]
+    [InlineData(7, null, true, "~65%", "Balanced")]
+    [InlineData(12, null, true, "~75%", "High Ratio")]
+    [InlineData(18, null, true, "~75%", "High Ratio")]
+    [InlineData(20, null, true, "~80%", "Maximum")]
+    public void CustomCompressionLevel_MarksCustomAndComputesEstimates(
+        int level,
+        string? expectedActive,
+        bool expectCustom,
+        string expectedRatio,
+        string expectedThroughput)
+    {
+        var vm = new CompressionSettingsViewModel { CompressionLevel = level };
+
+        Assert.Equal(expectedActive, vm.ActivePreset);
+        Assert.Equal(expectCustom, vm.IsCustomSelected);
+        Assert.Equal(expectedRatio, vm.CurrentRatioEstimate);
+        Assert.Equal(expectedThroughput, vm.CurrentThroughputEstimate);
     }
 
     [Theory]
@@ -85,6 +221,14 @@ public class CompressionSettingsViewModelTests
         Assert.Contains(nameof(CompressionSettingsViewModel.ProfileName), changedProps);
         Assert.Contains(nameof(CompressionSettingsViewModel.ProfileBadgeColor), changedProps);
         Assert.Contains(nameof(CompressionSettingsViewModel.ProfileDescription), changedProps);
+        Assert.Contains(nameof(CompressionSettingsViewModel.ActivePreset), changedProps);
+        Assert.Contains(nameof(CompressionSettingsViewModel.IsFastSelected), changedProps);
+        Assert.Contains(nameof(CompressionSettingsViewModel.IsBalancedSelected), changedProps);
+        Assert.Contains(nameof(CompressionSettingsViewModel.IsHighSelected), changedProps);
+        Assert.Contains(nameof(CompressionSettingsViewModel.IsUltraSelected), changedProps);
+        Assert.Contains(nameof(CompressionSettingsViewModel.IsCustomSelected), changedProps);
+        Assert.Contains(nameof(CompressionSettingsViewModel.CurrentRatioEstimate), changedProps);
+        Assert.Contains(nameof(CompressionSettingsViewModel.CurrentThroughputEstimate), changedProps);
     }
 
     [Fact]

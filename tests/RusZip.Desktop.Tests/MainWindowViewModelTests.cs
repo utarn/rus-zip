@@ -557,4 +557,72 @@ public class MainWindowViewModelTests
             if (File.Exists(tempFile)) File.Delete(tempFile);
         }
     }
+
+    [Fact]
+    public void IsDragOver_InitializesFalse_AndCanBeToggled()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+
+        Assert.False(vm.IsDragOver);
+
+        vm.IsDragOver = true;
+        Assert.True(vm.IsDragOver);
+
+        vm.IsDragOver = false;
+        Assert.False(vm.IsDragOver);
+    }
+
+    [Fact]
+    public void CreateArchiveCommand_OpensCompressDialog()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+
+        Assert.False(vm.IsCompressDialogVisible);
+
+        vm.CreateArchiveCommand.Execute(null);
+
+        Assert.True(vm.IsCompressDialogVisible);
+    }
+
+    [Fact]
+    public async Task OpenArchivePickerCommand_LoadsArchiveWhenPathSelected()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine
+            {
+                EntriesToReturn = [new ArchiveEntry("file1.txt", 100, 50, null, false)]
+            };
+            var vm = new MainWindowViewModel(fakeEngine)
+            {
+                RequestOpenArchivePicker = () => Task.FromResult<string?>(tempFile)
+            };
+
+            await vm.OpenArchivePickerCommand.ExecuteAsync(null);
+
+            Assert.True(vm.HasOpenArchive);
+            Assert.Equal(tempFile, vm.Browser.LoadedArchivePath);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task OpenArchivePickerCommand_DoesNothingWhenCancelled()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine)
+        {
+            RequestOpenArchivePicker = () => Task.FromResult<string?>(null)
+        };
+
+        await vm.OpenArchivePickerCommand.ExecuteAsync(null);
+
+        Assert.False(vm.HasOpenArchive);
+    }
 }

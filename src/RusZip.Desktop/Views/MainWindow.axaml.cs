@@ -19,6 +19,8 @@ public partial class MainWindow : Window
         Loaded += (_, _) => ApplyPlatformWindowChrome();
 
         DragDrop.SetAllowDrop(this, true);
+        AddHandler(DragDrop.DragEnterEvent, OnDragEnter);
+        AddHandler(DragDrop.DragLeaveEvent, OnDragLeave);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
     }
@@ -77,6 +79,50 @@ public partial class MainWindow : Window
                 }
                 return null;
             };
+
+            vm.RequestOpenArchivePicker = async () =>
+            {
+                var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "Open Archive",
+                    AllowMultiple = false,
+                    FileTypeFilter =
+                    [
+                        new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz, *.tgz)")
+                        {
+                            Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz", "*.tar"]
+                        },
+                        new FilePickerFileType("Zstandard Tar Archives (*.zrus)") { Patterns = ["*.zrus"] },
+                        new FilePickerFileType("Zip Archives (*.zip)") { Patterns = ["*.zip"] },
+                        new FilePickerFileType("7-Zip Archives (*.7z)") { Patterns = ["*.7z"] },
+                        new FilePickerFileType("RAR Archives (*.rar)") { Patterns = ["*.rar"] },
+                        new FilePickerFileType("GZip Archives (*.gz, *.tar.gz, *.tgz)") { Patterns = ["*.gz", "*.tar.gz", "*.tgz"] },
+                        new FilePickerFileType("All Files (*.*)") { Patterns = ["*.*"] }
+                    ]
+                });
+
+                if (files.Count > 0)
+                {
+                    return files[0].TryGetLocalPath();
+                }
+                return null;
+            };
+        }
+    }
+
+    private void OnDragEnter(object? sender, DragEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel vm && e.Data.Contains(DataFormats.Files))
+        {
+            vm.IsDragOver = true;
+        }
+    }
+
+    private void OnDragLeave(object? sender, DragEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel vm)
+        {
+            vm.IsDragOver = false;
         }
     }
 
@@ -85,16 +131,25 @@ public partial class MainWindow : Window
         if (e.Data.Contains(DataFormats.Files))
         {
             e.DragEffects = DragDropEffects.Copy;
+            if (DataContext is MainWindowViewModel vm)
+            {
+                vm.IsDragOver = true;
+            }
         }
         else
         {
             e.DragEffects = DragDropEffects.None;
+            if (DataContext is MainWindowViewModel vm)
+            {
+                vm.IsDragOver = false;
+            }
         }
     }
 
     private async void OnDrop(object? sender, DragEventArgs e)
     {
         if (DataContext is not MainWindowViewModel vm) return;
+        vm.IsDragOver = false;
 
         var items = e.Data.GetFiles();
         if (items == null) return;

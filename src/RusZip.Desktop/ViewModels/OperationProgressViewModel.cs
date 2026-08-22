@@ -16,10 +16,24 @@ public partial class OperationProgressViewModel : ObservableObject
     [ObservableProperty] private string _currentFileName = string.Empty;
     [ObservableProperty] private double _progressPercentage;
     [ObservableProperty] private bool _isIndeterminate;
-    [ObservableProperty] private string _speedFormatted = "-";
-    [ObservableProperty] private string _etaFormatted = "-";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FormattedSpeed))]
+    [NotifyPropertyChangedFor(nameof(TransferSpeed))]
+    private string _speedFormatted = "-";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FormattedEta))]
+    [NotifyPropertyChangedFor(nameof(TimeRemaining))]
+    private string _etaFormatted = "-";
+
     [ObservableProperty] private string _bytesProgressFormatted = "0 B / 0 B";
     [ObservableProperty] private string _statusMessage = "Preparing...";
+
+    public string FormattedSpeed => SpeedFormatted;
+    public string TransferSpeed => SpeedFormatted;
+    public string FormattedEta => EtaFormatted;
+    public string TimeRemaining => EtaFormatted;
 
     public CancellationTokenSource CreateCancellationTokenSource()
     {
@@ -54,7 +68,7 @@ public partial class OperationProgressViewModel : ObservableObject
         IsIndeterminate = report.IsIndeterminate;
         BytesProgressFormatted = $"{FormatBytes(report.ProcessedBytes)} / {(report.TotalBytes > 0 ? FormatBytes(report.TotalBytes) : "...")}";
 
-        if (_stopwatch != null && _stopwatch.ElapsedMilliseconds > 200 && report.ProcessedBytes > 0)
+        if (_stopwatch != null && _stopwatch.ElapsedMilliseconds > 100 && report.ProcessedBytes > 0)
         {
             double elapsedSeconds = _stopwatch.Elapsed.TotalSeconds;
             double instantSpeed = report.ProcessedBytes / elapsedSeconds;
@@ -68,7 +82,7 @@ public partial class OperationProgressViewModel : ObservableObject
             {
                 long remainingBytes = report.TotalBytes - report.ProcessedBytes;
                 double secondsLeft = remainingBytes / _smoothedSpeedBytesPerSec;
-                EtaFormatted = FormatEta(TimeSpan.FromSeconds(Math.Min(secondsLeft, 86400)));
+                EtaFormatted = FormatEta(secondsLeft);
             }
             else if (report.TotalBytes > 0 && report.ProcessedBytes >= report.TotalBytes)
             {
@@ -91,6 +105,12 @@ public partial class OperationProgressViewModel : ObservableObject
     {
         if (eta.TotalSeconds <= 0) return "00:00";
         return eta.Hours > 0 ? eta.ToString(@"hh\:mm\:ss") : eta.ToString(@"mm\:ss");
+    }
+
+    public static string FormatEta(double seconds)
+    {
+        if (seconds <= 0) return "00:00";
+        return FormatEta(TimeSpan.FromSeconds(Math.Min(seconds, 86400)));
     }
 
     public async Task FinishOperationAsync(bool success, string? message = null)

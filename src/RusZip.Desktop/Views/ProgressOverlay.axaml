@@ -8,13 +8,13 @@
     <Grid Background="#7F000000">
         <Border HorizontalAlignment="Center"
                 VerticalAlignment="Center"
-                Width="480"
+                Width="500"
                 Padding="24"
                 Background="{DynamicResource SolidBackgroundFillColorBase}"
                 BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
                 BorderThickness="1"
-                CornerRadius="8"
-                BoxShadow="0 8 32 #40000000">
+                CornerRadius="12"
+                BoxShadow="0 12 40 #50000000">
 
             <StackPanel Spacing="16">
                 <!-- Title & Current File -->
@@ -36,7 +36,7 @@
                              Height="8"
                              CornerRadius="4" />
 
-                <!-- Metrics Grid: Bytes, Percentage, Speed, ETA -->
+                <!-- Metrics Grid: Bytes, Percentage, Speed badge, ETA badge -->
                 <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
                     <TextBlock Grid.Row="0" Grid.Column="0"
                                Text="{Binding BytesProgressFormatted}"
@@ -45,17 +45,32 @@
 
                     <TextBlock Grid.Row="0" Grid.Column="1"
                                Text="{Binding ProgressPercentage, StringFormat='{}{0:0}%'}"
-                               FontWeight="SemiBold"
-                               FontSize="12" />
+                               FontWeight="Bold"
+                               FontSize="13" />
 
-                    <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
-                        <TextBlock Text="Speed:" FontSize="12" Foreground="{DynamicResource TextFillColorTertiary}" />
-                        <TextBlock Text="{Binding SpeedFormatted}" FontSize="12" Foreground="{DynamicResource TextFillColorSecondary}" />
-                    </StackPanel>
+                    <!-- Badges Row -->
+                    <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Spacing="8" Margin="0,10,0,0">
+                        <Border Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="8,4">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="⚡ Speed:" FontSize="12" Foreground="{DynamicResource TextFillColorTertiary}" />
+                                <TextBlock Text="{Binding FormattedSpeed}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimary}" />
+                            </StackPanel>
+                        </Border>
 
-                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
-                        <TextBlock Text="ETA:" FontSize="12" Foreground="{DynamicResource TextFillColorTertiary}" />
-                        <TextBlock Text="{Binding EtaFormatted}" FontSize="12" Foreground="{DynamicResource TextFillColorSecondary}" />
+                        <Border Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="8,4">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="⏱ ETA:" FontSize="12" Foreground="{DynamicResource TextFillColorTertiary}" />
+                                <TextBlock Text="{Binding FormattedEta}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimary}" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </Grid>
 
@@ -63,7 +78,8 @@
                 <Button Content="Cancel"
                         HorizontalAlignment="Right"
                         Command="{Binding CancelCommand}"
-                        Padding="24,6" />
+                        Padding="24,6"
+                        Margin="0,4,0,0" />
             </StackPanel>
         </Border>
     </Grid>

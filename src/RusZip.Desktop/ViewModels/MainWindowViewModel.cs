@@ -30,6 +30,7 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private OperationProgressViewModel _progress;
     [ObservableProperty] private bool _hasOpenArchive;
     [ObservableProperty] private bool _isCompressDialogVisible;
+    [ObservableProperty] private bool _isDragOver;
     [ObservableProperty] private string _statusText = "Ready";
     [ObservableProperty] private ThemeMode _currentTheme = ThemeMode.System;
 
@@ -74,6 +75,7 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     public Func<Task<string?>>? RequestExtractDestinationFolder { get; set; }
+    public Func<Task<string?>>? RequestOpenArchivePicker { get; set; }
 
     public MainWindowViewModel(IArchiveEngine engine)
     {
@@ -138,6 +140,25 @@ public partial class MainWindowViewModel : ObservableObject
         {
             StatusText = $"Failed to open archive: {ex.Message}";
         }
+    }
+
+    [RelayCommand]
+    public async Task OpenArchivePickerAsync()
+    {
+        if (RequestOpenArchivePicker != null)
+        {
+            var path = await RequestOpenArchivePicker.Invoke();
+            if (!string.IsNullOrEmpty(path))
+            {
+                await OpenArchiveAsync(path);
+            }
+        }
+    }
+
+    [RelayCommand]
+    public void CreateArchive()
+    {
+        ShowCompressDialog();
     }
 
     [RelayCommand]

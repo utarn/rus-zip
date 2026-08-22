@@ -85,43 +85,97 @@
 
         <!-- Main Content Area -->
         <Grid Grid.Row="1">
-            <!-- Mode 1: Empty / Drop Zone Placeholder -->
-            <Border IsVisible="{Binding !HasOpenArchive}"
-                    Margin="32"
-                    BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
-                    BorderThickness="2"
-                    CornerRadius="12"
-                    Background="{DynamicResource CardBackgroundFillColorSecondary}">
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16">
-                    <PathIcon Data="{StaticResource Icon.NewArchive}"
-                              Width="64" Height="64"
-                              HorizontalAlignment="Center"
-                              Foreground="{DynamicResource TextFillColorSecondary}" />
-                    <TextBlock Text="Drag and drop archives to open, or files to compress"
-                               FontSize="18"
-                               FontWeight="SemiBold"
-                               HorizontalAlignment="Center" />
-                    <TextBlock Text="Supported formats: .zrus (Tar+Zstd), .zip, .rar, .7z, .gz, .tar.gz"
-                               FontSize="12"
-                               Foreground="{DynamicResource TextFillColorSecondary}"
-                               HorizontalAlignment="Center" />
+            <!-- Mode 1: Elevated Empty / Drag-and-Drop State Card -->
+            <Grid IsVisible="{Binding !HasOpenArchive}" Margin="48,32">
+                <Border HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        MaxWidth="620"
+                        MinWidth="460"
+                        Background="{DynamicResource CardBackgroundFillColorDefault}"
+                        BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                        BorderThickness="1"
+                        CornerRadius="16"
+                        BoxShadow="0 12 36 #25000000"
+                        Padding="40,32">
 
-                    <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center" Margin="0,12,0,0">
-                        <Button Click="OnOpenArchiveClicked" Padding="16,8">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <PathIcon Data="{StaticResource Icon.OpenFolder}" Width="16" Height="16" />
-                                <TextBlock Text="Open Archive" VerticalAlignment="Center" />
+                    <!-- Inner Region with Dashed Accent Outline and Vector Illustration -->
+                    <Grid>
+                        <!-- Dashed Accent Border Outline -->
+                        <Rectangle Stroke="{DynamicResource SurfaceStrokeColorDefault}"
+                                   StrokeThickness="1.5"
+                                   StrokeDashArray="5,4"
+                                   RadiusX="12"
+                                   RadiusY="12"
+                                   IsHitTestVisible="False"
+                                   Margin="-16,-12" />
+
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+                            <!-- Vector Icon Illustration Badge -->
+                            <Border Width="80" Height="80"
+                                    CornerRadius="40"
+                                    Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                                    BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                                    BorderThickness="1"
+                                    HorizontalAlignment="Center">
+                                <PathIcon Data="{StaticResource Icon.NewArchive}"
+                                          Width="40" Height="40"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Foreground="{DynamicResource SystemAccentColor}" />
+                            </Border>
+
+                            <!-- Dropzone Instructions -->
+                            <StackPanel Spacing="6" HorizontalAlignment="Center">
+                                <TextBlock Text="Drop archive to open or files to create"
+                                           FontSize="18"
+                                           FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" />
+                                <TextBlock Text="Supports .zrus (Tar+Zstd), .zip, .rar, .7z, .gz, .tar.gz"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorSecondary}"
+                                           HorizontalAlignment="Center" />
                             </StackPanel>
-                        </Button>
-                        <Button Command="{Binding ShowCompressDialogCommand}" Padding="16,8">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <PathIcon Data="{StaticResource Icon.NewArchive}" Width="16" Height="16" />
-                                <TextBlock Text="Create .zrus Archive" VerticalAlignment="Center" />
+
+                            <!-- Drag-Over Visual Feedback Badge -->
+                            <Border IsVisible="{Binding IsDragOver}"
+                                    Background="{DynamicResource SystemAccentColor}"
+                                    CornerRadius="8"
+                                    Padding="16,6"
+                                    HorizontalAlignment="Center">
+                                <TextBlock Text="Drop files here to open or compress"
+                                           Foreground="White"
+                                           FontSize="13"
+                                           FontWeight="Bold" />
+                            </Border>
+
+                            <!-- Quick-Action Chips -->
+                            <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center" Margin="0,8,0,0">
+                                <!-- Open Archive Chip Button -->
+                                <Button Click="OnOpenArchiveClicked"
+                                        Command="{Binding OpenArchivePickerCommand}"
+                                        Padding="16,8"
+                                        CornerRadius="20">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <PathIcon Data="{StaticResource Icon.OpenFolder}" Width="16" Height="16" />
+                                        <TextBlock Text="Open Archive" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Create Archive / New Archive Chip Button -->
+                                <Button Command="{Binding CreateArchiveCommand}"
+                                        Padding="16,8"
+                                        CornerRadius="20"
+                                        Classes="accent">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <PathIcon Data="{StaticResource Icon.NewArchive}" Width="16" Height="16" />
+                                        <TextBlock Text="Create Archive" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
-                        </Button>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
 
             <!-- Mode 2: Archive Browser -->
             <views:ArchiveBrowserView DataContext="{Binding Browser}"
