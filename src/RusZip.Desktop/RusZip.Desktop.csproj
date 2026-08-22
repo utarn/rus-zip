@@ -20,6 +20,11 @@
          (Avalonia Pro license, AvaloniaUI.Licensing build gate), so this is the drop-in
          replacement for the archive browser. See issue #51 / docs. -->
     <PackageReference Include="ProDataGrid" />
+    <!-- ProCharts.Avalonia is the MIT-licensed real-time charting control used by the
+         progress overlay velocity chart (issue #59). The chart model (ProCharts.*) is a
+         pure .NET model layer; only the ProChartView control pulls in Avalonia.Skia +
+         SkiaSharp. All chart work stays in RusZip.Desktop — Core and CLI stay headless. -->
+    <PackageReference Include="ProCharts.Avalonia" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <!-- Transitive pin: resolves GHSA-xrw6-gwf8-vvr9 (CVE-2026-39959) for Tmds.DBus.Protocol,
