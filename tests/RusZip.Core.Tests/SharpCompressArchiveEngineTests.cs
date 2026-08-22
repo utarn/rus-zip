@@ -603,6 +603,25 @@ public class SharpCompressArchiveEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Zip_Extract_EntryNameWithNullCharacter_ThrowsArchiveIntegrityException_AndCleansUp()
+    {
+        // F-10 (translation half): a corrupt archive whose entry name contains a NUL byte surfaces as
+        // ArgumentException ("Null character in path") during path resolution. Because the failure
+        // originates from archive data (engine boundary) — not a user-supplied bad path — the engine
+        // must translate it to ArchiveIntegrityException (→ EXECUTION_ERROR, exit 1), never leak the
+        // raw ArgumentException (which the CLI would map to ARGUMENT_ERROR, exit 2).
+        var zipPath = Path.Combine(_testDir, "null_char.zip");
+        TestArchiveFixtures.CreateZipArchiveWithEntryName(zipPath, "bad\u0000name.txt", "payload");
+        var extractDir = Path.Combine(_testDir, "null_char_out");
+
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() =>
+            _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir)));
+
+        Assert.Contains("invalid path", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Directory.GetFiles(extractDir));
+    }
+
+    [Fact]
     public async Task Zip_EmptyArchive_ListReturnsZeroEntries_AndExtractCompletes()
     {
         // A genuinely empty zip (EOCD with zero entries and zero CD size) must keep working.
@@ -1127,6 +1146,104 @@ public class SharpCompressArchiveEngineTests : IDisposable
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _engine.ExtractAsync(req));
         Assert.Contains("No archive entries matched", ex.Message);
+    }
+
+    #endregion
+
+    #region Encryption classifier (IsPasswordOrEncryptedException)
+
+    [Fact]
+    public void IsPasswordOrEncryptedException_TypedSharpCompressCryptoException_ReturnsTrue()
+    {
+        // F-18: typed signals are classified first (SharpCompress AES-encrypted 7z/RAR5).
+        var ex = new SharpCompress.Common.CryptographicException("Encrypted Rar archive has no password specified.");
+
+        Assert.True(SharpCompressArchiveEngine.IsPasswordOrEncryptedException(ex));
+    }
+
+    [Fact]
+    public void IsPasswordOrEncryptedException_TypedBclCryptoException_ReturnsTrue()
+    {
+        // F-18: BCL crypto primitive failures (wrong password → AES padding/decryption error) are typed too.
+        var ex = new System.Security.Cryptography.CryptographicException("Padding is invalid and cannot be removed.");
+
+        Assert.True(SharpCompressArchiveEngine.IsPasswordOrEncryptedException(ex));
+    }
+
+    [Fact]
+    public void IsPasswordOrEncryptedException_UnrelatedTypeWithPasswordInMessage_ReturnsFalse()
+    {
+        // F-18: an unrelated exception whose message merely contains "password" must NOT be
+        // misclassified as an encrypted archive (that would wrongly map it to UNSUPPORTED_FORMAT).
+        var ex = new InvalidOperationException("The password provided is incorrect.");
+
+        Assert.False(SharpCompressArchiveEngine.IsPasswordOrEncryptedException(ex));
+    }
+
+    [Fact]
+    public void IsPasswordOrEncryptedException_UnrelatedTypeWithEncryptedInMessage_ReturnsFalse()
+    {
+        // F-18: same guard for "encrypted" — the message heuristic must stay narrow.
+        var ex = new InvalidDataException("This archive looks encrypted but is actually malformed.");
+
+        Assert.False(SharpCompressArchiveEngine.IsPasswordOrEncryptedException(ex));
+    }
+
+    [Fact]
+    public void IsPasswordOrEncryptedException_SharpCompressNoPasswordSpecifiedMessage_ReturnsTrue()
+    {
+        // F-18: the narrowed fallback still recognizes SharpCompress's actual "no password specified"
+        // wording even when the typed signal has been lost (e.g. rethrown as a generic wrapper).
+        var ex = new InvalidOperationException("Encrypted 7Zip archive has no password specified.");
+
+        Assert.True(SharpCompressArchiveEngine.IsPasswordOrEncryptedException(ex));
+    }
+
+    [Fact]
+    public void IsPasswordOrEncryptedException_ArgumentNullExceptionWithoutDecoderRegistryStack_ReturnsFalse()
+    {
+        // F-18: a bare ArgumentNullException (no DecoderRegistry in the stack) is not an encryption signal.
+        var ex = new ArgumentNullException("info");
+
+        Assert.False(SharpCompressArchiveEngine.IsPasswordOrEncryptedException(ex));
+    }
+
+    [Fact]
+    public void IsPasswordOrEncryptedException_ArgumentNullExceptionFromDecoderRegistry_ReturnsTrue()
+    {
+        // F-18: SharpCompress surfaces a missing crypto-info block as ArgumentNullException from its
+        // DecoderRegistry (no typed signal) — the stack-based fallback recognizes it.
+        var ex = DecoderRegistry.CreateMissingInfoException();
+
+        Assert.True(SharpCompressArchiveEngine.IsPasswordOrEncryptedException(ex));
+    }
+
+    [Fact]
+    public void IsPasswordOrEncryptedException_NestedInnerTypedException_ReturnsTrue()
+    {
+        // F-18: the classifier recurses into the inner chain, where SharpCompress usually wraps the root cause.
+        var ex = new InvalidOperationException("Outer wrapper", new SharpCompress.Common.CryptographicException("Encrypted Rar archive has no password specified."));
+
+        Assert.True(SharpCompressArchiveEngine.IsPasswordOrEncryptedException(ex));
+    }
+
+    /// <summary>
+    /// Produces an <see cref="ArgumentNullException"/> whose stack trace passes through a type named
+    /// <c>DecoderRegistry</c>, mirroring SharpCompress's missing-crypto-info signal (F-18).
+    /// </summary>
+    private static class DecoderRegistry
+    {
+        public static ArgumentNullException CreateMissingInfoException()
+        {
+            try
+            {
+                throw new ArgumentNullException("info");
+            }
+            catch (ArgumentNullException ex)
+            {
+                return ex;
+            }
+        }
     }
 
     #endregion
