@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security;
 using RusZip.Cli.Models;
+using RusZip.Core.Engines;
 using RusZip.Core.Models;
 using Spectre.Console;
 using Spectre.Console.Cli;
@@ -76,6 +77,7 @@ public static class CliCommandRunner
             FileNotFoundException fnf => EmitError("SOURCE_NOT_FOUND", fnf.Message, isJson, exitCode: 2, writer: writer),
             DirectoryNotFoundException dnf => EmitError("SOURCE_NOT_FOUND", dnf.Message, isJson, exitCode: 2, writer: writer),
             SecurityException sec => EmitError("SECURITY_VIOLATION", sec.Message, isJson, exitCode: 1, writer: writer),
+            ExtractionLimitExceededException elee => EmitError("EXECUTION_ERROR", elee.Message, isJson, exitCode: 1, writer: writer),
             NotSupportedException nse => EmitError("UNSUPPORTED_FORMAT", nse.Message, isJson, exitCode: 2, writer: writer),
             CommandAppException appEx => EmitError("ARGUMENT_ERROR", appEx.Message, isJson, exitCode: 2, writer: writer),
             ArgumentException argEx => EmitError("ARGUMENT_ERROR", argEx.Message, isJson, exitCode: 2, writer: writer),

@@ -173,7 +173,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         }
     }
 
-    public async Task ExtractAsync(
+    public async Task<ExtractionResult> ExtractAsync(
         ArchiveExtractionRequest request,
         IProgress<DomainProgressReport>? progress = null,
         CancellationToken ct = default)
@@ -191,14 +191,12 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
 
         if (format == ArchiveFormat.TarGz)
         {
-            await ExtractTarGzAsync(archivePath, destDir, request.Overwrite, progress, ct);
-            return;
+            return await ExtractTarGzAsync(archivePath, destDir, request.Overwrite, request.Limits, progress, ct);
         }
 
         if (format == ArchiveFormat.Gz)
         {
-            await ExtractGzAsync(archivePath, destDir, request.Overwrite, progress, ct);
-            return;
+            return await ExtractGzAsync(archivePath, destDir, request.Overwrite, request.Limits, progress, ct);
         }
 
         var readerOptions = new ReaderOptions { LeaveStreamOpen = false };
@@ -234,6 +232,8 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     throw new InvalidOperationException("Multi-volume RAR archive is missing subsequent volume parts.");
                 }
 
+                // Metadata-derived total for the progress bar only (spoofable, labeled as an estimate).
+                // Enforcement never reads it — see ADR-0007.
                 long totalBytes = 0;
                 try
                 {
@@ -265,13 +265,15 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
 
                 var source = new SharpCompressExtractionSource(archive, archivePath);
 
-                await SafeArchiveExtractor.ExtractAllAsync(
+                return await SafeArchiveExtractor.ExtractAllAsync(
                     source,
                     destDir,
                     request.Overwrite,
                     totalBytes,
                     progress,
-                    ct);
+                    ct,
+                    request.Limits,
+                    totalIsEstimate: totalBytes >= 0);
             }
             catch (Exception ex) when (ex is not SecurityException && ex is not NotSupportedException && ex is not InvalidOperationException && ex is not IOException && ex is not OperationCanceledException && IsPasswordOrEncryptedException(ex))
             {
@@ -343,38 +345,42 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         };
     }
 
-    private static async Task ExtractTarGzAsync(
+    private static async Task<ExtractionResult> ExtractTarGzAsync(
         string archivePath,
         string destinationDir,
         bool overwrite,
+        ExtractionLimits? limits,
         IProgress<DomainProgressReport>? progress,
         CancellationToken ct)
     {
         var source = new TarGzExtractionSource(archivePath);
-        await SafeArchiveExtractor.ExtractAllAsync(
+        return await SafeArchiveExtractor.ExtractAllAsync(
             source,
             destinationDir,
             overwrite,
             totalBytes: -1,
             progress,
-            ct);
+            ct,
+            limits);
     }
 
-    private static async Task ExtractGzAsync(
+    private static async Task<ExtractionResult> ExtractGzAsync(
         string archivePath,
         string destinationDir,
         bool overwrite,
+        ExtractionLimits? limits,
         IProgress<DomainProgressReport>? progress,
         CancellationToken ct)
     {
         var source = new GzExtractionSource(archivePath);
-        await SafeArchiveExtractor.ExtractAllAsync(
+        return await SafeArchiveExtractor.ExtractAllAsync(
             source,
             destinationDir,
             overwrite,
             totalBytes: -1,
             progress,
-            ct);
+            ct,
+            limits);
     }
 
     private sealed class TarGzExtractionSource(string archivePath) : IArchiveExtractionSource

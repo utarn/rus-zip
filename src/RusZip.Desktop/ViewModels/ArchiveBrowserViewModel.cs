@@ -7,6 +7,7 @@ using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using RusZip.Core.Engines;
 using RusZip.Core.Models;
 
 namespace RusZip.Desktop.ViewModels;
@@ -23,6 +24,21 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     [ObservableProperty] private long? _totalCompressedBytes;
     [ObservableProperty] private string _filterText = string.Empty;
     [ObservableProperty] private ArchiveItemViewModel? _selectedItem;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasLoadError))]
+    private string _loadErrorMessage = string.Empty;
+
+    /// <summary>Extraction guardrail settings surfaced in the browser toolbar (ADR-0007).</summary>
+    public ExtractionSettingsViewModel ExtractionSettings { get; } = new();
+
+    /// <summary>
+    /// Entry-count cap above which tree construction is refused to avoid exhausting memory
+    /// (ADR-0007 F-36). Defaults to the extraction entry cap; overridable for testing.
+    /// </summary>
+    public int EntryCountCap { get; set; } = SafeArchiveExtractor.DefaultMaxEntryCount;
+
+    public bool HasLoadError => !string.IsNullOrEmpty(LoadErrorMessage);
 
     public ObservableCollection<BreadcrumbItemViewModel> Breadcrumbs { get; } = [];
 
@@ -57,6 +73,21 @@ public partial class ArchiveBrowserViewModel : ObservableObject
 
         FilterText = string.Empty;
         SelectedItem = null;
+
+        // GUI memory guard (ADR-0007 F-36): refuse tree construction beyond the entry-count cap
+        // with a clear message instead of exhausting memory.
+        if (entries.Count > EntryCountCap)
+        {
+            LoadErrorMessage =
+                $"This archive lists {entries.Count:N0} entries, exceeding the {EntryCountCap:N0}-entry safety limit for browsing. " +
+                "It may be a decompression bomb; the tree was not loaded to avoid exhausting memory.";
+            RootItems = [];
+            GridSource = null;
+            UpdateBreadcrumbs(null);
+            return;
+        }
+
+        LoadErrorMessage = string.Empty;
         RebuildGridSource();
         UpdateBreadcrumbs(null);
     }

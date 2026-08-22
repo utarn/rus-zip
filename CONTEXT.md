@@ -50,7 +50,7 @@ Standard preset configurations mapping friendly names to compression levels:
 Any archive whose origin cannot be vouched for (downloaded, emailed, received). rus-zip treats every archive as untrusted: entry names and metadata are attacker-controlled and must never reach the filesystem or an output surface unsanitized.
 
 ### Extraction Guardrails
-The safety limits enforced while extracting an untrusted archive: a cap on cumulative uncompressed output size and a cap on entry count. Exceeding either aborts the extraction with a clear error rather than warning; limits are user-configurable.
+The safety limits enforced while extracting an untrusted archive: a cap on cumulative uncompressed output size (default 64 GB) and a cap on entry count (default 1,000,000). Exceeding either aborts extraction with `ExtractionLimitExceededException` (mapped to exit 1, `EXECUTION_ERROR`) and best-effort cleanup of partial output. Limits are user-configurable via CLI flags (`--max-uncompressed-size`, `--max-entries`) or Desktop extraction settings, and are measured from actual streamed bytes and processed entries — never spoofable header metadata. A `0`/`null` limit means unlimited.
 
 ### Progress Report
 A real-time progress model capturing processed bytes, total bytes, current file being processed, percentage completed, and cancellation state.

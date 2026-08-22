@@ -18,10 +18,10 @@ public class MainWindowEmptyStateTests
             return Task.CompletedTask;
         }
 
-        public Task ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+        public Task<ExtractionResult> ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
         {
             LastExtractionRequest = request;
-            return Task.CompletedTask;
+            return Task.FromResult(new ExtractionResult(0, 0, 0));
         }
 
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)

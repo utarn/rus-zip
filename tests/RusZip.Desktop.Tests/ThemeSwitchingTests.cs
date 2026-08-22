@@ -11,8 +11,8 @@ public class ThemeSwitchingTests
     {
         public Task CompressAsync(ArchiveCompressionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
             => Task.CompletedTask;
-        public Task ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<ExtractionResult> ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+            => Task.FromResult(new ExtractionResult(0, 0, 0));
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ArchiveEntry>>([]);
     }

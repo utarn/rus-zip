@@ -52,7 +52,13 @@ public static class CliProgressBridge
                             ? $" [dim]({Markup.Escape(Path.GetFileName(report.CurrentFileName))})[/]"
                             : string.Empty;
 
-                        task.Description = $"[cyan]{Markup.Escape(title)}:[/]{filePart}";
+                        // Metadata-derived pre-scan totals are spoofable, so they are surfaced as
+                        // estimates (ADR-0007); enforcement never reads them.
+                        var estimatePart = report.IsTotalEstimate
+                            ? " [dim](estimate)[/]"
+                            : string.Empty;
+
+                        task.Description = $"[cyan]{Markup.Escape(title)}:[/]{filePart}{estimatePart}";
                     }
                 });
 

@@ -7,5 +7,6 @@ public sealed record ProgressReport(
     double Percentage,
     int ProcessedFiles = 0,
     int TotalFiles = 0,
-    bool IsIndeterminate = false
+    bool IsIndeterminate = false,
+    bool IsTotalEstimate = false
 );
