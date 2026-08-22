@@ -252,6 +252,22 @@ public class CompressionSettingsViewModelTests
     }
 
     [Fact]
+    public void SourcePathChanged_WithNonDefaultSelectedFormat_UsesRegistryLookupForDerivedPath()
+    {
+        var vm = new CompressionSettingsViewModel();
+        vm.SourcePath = "/path/to/first";
+        Assert.Equal("/path/to/first.zrus", vm.DestinationPath);
+
+        vm.SelectedFormat = ".zip";
+        Assert.Equal("/path/to/first.zip", vm.DestinationPath);
+
+        // Destination was derived from the previous source with a different compressible
+        // format; the registry lookup must still detect it and re-derive with the current one.
+        vm.SourcePath = "/path/to/second";
+        Assert.Equal("/path/to/second.zip", vm.DestinationPath);
+    }
+
+    [Fact]
     public void SelectedFormatChanged_UpdatesDestinationPathExtension()
     {
         var vm = new CompressionSettingsViewModel();

@@ -119,7 +119,9 @@ public partial class CompressionSettingsViewModel : ObservableObject
         }
 
         if (string.IsNullOrWhiteSpace(DestinationPath) ||
-            (!string.IsNullOrEmpty(oldValue) && (DestinationPath == oldValue + SelectedFormat || DestinationPath == oldValue + (SelectedFormat == ".zrus" ? ".zip" : ".zrus"))))
+            (!string.IsNullOrEmpty(oldValue) &&
+             ArchiveFormatRegistry.CompressibleFormats.Any(f =>
+                 DestinationPath.Equals(oldValue + f.PrimaryExtension, StringComparison.OrdinalIgnoreCase))))
         {
             DestinationPath = newValue + SelectedFormat;
         }
