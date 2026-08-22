@@ -49,6 +49,12 @@
                              Watermark="Filter contents..."
                              Text="{Binding FilterText, Mode=TwoWay}"
                              VerticalAlignment="Center">
+                        <TextBox.InnerLeftContent>
+                            <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                                      VerticalAlignment="Center"
+                                      Margin="6,0,0,0"
+                                      Foreground="{DynamicResource TextFillColorTertiary}" />
+                        </TextBox.InnerLeftContent>
                         <TextBox.InnerRightContent>
                             <Button Command="{Binding ClearFilterCommand}"
                                     IsVisible="{Binding FilterText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
@@ -127,9 +133,9 @@
                                                    FontWeight="{Binding FontWeight}" />
                                     </StackPanel>
                                 </Button>
-                                <TextBlock Text="›"
+                                <PathIcon Data="{StaticResource Icon.Chevron}"
+                                           Width="12" Height="12"
                                            VerticalAlignment="Center"
-                                           FontSize="12"
                                            Foreground="{DynamicResource TextFillColorTertiary}"
                                            Margin="2,0"
                                            IsVisible="{Binding !IsLast}" />
@@ -206,11 +212,13 @@
                   HeadersVisibility="Column"
                   SelectionMode="Single"
                   SelectionUnit="FullRow"
-                  SelectedItem="{Binding SelectedItem}">
+                  SelectedItem="{Binding SelectedItem}"
+                  CellPointerPressed="OnArchiveGridCellPointerPressed">
             <DataGrid.ContextMenu>
-                <ContextMenu>
+                <ContextMenu Opening="OnArchiveGridContextMenuOpening"
+                             Closing="OnArchiveGridContextMenuClosing">
                     <MenuItem Header="Extract Selected..."
-                              Command="{Binding ExtractSelectedItemCommand}">
+                              Command="{Binding ExtractItemCommand}">
                         <MenuItem.Icon>
                             <PathIcon Data="{StaticResource Icon.Extract}" Width="14" Height="14" />
                         </MenuItem.Icon>
@@ -273,7 +281,7 @@
                                         Width="80"
                                         CanUserSort="True"
                                         CanUserResize="True"
-                                        SortMemberPath="FormattedRatio">
+                                        SortMemberPath="RatioValue">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:ArchiveItemViewModel">
                             <TextBlock Text="{Binding FormattedRatio}"

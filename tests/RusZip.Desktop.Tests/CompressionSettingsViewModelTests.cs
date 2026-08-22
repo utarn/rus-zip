@@ -232,6 +232,67 @@ public class CompressionSettingsViewModelTests
     }
 
     [Fact]
+    public void StageSources_MultiplePaths_SetsCollectionAndPrimarySource()
+    {
+        var vm = new CompressionSettingsViewModel();
+
+        vm.StageSources(["/tmp/a.txt", "/tmp/b.txt"]);
+
+        Assert.Equal(2, vm.SourcePaths.Count);
+        Assert.Equal("/tmp/a.txt", vm.SourcePaths[0]);
+        Assert.Equal("/tmp/b.txt", vm.SourcePaths[1]);
+        Assert.True(vm.HasMultipleSources);
+        Assert.Equal("/tmp/a.txt", vm.SourcePath);
+        Assert.Equal("/tmp/a.txt.zrus", vm.DestinationPath);
+        Assert.Contains("/tmp/a.txt", vm.SourcePathsDisplay);
+        Assert.Contains("/tmp/b.txt", vm.SourcePathsDisplay);
+    }
+
+    [Fact]
+    public void StageSources_SinglePath_BehavesLikeDirectSourceAssignment()
+    {
+        var vm = new CompressionSettingsViewModel();
+
+        vm.StageSources(["/tmp/only.txt"]);
+
+        Assert.False(vm.HasMultipleSources);
+        Assert.Single(vm.SourcePaths);
+        Assert.Equal("/tmp/only.txt", vm.SourcePath);
+        Assert.Equal("/tmp/only.txt.zrus", vm.DestinationPath);
+    }
+
+    [Fact]
+    public void StageSources_EditingPrimarySource_ResetsToSingleSource()
+    {
+        var vm = new CompressionSettingsViewModel();
+        vm.StageSources(["/tmp/a.txt", "/tmp/b.txt"]);
+        Assert.Equal(2, vm.SourcePaths.Count);
+
+        vm.SourcePath = "/tmp/new.txt";
+
+        Assert.Single(vm.SourcePaths);
+        Assert.Equal("/tmp/new.txt", vm.SourcePaths[0]);
+        Assert.False(vm.HasMultipleSources);
+    }
+
+    [Fact]
+    public void SourcePathChanged_NotifiesSourcePathsDisplay()
+    {
+        var vm = new CompressionSettingsViewModel();
+        var changed = new List<string>();
+        vm.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName != null) changed.Add(e.PropertyName);
+        };
+
+        vm.SourcePath = "/tmp/single.txt";
+
+        Assert.Contains(nameof(CompressionSettingsViewModel.SourcePaths), changed);
+        Assert.Contains(nameof(CompressionSettingsViewModel.SourcePathsDisplay), changed);
+        Assert.Contains(nameof(CompressionSettingsViewModel.HasMultipleSources), changed);
+    }
+
+    [Fact]
     public void SourcePathChanged_AutoSetsDestinationPath_WhenEmpty()
     {
         var vm = new CompressionSettingsViewModel();

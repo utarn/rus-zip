@@ -253,6 +253,112 @@ public class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task HandleDroppedPathsAsync_MultipleNonArchiveFiles_StagesAllPaths()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+        var file1 = Path.Combine(dir, "a.txt");
+        var file2 = Path.Combine(dir, "b.txt");
+        var file3 = Path.Combine(dir, "c.txt");
+        await File.WriteAllTextAsync(file1, "one");
+        await File.WriteAllTextAsync(file2, "two");
+        await File.WriteAllTextAsync(file3, "three");
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine();
+            var vm = new MainWindowViewModel(fakeEngine);
+
+            await vm.HandleDroppedPathsAsync([file1, file2, file3]);
+
+            Assert.False(vm.HasOpenArchive);
+            Assert.True(vm.IsCompressDialogVisible);
+            Assert.Equal(3, vm.Settings.SourcePaths.Count);
+            Assert.Equal(file1, vm.Settings.SourcePaths[0]);
+            Assert.Equal(file2, vm.Settings.SourcePaths[1]);
+            Assert.Equal(file3, vm.Settings.SourcePaths[2]);
+            Assert.True(vm.Settings.HasMultipleSources);
+            Assert.Contains(file1, vm.Settings.SourcePathsDisplay);
+            Assert.Contains(file2, vm.Settings.SourcePathsDisplay);
+            Assert.Equal(file1, vm.Settings.SourcePath);
+            Assert.Equal(file1 + ".zrus", vm.Settings.DestinationPath);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public async Task HandleDroppedPathsAsync_MultipleArchives_OpensFirstAndReportsRestIgnored()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+        var archive1 = Path.Combine(dir, "first.zrus");
+        var archive2 = Path.Combine(dir, "second.zrus");
+        var archive3 = Path.Combine(dir, "third.zrus");
+        await File.WriteAllTextAsync(archive1, "a1");
+        await File.WriteAllTextAsync(archive2, "a2");
+        await File.WriteAllTextAsync(archive3, "a3");
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine
+            {
+                EntriesToReturn = [new ArchiveEntry("item.txt", 10, 5, null, false)]
+            };
+            var vm = new MainWindowViewModel(fakeEngine);
+
+            await vm.HandleDroppedPathsAsync([archive1, archive2, archive3]);
+
+            Assert.True(vm.HasOpenArchive);
+            Assert.Equal(archive1, vm.Browser.LoadedArchivePath);
+            Assert.False(vm.IsCompressDialogVisible);
+            Assert.Contains("2 other archives ignored", vm.StatusText);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public async Task HandleDroppedPathsAsync_MixedArchivesAndNonArchives_StagesNonArchivesAndReportsIgnored()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+        var archive1 = Path.Combine(dir, "existing.zrus");
+        var file1 = Path.Combine(dir, "a.txt");
+        var file2 = Path.Combine(dir, "b.txt");
+        await File.WriteAllTextAsync(archive1, "archive");
+        await File.WriteAllTextAsync(file1, "one");
+        await File.WriteAllTextAsync(file2, "two");
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine
+            {
+                EntriesToReturn = [new ArchiveEntry("item.txt", 10, 5, null, false)]
+            };
+            var vm = new MainWindowViewModel(fakeEngine);
+
+            await vm.HandleDroppedPathsAsync([archive1, file1, file2]);
+
+            // Non-archive items win: they are staged for the wizard; the archive is reported ignored.
+            Assert.False(vm.HasOpenArchive);
+            Assert.True(vm.IsCompressDialogVisible);
+            Assert.Equal(2, vm.Settings.SourcePaths.Count);
+            Assert.Equal(file1, vm.Settings.SourcePaths[0]);
+            Assert.Equal(file2, vm.Settings.SourcePaths[1]);
+            Assert.Contains("1 archive ignored", vm.StatusText);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
     public async Task ExecuteCompressAsync_CallsEngineCompress_AndOpensArchive()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());

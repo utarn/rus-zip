@@ -21,7 +21,10 @@ public class VectorIconsTests
         "Icon.FileArchive",
         "Icon.FileGeneric",
         "Icon.ExpandAll",
-        "Icon.CollapseAll"
+        "Icon.CollapseAll",
+        "Icon.Chevron",
+        "Icon.Zap",
+        "Icon.Clock"
     ];
 
     private static string FindDesktopProjectPath()
@@ -42,7 +45,7 @@ public class VectorIconsTests
     }
 
     [Fact]
-    public void VectorIconsAxaml_ExistsAndContainsAll16RequiredIcons()
+    public void VectorIconsAxaml_ExistsAndContainsAllRequiredIcons()
     {
         var desktopPath = FindDesktopProjectPath();
         var vectorIconsFile = Path.Combine(desktopPath, "Styles", "VectorIcons.axaml");
@@ -60,8 +63,6 @@ public class VectorIconsTests
                 e => e.Attributes().FirstOrDefault(a => a.Name.LocalName == "Key")?.Value ?? string.Empty,
                 e => e.Value.Trim()
             );
-
-        Assert.Equal(16, RequiredIconKeys.Length);
 
         foreach (var key in RequiredIconKeys)
         {

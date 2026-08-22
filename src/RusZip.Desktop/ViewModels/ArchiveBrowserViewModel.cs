@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -39,6 +40,7 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     public IComparer NameColumnSortComparer { get; } = ArchiveItemComparer.CreateName();
     public IComparer SizeColumnSortComparer { get; } = ArchiveItemComparer.CreateSize();
     public IComparer CompressedColumnSortComparer { get; } = ArchiveItemComparer.CreateCompressed();
+    public IComparer RatioColumnSortComparer { get; } = ArchiveItemComparer.CreateRatio();
     public IComparer ModifiedColumnSortComparer { get; } = ArchiveItemComparer.CreateModified();
     public IComparer AttributesColumnSortComparer { get; } = ArchiveItemComparer.CreateAttributes();
 
@@ -51,6 +53,14 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     public bool HasLoadError => !string.IsNullOrEmpty(LoadErrorMessage);
 
     public ObservableCollection<BreadcrumbItemViewModel> Breadcrumbs { get; } = [];
+
+    /// <summary>
+    /// Most recently expanded directory, used to keep the breadcrumbs in sync with tree
+    /// expansion (F-39) when no item is explicitly selected. ProDataGrid drives expansion by
+    /// writing <see cref="ArchiveItemViewModel.IsExpanded"/>, so reacting to that property's
+    /// change notification keeps breadcrumbs as pure VM state — no view events required.
+    /// </summary>
+    private ArchiveItemViewModel? _expansionAnchor;
 
     public event Func<Task>? ExtractRequested;
     public event Func<ArchiveItemViewModel, Task>? ExtractItemRequested;
@@ -109,7 +119,7 @@ public partial class ArchiveBrowserViewModel : ObservableObject
 
     partial void OnSelectedItemChanged(ArchiveItemViewModel? value)
     {
-        UpdateBreadcrumbs(value);
+        UpdateBreadcrumbsFromNavigation();
         ExtractSelectedItemCommand.NotifyCanExecuteChanged();
         ExtractItemCommand.NotifyCanExecuteChanged();
         CopyPathCommand.NotifyCanExecuteChanged();
@@ -232,7 +242,7 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(path) || path == "/" || path == "(root)" || path.Equals("archive", StringComparison.OrdinalIgnoreCase))
         {
             SelectedItem = null;
-            UpdateBreadcrumbs(null);
+            UpdateBreadcrumbsFromNavigation();
             return;
         }
 
@@ -247,7 +257,7 @@ public partial class ArchiveBrowserViewModel : ObservableObject
                 target.IsExpanded = true;
             }
             SelectedItem = target;
-            UpdateBreadcrumbs(target);
+            UpdateBreadcrumbsFromNavigation();
         }
     }
 
@@ -345,9 +355,93 @@ public partial class ArchiveBrowserViewModel : ObservableObject
 
     private void RebuildGridSource()
     {
+        _expansionAnchor = null;
         bool isFiltered = !string.IsNullOrWhiteSpace(FilterText);
         RootItems = BuildTree(_allEntries, FilterText, autoExpand: isFiltered);
         GridSource = CreateGridSource(RootItems);
+        HookExpansionNotifications(RootItems);
+        UpdateBreadcrumbsFromNavigation();
+    }
+
+    /// <summary>
+    /// Subscribes every tree node's <see cref="System.ComponentModel.INotifyPropertyChanged"/>
+    /// so expansion/collapse (which ProDataGrid drives by writing
+    /// <see cref="ArchiveItemViewModel.IsExpanded"/>) keeps the breadcrumbs current.
+    /// </summary>
+    private void HookExpansionNotifications(ObservableCollection<ArchiveItemViewModel> roots)
+    {
+        foreach (var root in roots)
+        {
+            HookExpansionNotificationsRecursive(root);
+        }
+    }
+
+    private void HookExpansionNotificationsRecursive(ArchiveItemViewModel item)
+    {
+        item.PropertyChanged -= OnArchiveItemPropertyChanged;
+        item.PropertyChanged += OnArchiveItemPropertyChanged;
+        foreach (var child in item.Children)
+        {
+            HookExpansionNotificationsRecursive(child);
+        }
+    }
+
+    private void OnArchiveItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (sender is not ArchiveItemViewModel item || e.PropertyName != nameof(ArchiveItemViewModel.IsExpanded))
+        {
+            return;
+        }
+
+        if (item.IsExpanded)
+        {
+            _expansionAnchor = item;
+        }
+        else if (IsSelfOrDescendant(item, _expansionAnchor))
+        {
+            // The collapsed node (or a subtree under it) was the navigation anchor; walk up to
+            // the closest ancestor that is still expanded, falling back to the archive root.
+            _expansionAnchor = FindDeepestExpandedAncestor(item);
+        }
+
+        UpdateBreadcrumbsFromNavigation();
+    }
+
+    private static bool IsSelfOrDescendant(ArchiveItemViewModel? ancestor, ArchiveItemViewModel? node)
+    {
+        var current = node;
+        while (current != null)
+        {
+            if (ReferenceEquals(current, ancestor))
+            {
+                return true;
+            }
+            current = current.Parent;
+        }
+        return false;
+    }
+
+    private static ArchiveItemViewModel? FindDeepestExpandedAncestor(ArchiveItemViewModel node)
+    {
+        var current = node.Parent;
+        while (current != null)
+        {
+            if (current.IsDirectory && current.IsExpanded)
+            {
+                return current;
+            }
+            current = current.Parent;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The breadcrumb trail reflects the current navigation context: the selected node when one
+    /// is chosen, otherwise the most recently expanded directory (F-39).
+    /// </summary>
+    private void UpdateBreadcrumbsFromNavigation()
+    {
+        UpdateBreadcrumbs(SelectedItem ?? _expansionAnchor);
     }
 
     private IHierarchicalModel CreateGridSource(ObservableCollection<ArchiveItemViewModel> items)
