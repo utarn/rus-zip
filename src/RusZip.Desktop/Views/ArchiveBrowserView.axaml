@@ -14,7 +14,7 @@
             <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
                 <!-- Top Row: Archive Path + Summary Info -->
                 <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <TextBlock Text="📦" FontSize="16" VerticalAlignment="Center" />
+                    <PathIcon Data="{StaticResource Icon.FileArchive}" Width="16" Height="16" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondary}" />
                     <TextBlock Text="Archive:" FontWeight="SemiBold" VerticalAlignment="Center" />
                     <TextBlock Text="{Binding LoadedArchivePath}"
                                Foreground="{DynamicResource TextFillColorSecondary}"
@@ -46,35 +46,48 @@
                 <Grid Grid.Row="1" Grid.Column="0" ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
                     <TextBox Grid.Column="0"
                              Width="260"
-                             Watermark="🔍 Filter contents..."
+                             Watermark="Filter contents..."
                              Text="{Binding FilterText, Mode=TwoWay}"
                              VerticalAlignment="Center">
                         <TextBox.InnerRightContent>
-                            <Button Content="✕"
-                                    Command="{Binding ClearFilterCommand}"
+                            <Button Command="{Binding ClearFilterCommand}"
                                     IsVisible="{Binding FilterText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                     Padding="4,2"
                                     Margin="0,0,2,0"
                                     Background="Transparent"
-                                    BorderThickness="0" />
+                                    BorderThickness="0">
+                                <PathIcon Data="{StaticResource Icon.Clear}" Width="12" Height="12" />
+                            </Button>
                         </TextBox.InnerRightContent>
                     </TextBox>
                 </Grid>
 
                 <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Button Content="⊞ Expand All"
-                            Command="{Binding ExpandAllCommand}"
+                    <Button Command="{Binding ExpandAllCommand}"
                             Padding="10,5"
-                            FontSize="12" />
-                    <Button Content="⊟ Collapse All"
-                            Command="{Binding CollapseAllCommand}"
+                            FontSize="12">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource Icon.ExpandAll}" Width="12" Height="12" />
+                            <TextBlock Text="Expand All" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding CollapseAllCommand}"
                             Padding="10,5"
-                            FontSize="12" />
-                    <Button Content="📥 Extract All"
-                            Command="{Binding RequestExtractCommand}"
+                            FontSize="12">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource Icon.CollapseAll}" Width="12" Height="12" />
+                            <TextBlock Text="Collapse All" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding RequestExtractCommand}"
                             Classes="accent"
                             Padding="12,5"
-                            FontSize="12" />
+                            FontSize="12">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource Icon.Extract}" Width="12" Height="12" />
+                            <TextBlock Text="Extract All" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>

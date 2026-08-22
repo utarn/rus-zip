@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RusZip.Core.Abstractions;
 using RusZip.Core.Models;
+using RusZip.Desktop.Models;
 
 namespace RusZip.Desktop.ViewModels;
 
@@ -30,6 +31,47 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _hasOpenArchive;
     [ObservableProperty] private bool _isCompressDialogVisible;
     [ObservableProperty] private string _statusText = "Ready";
+    [ObservableProperty] private ThemeMode _currentTheme = ThemeMode.System;
+
+    public bool IsDarkTheme => CurrentTheme == ThemeMode.Dark;
+    public bool IsLightTheme => CurrentTheme == ThemeMode.Light;
+    public bool IsSystemTheme => CurrentTheme == ThemeMode.System;
+
+    public string ThemeIconKey => CurrentTheme switch
+    {
+        ThemeMode.Dark => "Icon.ThemeDark",
+        ThemeMode.Light => "Icon.ThemeLight",
+        _ => "Icon.ThemeLight"
+    };
+
+    public string ThemeDisplayName => CurrentTheme switch
+    {
+        ThemeMode.Dark => "Dark",
+        ThemeMode.Light => "Light",
+        _ => "System"
+    };
+
+    partial void OnCurrentThemeChanged(ThemeMode value)
+    {
+        App.SetTheme(value);
+        OnPropertyChanged(nameof(IsDarkTheme));
+        OnPropertyChanged(nameof(IsLightTheme));
+        OnPropertyChanged(nameof(IsSystemTheme));
+        OnPropertyChanged(nameof(ThemeIconKey));
+        OnPropertyChanged(nameof(ThemeDisplayName));
+    }
+
+    [RelayCommand]
+    public void ToggleTheme()
+    {
+        CurrentTheme = CurrentTheme switch
+        {
+            ThemeMode.System => ThemeMode.Dark,
+            ThemeMode.Dark => ThemeMode.Light,
+            ThemeMode.Light => ThemeMode.System,
+            _ => ThemeMode.System
+        };
+    }
 
     public Func<Task<string?>>? RequestExtractDestinationFolder { get; set; }
 

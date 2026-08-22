@@ -1,5 +1,6 @@
 using RusZip.Core.Abstractions;
 using RusZip.Core.Models;
+using RusZip.Desktop.Models;
 using RusZip.Desktop.ViewModels;
 
 namespace RusZip.Desktop.Tests;
@@ -416,5 +417,52 @@ public class MainWindowViewModelTests
 
         vm.CloseCompressDialog();
         Assert.False(vm.IsCompressDialogVisible);
+    }
+
+    [Fact]
+    public void ToggleTheme_CyclesThroughAllThemes()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+
+        Assert.Equal(ThemeMode.System, vm.CurrentTheme);
+        Assert.Equal("System", vm.ThemeDisplayName);
+
+        vm.ToggleThemeCommand.Execute(null);
+        Assert.Equal(ThemeMode.Dark, vm.CurrentTheme);
+        Assert.Equal("Dark", vm.ThemeDisplayName);
+
+        vm.ToggleThemeCommand.Execute(null);
+        Assert.Equal(ThemeMode.Light, vm.CurrentTheme);
+        Assert.Equal("Light", vm.ThemeDisplayName);
+
+        vm.ToggleThemeCommand.Execute(null);
+        Assert.Equal(ThemeMode.System, vm.CurrentTheme);
+        Assert.Equal("System", vm.ThemeDisplayName);
+    }
+
+    [Fact]
+    public void SettingCurrentTheme_NotifiesAllThemeRelatedProperties()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+        var changedProperties = new HashSet<string>();
+
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.PropertyName))
+            {
+                changedProperties.Add(e.PropertyName);
+            }
+        };
+
+        vm.CurrentTheme = ThemeMode.Light;
+
+        Assert.Contains(nameof(MainWindowViewModel.CurrentTheme), changedProperties);
+        Assert.Contains(nameof(MainWindowViewModel.IsDarkTheme), changedProperties);
+        Assert.Contains(nameof(MainWindowViewModel.IsLightTheme), changedProperties);
+        Assert.Contains(nameof(MainWindowViewModel.IsSystemTheme), changedProperties);
+        Assert.Contains(nameof(MainWindowViewModel.ThemeIconKey), changedProperties);
+        Assert.Contains(nameof(MainWindowViewModel.ThemeDisplayName), changedProperties);
     }
 }

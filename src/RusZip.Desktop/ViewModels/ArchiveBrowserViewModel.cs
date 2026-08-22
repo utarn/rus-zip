@@ -249,10 +249,12 @@ public partial class ArchiveBrowserViewModel : ObservableObject
                                 Spacing = 6,
                                 Children =
                                 {
-                                    new TextBlock
+                                    new PathIcon
                                     {
+                                        Width = 16,
+                                        Height = 16,
                                         VerticalAlignment = VerticalAlignment.Center,
-                                        [!TextBlock.TextProperty] = new Avalonia.Data.Binding(nameof(ArchiveItemViewModel.IconDisplay))
+                                        [!PathIcon.DataProperty] = new Avalonia.Data.Binding(nameof(ArchiveItemViewModel.IconGeometry))
                                     },
                                     new TextBlock
                                     {
