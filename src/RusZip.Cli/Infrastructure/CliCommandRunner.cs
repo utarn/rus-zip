@@ -79,6 +79,7 @@ public static class CliCommandRunner
             DirectoryNotFoundException dnf => EmitError("SOURCE_NOT_FOUND", dnf.Message, isJson, exitCode: 2, writer: writer, verboseErrors: verboseErrors),
             SecurityException sec => EmitError("SECURITY_VIOLATION", sec.Message, isJson, exitCode: 1, writer: writer, verboseErrors: verboseErrors),
             ExtractionLimitExceededException elee => EmitError("EXECUTION_ERROR", elee.Message, isJson, exitCode: 1, writer: writer, verboseErrors: verboseErrors),
+            ArchiveIntegrityException aie => EmitError("EXECUTION_ERROR", aie.Message, isJson, exitCode: 1, stackTrace: aie.StackTrace, writer: writer, verboseErrors: verboseErrors),
             NotSupportedException nse => EmitError("UNSUPPORTED_FORMAT", nse.Message, isJson, exitCode: 2, writer: writer, verboseErrors: verboseErrors),
             CommandAppException appEx => EmitError("ARGUMENT_ERROR", appEx.Message, isJson, exitCode: 2, writer: writer, verboseErrors: verboseErrors),
             ArgumentException argEx => EmitError("ARGUMENT_ERROR", argEx.Message, isJson, exitCode: 2, writer: writer, verboseErrors: verboseErrors),

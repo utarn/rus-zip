@@ -275,24 +275,84 @@ public class ZstdTarArchiveEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Extract_CorruptedArchive_ThrowsInvalidDataException()
+    public async Task Extract_CorruptedArchive_ThrowsArchiveIntegrityException()
     {
         var corruptedFile = Path.Combine(_testDir, "corrupted.zrus");
         await File.WriteAllBytesAsync(corruptedFile, [0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x11, 0x22, 0x33, 0x44]);
 
         var extractDir = Path.Combine(_testDir, "corrupted_extracted");
-        await Assert.ThrowsAnyAsync<InvalidDataException>(() =>
+        await Assert.ThrowsAnyAsync<ArchiveIntegrityException>(() =>
             _engine.ExtractAsync(new ArchiveExtractionRequest(corruptedFile, extractDir)));
     }
 
     [Fact]
-    public async Task ListEntries_CorruptedArchive_ThrowsInvalidDataException()
+    public async Task ListEntries_CorruptedArchive_ThrowsArchiveIntegrityException()
     {
         var corruptedFile = Path.Combine(_testDir, "corrupted_list.zrus");
         await File.WriteAllBytesAsync(corruptedFile, [0x28, 0xB5, 0x2F, 0xFD, 0xDE, 0xAD, 0xBE, 0xEF]);
 
-        await Assert.ThrowsAsync<InvalidDataException>(() =>
+        await Assert.ThrowsAsync<ArchiveIntegrityException>(() =>
             _engine.ListEntriesAsync(corruptedFile));
+    }
+
+    [Fact]
+    public async Task Extract_MidStreamCorruption_ThrowsArchiveIntegrityException_AndCleansUpPartialFiles()
+    {
+        // Arrange: a large incompressible payload ensures the flipped byte lands in raw-block data
+        // (valid decompression with different content) rather than a tar header — reproducing F-08,
+        // where a mid-stream flip previously extracted silently with exit 0.
+        var sourceDir = Path.Combine(_testDir, "midstream_src");
+        Directory.CreateDirectory(sourceDir);
+        var payloadPath = Path.Combine(sourceDir, "payload.bin");
+        var payload = new byte[5 * 1024 * 1024]; // 5 MB
+        new Random(12345).NextBytes(payload);
+        await File.WriteAllBytesAsync(payloadPath, payload);
+
+        var archivePath = Path.Combine(_testDir, "midstream.zrus");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, archivePath, 3));
+
+        var corruptedPath = Path.Combine(_testDir, "midstream_bad.zrus");
+        var bytes = await File.ReadAllBytesAsync(archivePath);
+        bytes[bytes.Length / 2] ^= 0xFF;
+        await File.WriteAllBytesAsync(corruptedPath, bytes);
+
+        var extractDir = Path.Combine(_testDir, "midstream_out");
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() =>
+            _engine.ExtractAsync(new ArchiveExtractionRequest(corruptedPath, extractDir)));
+
+        Assert.Contains("checksum", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("payload.bin", ex.EntryName);
+        // The partial (corrupt) output must be cleaned up.
+        Assert.False(File.Exists(Path.Combine(extractDir, "payload.bin")));
+        Assert.Empty(Directory.GetFiles(extractDir));
+    }
+
+    [Fact]
+    public async Task ListEntries_MidStreamCorruption_ThrowsArchiveIntegrityException()
+    {
+        // Same corruption as the extraction test: `list` must fail on a checksum-broken archive
+        // (DoD #1), never report a silent success-shaped empty list.
+        var sourceDir = Path.Combine(_testDir, "midstream_list_src");
+        Directory.CreateDirectory(sourceDir);
+        var payloadPath = Path.Combine(sourceDir, "payload.bin");
+        var payload = new byte[5 * 1024 * 1024];
+        new Random(67890).NextBytes(payload);
+        await File.WriteAllBytesAsync(payloadPath, payload);
+
+        var archivePath = Path.Combine(_testDir, "midstream_list.zrus");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, archivePath, 3));
+
+        var corruptedPath = Path.Combine(_testDir, "midstream_list_bad.zrus");
+        var bytes = await File.ReadAllBytesAsync(archivePath);
+        bytes[bytes.Length / 2] ^= 0xFF;
+        await File.WriteAllBytesAsync(corruptedPath, bytes);
+
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() =>
+            _engine.ListEntriesAsync(corruptedPath));
+
+        Assert.Contains("checksum", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

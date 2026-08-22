@@ -344,6 +344,150 @@ public class SharpCompressArchiveEngineTests : IDisposable
             _engine.ListEntriesAsync(zipPath, ct: cts.Token));
     }
 
+    [Fact]
+    public async Task Zip_Extract_LocalDataPatched_ThrowsArchiveIntegrityException_AndCleansUpPartialFile()
+    {
+        // F-09: a byte-patched local-data region previously extracted silently with exit 0.
+        var validZip = TestArchiveFixtures.BuildStoreZip(("a.txt", "AAAAA"), ("b.txt", "BBBBBBBBBB"));
+        var patchedZip = TestArchiveFixtures.FlipByteInFirstLocalData(validZip);
+
+        var zipPath = Path.Combine(_testDir, "patched.zip");
+        await File.WriteAllBytesAsync(zipPath, patchedZip);
+        var extractDir = Path.Combine(_testDir, "patched_out");
+
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() =>
+            _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir)));
+
+        Assert.Equal("a.txt", ex.EntryName);
+        Assert.Contains("CRC-32 mismatch", ex.Message, StringComparison.OrdinalIgnoreCase);
+        // The corrupt partial output must be deleted.
+        Assert.False(File.Exists(Path.Combine(extractDir, "a.txt")));
+        Assert.Empty(Directory.GetFiles(extractDir));
+    }
+
+    [Fact]
+    public async Task Zip_List_UnparseableCentralDirectory_ThrowsArchiveIntegrityException()
+    {
+        // F-10: EOCD declares entries but the central directory is zeroed — must be an error,
+        // not a silent empty-success list.
+        var validZip = TestArchiveFixtures.BuildStoreZip(("a.txt", "AAAAA"), ("b.txt", "BBBBBBBBBB"));
+        var brokenZip = TestArchiveFixtures.ZeroCentralDirectoryRegion(validZip);
+
+        var zipPath = Path.Combine(_testDir, "broken_cd.zip");
+        await File.WriteAllBytesAsync(zipPath, brokenZip);
+
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() =>
+            _engine.ListEntriesAsync(zipPath));
+
+        Assert.Contains("central directory", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Zip_Extract_UnparseableCentralDirectory_ThrowsArchiveIntegrityException()
+    {
+        var validZip = TestArchiveFixtures.BuildStoreZip(("a.txt", "AAAAA"), ("b.txt", "BBBBBBBBBB"));
+        var brokenZip = TestArchiveFixtures.ZeroCentralDirectoryRegion(validZip);
+
+        var zipPath = Path.Combine(_testDir, "broken_cd_extract.zip");
+        await File.WriteAllBytesAsync(zipPath, brokenZip);
+        var extractDir = Path.Combine(_testDir, "broken_cd_out");
+
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() =>
+            _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir)));
+
+        Assert.Contains("central directory", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Directory.GetFiles(extractDir));
+    }
+
+    [Fact]
+    public async Task Zip_List_BrokenEocd_ThrowsArchiveIntegrityException()
+    {
+        // A corrupted EOCD signature leaves no locatable end-of-central-directory record.
+        var validZip = TestArchiveFixtures.BuildStoreZip(("a.txt", "AAAAA"));
+        var brokenZip = TestArchiveFixtures.CorruptEocdSignature(validZip);
+
+        var zipPath = Path.Combine(_testDir, "broken_eocd.zip");
+        await File.WriteAllBytesAsync(zipPath, brokenZip);
+
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() =>
+            _engine.ListEntriesAsync(zipPath));
+
+        Assert.Contains("corrupted or unparseable", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Zip_Extract_BrokenEocd_ThrowsArchiveIntegrityException()
+    {
+        var validZip = TestArchiveFixtures.BuildStoreZip(("a.txt", "AAAAA"));
+        var brokenZip = TestArchiveFixtures.CorruptEocdSignature(validZip);
+
+        var zipPath = Path.Combine(_testDir, "broken_eocd_extract.zip");
+        await File.WriteAllBytesAsync(zipPath, brokenZip);
+        var extractDir = Path.Combine(_testDir, "broken_eocd_out");
+
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() =>
+            _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir)));
+
+        Assert.Contains("corrupted or unparseable", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Directory.GetFiles(extractDir));
+    }
+
+    [Fact]
+    public async Task Zip_Extract_NameLengthCorruption_ThrowsArchiveIntegrityException_AndCleansUp()
+    {
+        // A local header name length pointing past EOF makes the entry stream unresolvable.
+        var validZip = TestArchiveFixtures.BuildStoreZip(("a.txt", "AAAAA"), ("b.txt", "BBBBBBBBBB"));
+        var brokenZip = TestArchiveFixtures.CorruptFirstNameLength(validZip);
+
+        var zipPath = Path.Combine(_testDir, "name_len.zip");
+        await File.WriteAllBytesAsync(zipPath, brokenZip);
+        var extractDir = Path.Combine(_testDir, "name_len_out");
+
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() =>
+            _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir)));
+
+        Assert.Equal("a.txt", ex.EntryName);
+        Assert.Contains("corrupted", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(Path.Combine(extractDir, "a.txt")));
+        Assert.Empty(Directory.GetFiles(extractDir));
+    }
+
+    [Fact]
+    public async Task Zip_EmptyArchive_ListReturnsZeroEntries_AndExtractCompletes()
+    {
+        // A genuinely empty zip (EOCD with zero entries and zero CD size) must keep working.
+        var emptyZip = TestArchiveFixtures.BuildStoreZip();
+
+        var zipPath = Path.Combine(_testDir, "empty.zip");
+        await File.WriteAllBytesAsync(zipPath, emptyZip);
+
+        var entries = await _engine.ListEntriesAsync(zipPath);
+        Assert.Empty(entries);
+
+        var extractDir = Path.Combine(_testDir, "empty_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+        Assert.Equal(0, result.FilesExtracted);
+    }
+
+    [Fact]
+    public async Task Zip_Roundtrip_CrcVerifiedWhileStreaming_NoSecondPass_RemainsByteIdentical()
+    {
+        // Valid archives extract byte-identically with CRC verified during the single streaming pass.
+        var sourceDir = Path.Combine(_testDir, "crc_rt_src");
+        Directory.CreateDirectory(sourceDir);
+        var payload = new byte[256 * 1024];
+        new Random(999).NextBytes(payload);
+        await File.WriteAllBytesAsync(Path.Combine(sourceDir, "data.bin"), payload);
+
+        var zipPath = Path.Combine(_testDir, "crc_rt.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9));
+
+        var extractDir = Path.Combine(_testDir, "crc_rt_out");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+
+        Assert.Equal(payload, await File.ReadAllBytesAsync(Path.Combine(extractDir, "data.bin")));
+    }
+
     #endregion
 
     #region Gzip (.gz) Tests

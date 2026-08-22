@@ -235,9 +235,19 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 // Metadata-derived total for the progress bar only (spoofable, labeled as an estimate).
                 // Enforcement never reads it — see ADR-0007.
                 long totalBytes = 0;
+                List<IArchiveEntry> allEntries;
                 try
                 {
-                    foreach (var e in archive.Entries)
+                    allEntries = archive.Entries.ToList();
+
+                    if (allEntries.Count == 0 && format == ArchiveFormat.Zip && ZipDeclaresEntries(archivePath))
+                    {
+                        // An unparseable central directory must not be reported as an empty success (F-10).
+                        throw new ArchiveIntegrityException(
+                            $"ZIP archive '{archivePath}' has an unparseable central directory: the end-of-central-directory record declares entries but none could be read.");
+                    }
+
+                    foreach (var e in allEntries)
                     {
                         if (e.IsEncrypted)
                         {
@@ -249,6 +259,14 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                             totalBytes += e.Size;
                         }
                     }
+                }
+                catch (ArchiveIntegrityException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (IsCorruptionException(ex))
+                {
+                    throw new ArchiveIntegrityException($"Archive '{archivePath}' is corrupted or unparseable: {ex.Message}", innerException: ex);
                 }
                 catch (Exception ex) when (ex is not NotSupportedException && IsPasswordOrEncryptedException(ex))
                 {
@@ -312,7 +330,25 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             try
             {
                 using var archive = OpenArchiveByFormat(fullPath, format, readerOptions);
-                foreach (var entry in archive.Entries)
+                List<IArchiveEntry> entries;
+                try
+                {
+                    entries = archive.Entries.ToList();
+                }
+                catch (Exception ex) when (IsCorruptionException(ex))
+                {
+                    throw new ArchiveIntegrityException($"Archive '{fullPath}' is corrupted or unparseable: {ex.Message}", innerException: ex);
+                }
+
+                if (entries.Count == 0 && format == ArchiveFormat.Zip && ZipDeclaresEntries(fullPath))
+                {
+                    // The end-of-central-directory record declares entries but none could be read:
+                    // an unparseable central directory must not be reported as an empty success (F-10).
+                    throw new ArchiveIntegrityException(
+                        $"ZIP archive '{fullPath}' has an unparseable central directory: the end-of-central-directory record declares entries but none could be read.");
+                }
+
+                foreach (var entry in entries)
                 {
                     ct.ThrowIfCancellationRequested();
                     results.Add(new ArchiveEntry(
@@ -324,6 +360,14 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                         IsEncrypted: entry.IsEncrypted
                     ));
                 }
+            }
+            catch (ArchiveIntegrityException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (IsCorruptionException(ex))
+            {
+                throw new ArchiveIntegrityException($"Archive '{fullPath}' is corrupted or unparseable: {ex.Message}", innerException: ex);
             }
             catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
             {
@@ -438,10 +482,14 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
     {
         public async IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync([EnumeratorCancellation] CancellationToken ct = default)
         {
-            IEnumerable<IArchiveEntry> entries;
+            List<IArchiveEntry> entries;
             try
             {
-                entries = archive.Entries;
+                entries = archive.Entries.ToList();
+            }
+            catch (Exception ex) when (IsCorruptionException(ex))
+            {
+                throw new ArchiveIntegrityException($"Archive '{archivePath}' is corrupted or unparseable: {ex.Message}", innerException: ex);
             }
             catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
             {
@@ -474,7 +522,26 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                         try
                         {
                             var stream = entry.OpenEntryStream();
+                            // CRC-32 verification applies to ZIP entries only: SharpCompress verifies
+                            // RAR payload CRCs internally, and 7z entry.Crc is not populated in this
+                            // version (returning 0), so a zip-style check would wrongly fail valid 7z.
+                            if (archive.Type == ArchiveType.Zip)
+                            {
+                                return ValueTask.FromResult<Stream>(new ZipCrcVerifyingStream(
+                                    stream,
+                                    archivePath,
+                                    entry.Key ?? string.Empty,
+                                    unchecked((uint)entry.Crc)));
+                            }
+
                             return ValueTask.FromResult(stream);
+                        }
+                        catch (Exception ex) when (IsCorruptionException(ex))
+                        {
+                            throw new ArchiveIntegrityException(
+                                $"ZIP entry '{entry.Key}' in '{archivePath}' is corrupted: {ex.Message}",
+                                entry.Key,
+                                ex);
                         }
                         catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
                         {
@@ -557,5 +624,201 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             || (ex is ArgumentNullException && ex.StackTrace?.Contains("DecoderRegistry", StringComparison.OrdinalIgnoreCase) == true)
             || ex.StackTrace?.Contains("IPasswordProvider", StringComparison.OrdinalIgnoreCase) == true
             || (ex.InnerException is not null && IsPasswordOrEncryptedException(ex.InnerException));
+    }
+
+    /// <summary>
+    /// True for exceptions that indicate structurally corrupt or unparseable archive data
+    /// (as opposed to password/encryption issues, cancellation, or security violations).
+    /// </summary>
+    private static bool IsCorruptionException(Exception ex)
+    {
+        return ex is not OperationCanceledException
+            && ex is not SecurityException
+            && ex is not NotSupportedException
+            && !IsPasswordOrEncryptedException(ex)
+            && (ex is SharpCompress.Common.SharpCompressException or InvalidDataException or EndOfStreamException);
+    }
+
+    /// <summary>
+    /// Parses the end-of-central-directory record of a ZIP archive to determine whether it declares
+    /// any entries. Returns <c>false</c> for genuinely-empty zips (EOCD with a zero entry count and a
+    /// zero central-directory size) or when the EOCD cannot be located. Used to distinguish a legal
+    /// empty archive from an archive whose central directory is unparseable and silently yields zero
+    /// entries (F-10).
+    /// </summary>
+    private static bool ZipDeclaresEntries(string archivePath)
+    {
+        try
+        {
+            using var fs = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            long length = fs.Length;
+            if (length < 22)
+                return false;
+
+            int scanLength = (int)Math.Min(length, 22 + ushort.MaxValue); // EOCD + up to 64 KB comment
+            fs.Seek(-scanLength, SeekOrigin.End);
+            var tail = new byte[scanLength];
+            int offset = 0;
+            while (offset < scanLength)
+            {
+                int n = fs.Read(tail, offset, scanLength - offset);
+                if (n <= 0)
+                    break;
+                offset += n;
+            }
+
+            // EOCD signature: PK\x05\x06 — scan backwards for the last occurrence.
+            for (int i = tail.Length - 22; i >= 0; i--)
+            {
+                if (tail[i] == 0x50 && tail[i + 1] == 0x4B && tail[i + 2] == 0x05 && tail[i + 3] == 0x06)
+                {
+                    int totalEntries = tail[i + 10] | (tail[i + 11] << 8);
+                    uint centralDirSize = BitConverter.ToUInt32(tail, i + 12);
+                    // 0xFFFF/0xFFFFFFFF are zip64 sentinels — the real counts live elsewhere and a
+                    // non-trivial zip is declared, so treat it as declaring entries.
+                    return totalEntries != 0 || centralDirSize != 0;
+                }
+            }
+        }
+        catch
+        {
+            // If the EOCD cannot be read, fall back to the other parse-error paths.
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Incremental CRC-32 (IEEE 802.3, polynomial 0xEDB88320) computed over decompressed entry bytes.
+    /// </summary>
+    private sealed class Crc32
+    {
+        private static readonly uint[] Table = BuildTable();
+        private uint _value = 0xFFFFFFFF;
+
+        private static uint[] BuildTable()
+        {
+            var table = new uint[256];
+            for (uint i = 0; i < 256; i++)
+            {
+                uint c = i;
+                for (int j = 0; j < 8; j++)
+                {
+                    c = (c & 1) != 0 ? 0xEDB88320 ^ (c >> 1) : c >> 1;
+                }
+                table[i] = c;
+            }
+            return table;
+        }
+
+        public void Append(ReadOnlySpan<byte> data)
+        {
+            uint crc = _value;
+            foreach (byte b in data)
+            {
+                crc = Table[(crc ^ b) & 0xFF] ^ (crc >> 8);
+            }
+            _value = crc;
+        }
+
+        public uint Value => ~_value;
+    }
+
+    /// <summary>
+    /// Wraps a per-entry zip decompression stream, computing CRC-32 as bytes flow through and verifying
+    /// the result against the central-directory CRC when the entry stream reaches EOF. A mismatch (or a
+    /// decompression failure) surfaces as an <see cref="ArchiveIntegrityException"/> so the generic
+    /// <see cref="SafeArchiveExtractor"/> cleans up the partial file and the CLI exits 1 (F-09).
+    /// Verification happens while streaming — there is no second read pass.
+    /// </summary>
+    private sealed class ZipCrcVerifyingStream : Stream
+    {
+        private readonly Stream _inner;
+        private readonly string _archivePath;
+        private readonly string _entryName;
+        private readonly uint _expectedCrc;
+        private readonly Crc32 _crc32 = new();
+        private bool _eofReached;
+
+        public ZipCrcVerifyingStream(Stream inner, string archivePath, string entryName, uint expectedCrc)
+        {
+            _inner = inner;
+            _archivePath = archivePath;
+            _entryName = entryName;
+            _expectedCrc = expectedCrc;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int read;
+            try
+            {
+                read = _inner.Read(buffer, offset, count);
+            }
+            catch (Exception ex) when (IsCorruptionException(ex))
+            {
+                throw new ArchiveIntegrityException($"ZIP entry '{_entryName}' in '{_archivePath}' is corrupted: {ex.Message}", _entryName, ex);
+            }
+
+            if (read > 0)
+            {
+                _crc32.Append(buffer.AsSpan(offset, read));
+                return read;
+            }
+
+            VerifyAtEof();
+            return 0;
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            int read;
+            try
+            {
+                read = await _inner.ReadAsync(buffer, ct);
+            }
+            catch (Exception ex) when (IsCorruptionException(ex))
+            {
+                throw new ArchiveIntegrityException($"ZIP entry '{_entryName}' in '{_archivePath}' is corrupted: {ex.Message}", _entryName, ex);
+            }
+
+            if (read > 0)
+            {
+                _crc32.Append(buffer.Span[..read]);
+                return read;
+            }
+
+            VerifyAtEof();
+            return 0;
+        }
+
+        private void VerifyAtEof()
+        {
+            if (_eofReached)
+                return;
+
+            _eofReached = true;
+            uint computed = _crc32.Value;
+            if (computed != _expectedCrc)
+            {
+                throw new ArchiveIntegrityException(
+                    $"CRC-32 mismatch for entry '{_entryName}' in '{_archivePath}': expected {_expectedCrc:X8}, computed {computed:X8}",
+                    _entryName);
+            }
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }

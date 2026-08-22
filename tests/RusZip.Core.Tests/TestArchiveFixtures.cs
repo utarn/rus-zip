@@ -600,4 +600,169 @@ public static class TestArchiveFixtures
         BinaryPrimitives.WriteUInt64LittleEndian(buf, value);
         stream.Write(buf);
     }
+
+    /// <summary>
+    /// Builds a store-method (no compression) ZIP with the given entries (name → content), written
+    /// byte-for-byte so tests can reliably patch specific bytes (local data, central directory, EOCD,
+    /// name length). CRC-32 fields are correct, so a patched local-data byte produces a CRC mismatch.
+    /// </summary>
+    public static byte[] BuildStoreZip(params (string Name, string Content)[] entries)
+    {
+        using var ms = new MemoryStream();
+        using var bw = new BinaryWriter(ms);
+
+        var fileBytes = entries
+            .Select(e => (name: e.Name, data: Encoding.UTF8.GetBytes(e.Content)))
+            .ToList();
+
+        var localOffsets = new List<uint>();
+        foreach (var (name, data) in fileBytes)
+        {
+            var nameBytes = Encoding.UTF8.GetBytes(name);
+            uint crc = ComputeCrc32(data);
+
+            localOffsets.Add((uint)ms.Position);
+
+            // Local file header (PK\x03\x04)
+            bw.Write(0x04034b50);
+            bw.Write((ushort)20);   // Version needed
+            bw.Write((ushort)0);    // Flags
+            bw.Write((ushort)0);    // Method: Store
+            bw.Write((ushort)0x4B3A);
+            bw.Write((ushort)0x7021);
+            bw.Write(crc);
+            bw.Write((uint)data.Length);
+            bw.Write((uint)data.Length);
+            bw.Write((ushort)nameBytes.Length);
+            bw.Write((ushort)0);    // Extra field len
+            bw.Write(nameBytes);
+            bw.Write(data);
+        }
+
+        uint centralDirStart = (uint)ms.Position;
+        for (int i = 0; i < fileBytes.Count; i++)
+        {
+            var (name, data) = fileBytes[i];
+            var nameBytes = Encoding.UTF8.GetBytes(name);
+            uint crc = ComputeCrc32(data);
+
+            // Central directory header (PK\x01\x02)
+            bw.Write(0x02014b50);
+            bw.Write((ushort)20);
+            bw.Write((ushort)20);
+            bw.Write((ushort)0);
+            bw.Write((ushort)0);
+            bw.Write((ushort)0x4B3A);
+            bw.Write((ushort)0x7021);
+            bw.Write(crc);
+            bw.Write((uint)data.Length);
+            bw.Write((uint)data.Length);
+            bw.Write((ushort)nameBytes.Length);
+            bw.Write((ushort)0);
+            bw.Write((ushort)0);
+            bw.Write((ushort)0);
+            bw.Write((ushort)0);
+            bw.Write((uint)0x20);
+            bw.Write(localOffsets[i]);
+            bw.Write(nameBytes);
+        }
+
+        uint centralDirSize = (uint)ms.Position - centralDirStart;
+
+        // End of central directory (PK\x05\x06)
+        bw.Write(0x06054b50);
+        bw.Write((ushort)0);
+        bw.Write((ushort)0);
+        bw.Write((ushort)fileBytes.Count);
+        bw.Write((ushort)fileBytes.Count);
+        bw.Write(centralDirSize);
+        bw.Write(centralDirStart);
+        bw.Write((ushort)0);
+
+        return ms.ToArray();
+    }
+
+    /// <summary>Flips a byte in the first local-file data region of a ZIP, corrupting its content while
+    /// leaving the central directory and its CRC-32 intact (F-09: CRC mismatch on extraction).</summary>
+    public static byte[] FlipByteInFirstLocalData(byte[] zipBytes)
+    {
+        var data = (byte[])zipBytes.Clone();
+        int local = FindSignature(data, 0x04034b50, 0);
+        if (local < 0 || local + 30 > data.Length)
+            return data;
+
+        int nameLen = data[local + 26] | (data[local + 27] << 8);
+        int extraLen = data[local + 28] | (data[local + 29] << 8);
+        int dataStart = local + 30 + nameLen + extraLen;
+        if (dataStart < data.Length)
+        {
+            data[dataStart] ^= 0xFF;
+        }
+
+        return data;
+    }
+
+    /// <summary>Zeroes the entire central-directory region, so the EOCD declares entries but the
+    /// directory itself is unparseable (F-10: silent zero-entry success).</summary>
+    public static byte[] ZeroCentralDirectoryRegion(byte[] zipBytes)
+    {
+        var data = (byte[])zipBytes.Clone();
+        int eocd = FindSignature(data, 0x06054b50, data.Length - 22);
+        if (eocd < 0 || eocd + 20 > data.Length)
+            return data;
+
+        int cdSize = data[eocd + 12] | (data[eocd + 13] << 8) | (data[eocd + 14] << 16) | (data[eocd + 15] << 24);
+        int cdOffset = data[eocd + 16] | (data[eocd + 17] << 8) | (data[eocd + 18] << 16) | (data[eocd + 19] << 24);
+
+        for (int i = cdOffset; i < cdOffset + cdSize && i < data.Length; i++)
+        {
+            data[i] = 0;
+        }
+
+        return data;
+    }
+
+    /// <summary>Corrupts the EOCD signature so no end-of-central-directory record can be located.</summary>
+    public static byte[] CorruptEocdSignature(byte[] zipBytes)
+    {
+        var data = (byte[])zipBytes.Clone();
+        int eocd = FindSignature(data, 0x06054b50, data.Length - 22);
+        if (eocd < 0)
+            return data;
+
+        data[eocd + 3] ^= 0xFF;
+        return data;
+    }
+
+    /// <summary>Sets the first local header's file-name length to an impossible value (0xFFFF), so the
+    /// entry's data offset cannot be resolved.</summary>
+    public static byte[] CorruptFirstNameLength(byte[] zipBytes)
+    {
+        var data = (byte[])zipBytes.Clone();
+        int local = FindSignature(data, 0x04034b50, 0);
+        if (local < 0 || local + 30 > data.Length)
+            return data;
+
+        data[local + 26] = 0xFF;
+        data[local + 27] = 0xFF;
+        return data;
+    }
+
+    /// <summary>Searches for a little-endian 4-byte signature, scanning backwards from <paramref name="startIndex"/>.</summary>
+    private static int FindSignature(byte[] data, int signature, int startIndex)
+    {
+        for (int i = startIndex; i >= 0; i--)
+        {
+            if (i + 4 <= data.Length &&
+                data[i] == (signature & 0xFF) &&
+                data[i + 1] == ((signature >> 8) & 0xFF) &&
+                data[i + 2] == ((signature >> 16) & 0xFF) &&
+                data[i + 3] == ((signature >> 24) & 0xFF))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
 }

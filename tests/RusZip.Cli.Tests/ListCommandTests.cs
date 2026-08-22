@@ -197,4 +197,90 @@ public sealed class ListCommandTests : CliTestBase
         Assert.False(err.Success);
         Assert.Equal("EXECUTION_ERROR", err.Error.Code);
     }
+
+    [Fact]
+    public async Task List_CorruptedZrus_MidStream_ReturnsExitCode1_AndExecutionErrorJson()
+    {
+        // F-08: `list` must fail on a checksum-broken archive, not silently succeed.
+        var sourceFile = CreateTempFile("midstream_list_cli.bin");
+        var payload = new byte[5 * 1024 * 1024];
+        new Random(777).NextBytes(payload);
+        await File.WriteAllBytesAsync(sourceFile, payload);
+
+        var archivePath = Path.Combine(TempDirectory, "midstream_list_cli.zrus");
+        await RunCliAsync("compress", sourceFile, archivePath, "--json");
+
+        var bytes = await File.ReadAllBytesAsync(archivePath);
+        bytes[bytes.Length / 2] ^= 0xFF;
+        var badPath = Path.Combine(TempDirectory, "midstream_list_cli_bad.zrus");
+        await File.WriteAllBytesAsync(badPath, bytes);
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("list", badPath, "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("checksum", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task List_ZipBrokenCentralDirectory_ReturnsExitCode1_AndExecutionErrorJson()
+    {
+        // F-10 + consistency: the same malformed archive must exit 1 through both list and extract.
+        var validZip = TestArchiveFixtures.BuildStoreZip(("a.txt", "AAAAA"), ("b.txt", "BBBBBBBBBB"));
+        var broken = TestArchiveFixtures.ZeroCentralDirectoryRegion(validZip);
+        var archivePath = Path.Combine(TempDirectory, "broken_cd_list.zip");
+        await File.WriteAllBytesAsync(archivePath, broken);
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("list", archivePath, "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("central directory", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task List_ZipBrokenEocd_ReturnsExitCode1_AndExecutionErrorJson()
+    {
+        var validZip = TestArchiveFixtures.BuildStoreZip(("a.txt", "AAAAA"));
+        var broken = TestArchiveFixtures.CorruptEocdSignature(validZip);
+        var archivePath = Path.Combine(TempDirectory, "broken_eocd_list.zip");
+        await File.WriteAllBytesAsync(archivePath, broken);
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("list", archivePath, "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("corrupted or unparseable", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task List_EmptyZip_ReturnsExitCode0_AndZeroEntries()
+    {
+        // A genuinely empty zip must keep listing (zero entries, exit 0).
+        var emptyZip = TestArchiveFixtures.BuildStoreZip();
+        var archivePath = Path.Combine(TempDirectory, "empty_list.zip");
+        await File.WriteAllBytesAsync(archivePath, emptyZip);
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("list", archivePath, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<ListResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(0, result.TotalEntries);
+        Assert.Empty(result.Entries);
+    }
 }
