@@ -18,6 +18,11 @@
     <PackageReference Include="Avalonia.Controls.TreeDataGrid" Version="11.1.1" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <!-- Transitive pin: resolves GHSA-xrw6-gwf8-vvr9 (CVE-2026-39959) for Tmds.DBus.Protocol,
+         pulled in transitively via Avalonia.Desktop -> Avalonia.FreeDesktop (0.20.0).
+         Advisory patched in 0.21.3 (backport) and >= 0.92.0; 0.21.3 is the lowest patched version.
+         https://github.com/advisories/GHSA-xrw6-gwf8-vvr9 -->
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
   </ItemGroup>
 
   <ItemGroup>
