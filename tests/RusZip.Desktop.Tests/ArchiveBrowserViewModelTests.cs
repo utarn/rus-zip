@@ -1,4 +1,3 @@
-using System.Collections;
 using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Controls.DataGridHierarchical;
@@ -130,6 +129,9 @@ public class ArchiveBrowserViewModelTests
         Assert.Equal("Modified", grid.Columns[4].Header?.ToString());
         Assert.Equal("Attributes", grid.Columns[5].Header?.ToString());
 
+        // The hierarchy column is a DataGridHierarchicalColumn (declarative expander/indent).
+        Assert.IsType<DataGridHierarchicalColumn>(grid.Columns[0]);
+
         // The view code-behind assigns the ViewModel's comparers to the CLR CustomSortComparer
         // properties (they cannot be bound from XAML), including the numeric Ratio comparer.
         Assert.Same(browser.NameColumnSortComparer, grid.Columns[0].CustomSortComparer);
@@ -138,6 +140,33 @@ public class ArchiveBrowserViewModelTests
         Assert.Same(browser.RatioColumnSortComparer, grid.Columns[3].CustomSortComparer);
         Assert.Same(browser.ModifiedColumnSortComparer, grid.Columns[4].CustomSortComparer);
         Assert.Same(browser.AttributesColumnSortComparer, grid.Columns[5].CustomSortComparer);
+    }
+
+    [AvaloniaFact]
+    public void ArchiveBrowserView_ColumnSortDirectionChange_UpdatesComparerDirection()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        browser.LoadEntries("test.zip", new List<ArchiveEntry>
+        {
+            new("file.txt", 100, 50, DateTimeOffset.UtcNow, false)
+        });
+
+        var view = new ArchiveBrowserView { DataContext = browser };
+        var grid = view.FindControl<DataGrid>("ArchiveGrid");
+        Assert.NotNull(grid);
+        var nameColumn = grid.Columns[0];
+
+        // The grid syncs each column's SortDirection before applying the sort; the view
+        // forwards those changes into the direction-aware comparers.
+        nameColumn.SetCurrentValue(DataGridColumn.SortDirectionProperty, ListSortDirection.Descending);
+        Assert.Equal(ListSortDirection.Descending, browser.NameColumnSortComparer.Direction);
+
+        nameColumn.SetCurrentValue(DataGridColumn.SortDirectionProperty, ListSortDirection.Ascending);
+        Assert.Equal(ListSortDirection.Ascending, browser.NameColumnSortComparer.Direction);
+
+        // Clearing the sort (null direction) resets the comparers to ascending.
+        nameColumn.SetCurrentValue(DataGridColumn.SortDirectionProperty, null);
+        Assert.Equal(ListSortDirection.Ascending, browser.NameColumnSortComparer.Direction);
     }
 
     [AvaloniaFact]
@@ -174,7 +203,7 @@ public class ArchiveBrowserViewModelTests
     }
 
     [Fact]
-    public void Sorting_ByNameColumn_SortsDirectoriesFirstAscending_AndReversesOnDescending()
+    public void Sorting_ByNameColumn_SortsDirectoriesFirst_InBothDirections()
     {
         var browser = new ArchiveBrowserViewModel();
         var entries = new List<ArchiveEntry>
@@ -188,32 +217,25 @@ public class ArchiveBrowserViewModelTests
         var source = browser.GridSource!;
 
         ApplySort(source, browser.NameColumnSortComparer, ListSortDirection.Ascending);
-        var item0 = GetRowModel(source, 0);
-        var item1 = GetRowModel(source, 1);
-        var item2 = GetRowModel(source, 2);
+        Assert.Equal("b_folder", GetRowModel(source, 0).Name);
+        Assert.Equal("a_file.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("z_file.txt", GetRowModel(source, 2).Name);
 
-        Assert.Equal("b_folder", item0.Name);
-        Assert.Equal("a_file.txt", item1.Name);
-        Assert.Equal("z_file.txt", item2.Name);
-
-        // ProDataGrid negates the column comparer for descending sorts, so the ascending
-        // directories-first grouping is reversed (files sort before folders).
+        // Directories stay grouped above files in descending mode too (spec #57 user story 2);
+        // only the within-group value order reverses.
         ApplySort(source, browser.NameColumnSortComparer, ListSortDirection.Descending);
-        var desc0 = GetRowModel(source, 0);
-        var desc1 = GetRowModel(source, 1);
-        var desc2 = GetRowModel(source, 2);
-
-        Assert.Equal("z_file.txt", desc0.Name);
-        Assert.Equal("a_file.txt", desc1.Name);
-        Assert.Equal("b_folder", desc2.Name);
+        Assert.Equal("b_folder", GetRowModel(source, 0).Name);
+        Assert.Equal("z_file.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("a_file.txt", GetRowModel(source, 2).Name);
     }
 
     [Fact]
-    public void Sorting_BySizeColumn_SortsNumerically()
+    public void Sorting_BySizeColumn_SortsDirectoriesFirst_InBothDirections()
     {
         var browser = new ArchiveBrowserViewModel();
         var entries = new List<ArchiveEntry>
         {
+            new("dir/item.txt", 300, 150, null, false), // directory aggregate = 300
             new("medium.txt", 500, 250, null, false),
             new("large.txt", 1000, 500, null, false),
             new("small.txt", 100, 50, null, false)
@@ -223,22 +245,25 @@ public class ArchiveBrowserViewModelTests
         var source = browser.GridSource!;
 
         ApplySort(source, browser.SizeColumnSortComparer, ListSortDirection.Ascending);
-        Assert.Equal("small.txt", GetRowModel(source, 0).Name);
-        Assert.Equal("medium.txt", GetRowModel(source, 1).Name);
-        Assert.Equal("large.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("dir", GetRowModel(source, 0).Name);
+        Assert.Equal("small.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("medium.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("large.txt", GetRowModel(source, 3).Name);
 
         ApplySort(source, browser.SizeColumnSortComparer, ListSortDirection.Descending);
-        Assert.Equal("large.txt", GetRowModel(source, 0).Name);
-        Assert.Equal("medium.txt", GetRowModel(source, 1).Name);
-        Assert.Equal("small.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("dir", GetRowModel(source, 0).Name);
+        Assert.Equal("large.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("medium.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("small.txt", GetRowModel(source, 3).Name);
     }
 
     [Fact]
-    public void Sorting_ByCompressedColumn_SortsNumerically()
+    public void Sorting_ByCompressedColumn_SortsDirectoriesFirst_InBothDirections()
     {
         var browser = new ArchiveBrowserViewModel();
         var entries = new List<ArchiveEntry>
         {
+            new("dir/item.txt", 1000, 150, null, false), // directory compressed aggregate = 150
             new("fileB.txt", 1000, 300, null, false),
             new("fileA.txt", 1000, 100, null, false),
             new("fileC.txt", 1000, 600, null, false)
@@ -248,13 +273,20 @@ public class ArchiveBrowserViewModelTests
         var source = browser.GridSource!;
 
         ApplySort(source, browser.CompressedColumnSortComparer, ListSortDirection.Ascending);
-        Assert.Equal("fileA.txt", GetRowModel(source, 0).Name);
-        Assert.Equal("fileB.txt", GetRowModel(source, 1).Name);
-        Assert.Equal("fileC.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("dir", GetRowModel(source, 0).Name);
+        Assert.Equal("fileA.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("fileB.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("fileC.txt", GetRowModel(source, 3).Name);
+
+        ApplySort(source, browser.CompressedColumnSortComparer, ListSortDirection.Descending);
+        Assert.Equal("dir", GetRowModel(source, 0).Name);
+        Assert.Equal("fileC.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("fileB.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("fileA.txt", GetRowModel(source, 3).Name);
     }
 
     [Fact]
-    public void Sorting_ByModifiedColumn_SortsChronologically()
+    public void Sorting_ByModifiedColumn_SortsDirectoriesFirst_InBothDirections()
     {
         var browser = new ArchiveBrowserViewModel();
         var date1 = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
@@ -263,6 +295,7 @@ public class ArchiveBrowserViewModelTests
 
         var entries = new List<ArchiveEntry>
         {
+            new("dir/", 0, null, date2, true), // explicit directory entry
             new("file2.txt", 100, 50, date2, false),
             new("file1.txt", 100, 50, date1, false),
             new("file3.txt", 100, 50, date3, false)
@@ -272,9 +305,41 @@ public class ArchiveBrowserViewModelTests
         var source = browser.GridSource!;
 
         ApplySort(source, browser.ModifiedColumnSortComparer, ListSortDirection.Ascending);
-        Assert.Equal("file1.txt", GetRowModel(source, 0).Name);
-        Assert.Equal("file2.txt", GetRowModel(source, 1).Name);
-        Assert.Equal("file3.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("dir", GetRowModel(source, 0).Name);
+        Assert.Equal("file1.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("file2.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("file3.txt", GetRowModel(source, 3).Name);
+
+        ApplySort(source, browser.ModifiedColumnSortComparer, ListSortDirection.Descending);
+        Assert.Equal("dir", GetRowModel(source, 0).Name);
+        Assert.Equal("file3.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("file2.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("file1.txt", GetRowModel(source, 3).Name);
+    }
+
+    [Fact]
+    public void Sorting_ByAttributesColumn_SortsDirectoriesFirst_InBothDirections()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("zdir/", 0, null, null, true, false, "d---------"),
+            new("a_file.txt", 100, 50, null, false, false, "a---------"),
+            new("m_file.txt", 100, 50, null, false, false, "m---------")
+        };
+
+        browser.LoadEntries("test.zip", entries);
+        var source = browser.GridSource!;
+
+        ApplySort(source, browser.AttributesColumnSortComparer, ListSortDirection.Ascending);
+        Assert.Equal("zdir", GetRowModel(source, 0).Name);
+        Assert.Equal("a_file.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("m_file.txt", GetRowModel(source, 2).Name);
+
+        ApplySort(source, browser.AttributesColumnSortComparer, ListSortDirection.Descending);
+        Assert.Equal("zdir", GetRowModel(source, 0).Name);
+        Assert.Equal("m_file.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("a_file.txt", GetRowModel(source, 2).Name);
     }
 
     [Fact]
@@ -299,13 +364,12 @@ public class ArchiveBrowserViewModelTests
         Assert.Equal("mid.txt", GetRowModel(source, 2).Name);
         Assert.Equal("high.txt", GetRowModel(source, 3).Name);
 
-        // Descending negates the comparer (per the ProDataGrid sort framework), reversing both
-        // the file group and the directories-first grouping.
+        // Descending keeps directories grouped above files; only the file ratio order reverses.
         ApplySort(source, browser.RatioColumnSortComparer, ListSortDirection.Descending);
-        Assert.Equal("high.txt", GetRowModel(source, 0).Name);
-        Assert.Equal("mid.txt", GetRowModel(source, 1).Name);
-        Assert.Equal("low.txt", GetRowModel(source, 2).Name);
-        Assert.Equal("folder", GetRowModel(source, 3).Name);
+        Assert.Equal("folder", GetRowModel(source, 0).Name);
+        Assert.Equal("high.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("mid.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("low.txt", GetRowModel(source, 3).Name);
     }
 
     [Fact]
@@ -333,11 +397,12 @@ public class ArchiveBrowserViewModelTests
 
     /// <summary>
     /// Applies a column comparer to the hierarchical model the same way the ProDataGrid
-    /// column-sort framework does: ascending uses the comparer directly; descending negates
-    /// its result.
+    /// column-sort framework does: it sets the comparer's direction, then ascending uses the
+    /// comparer directly while descending negates its result.
     /// </summary>
-    private static void ApplySort(IHierarchicalModel source, IComparer comparer, ListSortDirection direction)
+    private static void ApplySort(IHierarchicalModel source, ArchiveItemSortComparer comparer, ListSortDirection direction)
     {
+        comparer.Direction = direction;
         source.ApplySiblingComparer(Comparer<object>.Create((a, b) =>
         {
             int result = comparer.Compare(a, b);

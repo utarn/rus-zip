@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using Avalonia;
@@ -35,15 +34,33 @@ public partial class ArchiveBrowserViewModel : ObservableObject
 
     /// <summary>
     /// Column sort comparers consumed by the ProDataGrid column definitions in
-    /// <c>ArchiveBrowserView.axaml</c>. Directories sort above files (matching the
-    /// TreeDataGrid-era behavior); the grid framework negates these for descending sorts.
+    /// <c>ArchiveBrowserView.axaml</c>. The comparers are direction-aware so directories stay
+    /// grouped above files in BOTH ascending and descending sorts (spec #57 user story 2).
     /// </summary>
-    public IComparer NameColumnSortComparer { get; } = ArchiveItemComparer.CreateName();
-    public IComparer SizeColumnSortComparer { get; } = ArchiveItemComparer.CreateSize();
-    public IComparer CompressedColumnSortComparer { get; } = ArchiveItemComparer.CreateCompressed();
-    public IComparer RatioColumnSortComparer { get; } = ArchiveItemComparer.CreateRatio();
-    public IComparer ModifiedColumnSortComparer { get; } = ArchiveItemComparer.CreateModified();
-    public IComparer AttributesColumnSortComparer { get; } = ArchiveItemComparer.CreateAttributes();
+    public ArchiveItemSortComparer NameColumnSortComparer { get; } = ArchiveItemComparer.CreateName();
+    public ArchiveItemSortComparer SizeColumnSortComparer { get; } = ArchiveItemComparer.CreateSize();
+    public ArchiveItemSortComparer CompressedColumnSortComparer { get; } = ArchiveItemComparer.CreateCompressed();
+    public ArchiveItemSortComparer RatioColumnSortComparer { get; } = ArchiveItemComparer.CreateRatio();
+    public ArchiveItemSortComparer ModifiedColumnSortComparer { get; } = ArchiveItemComparer.CreateModified();
+    public ArchiveItemSortComparer AttributesColumnSortComparer { get; } = ArchiveItemComparer.CreateAttributes();
+
+    /// <summary>
+    /// Pushes the active column's sort direction into every column comparer. ProDataGrid's
+    /// sort framework sets the column's <c>SortDirection</c> before invoking the column
+    /// comparer and negates the comparer result for descending sorts; the comparers invert
+    /// their directory grouping for descending so directories stay above files in both
+    /// directions. The view code-behind calls this from each column's SortDirection changes.
+    /// </summary>
+    public void SetColumnSortDirection(ListSortDirection? direction)
+    {
+        var d = direction ?? ListSortDirection.Ascending;
+        NameColumnSortComparer.Direction = d;
+        SizeColumnSortComparer.Direction = d;
+        CompressedColumnSortComparer.Direction = d;
+        RatioColumnSortComparer.Direction = d;
+        ModifiedColumnSortComparer.Direction = d;
+        AttributesColumnSortComparer.Direction = d;
+    }
 
     /// <summary>
     /// Entry-count cap above which tree construction is refused to avoid exhausting memory
