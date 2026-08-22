@@ -242,4 +242,28 @@ public sealed class CompressCommandTests : CliTestBase
         Assert.False(err.Success);
         Assert.Equal("ARGUMENT_ERROR", err.Error.Code);
     }
+
+    [Fact]
+    public async Task Compress_EmptyDirectoryToZrus_ReturnsExitCode0()
+    {
+        // F-11: an empty directory must compress to a valid, readable .zrus archive (not a 13-byte
+        // empty frame). exit 0 with 0 files, parity with the .zip path.
+        var sourceDir = Path.Combine(TempDirectory, "empty_dir");
+        Directory.CreateDirectory(sourceDir);
+        var destArchive = Path.Combine(TempDirectory, "empty_dir.zrus");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", sourceDir, destArchive, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(destArchive));
+
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal("zrus", result.Format);
+        Assert.Equal(0, result.TotalFiles);
+        Assert.Equal(0, result.UncompressedBytes);
+        Assert.True(result.CompressedBytes > 0);
+    }
 }

@@ -518,6 +518,53 @@ public sealed class ExtractCommandTests : CliTestBase
         Assert.Equal(0, result.ExtractedFiles);
     }
 
+    [Fact]
+    public async Task Extract_EmptyZrusArchive_ReturnsExitCode0_AndCreatesEmptyDestination()
+    {
+        // F-11: an empty directory compressed to .zrus must extract to an empty destination with
+        // exit 0 — parity with the .zip path.
+        var sourceDir = Path.Combine(TempDirectory, "extract_empty_zrus_src");
+        Directory.CreateDirectory(sourceDir);
+        var archivePath = Path.Combine(TempDirectory, "extract_empty.zrus");
+        await RunCliAsync("compress", sourceDir, archivePath, "--json");
+
+        var outDir = Path.Combine(TempDirectory, "extract_empty_zrus_out");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(Directory.Exists(outDir));
+        Assert.Empty(Directory.GetFileSystemEntries(outDir));
+
+        var result = ParseJson<ExtractResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(0, result.ExtractedFiles);
+    }
+
+    [Fact]
+    public async Task Extract_LegacyEmptyZrus_ReturnsExitCode0_AndCreatesEmptyDestination()
+    {
+        // F-11 read-side compat: the pre-fix 13-byte empty frame must extract to an empty
+        // destination with exit 0, not an integrity error.
+        var archivePath = Path.Combine(TempDirectory, "legacy_empty_extract.zrus");
+        await File.WriteAllBytesAsync(archivePath, [0x28, 0xB5, 0x2F, 0xFD, 0x24, 0x00, 0x01, 0x00, 0x00, 0x99, 0xE9, 0xD8, 0x51]);
+        var outDir = Path.Combine(TempDirectory, "legacy_empty_extract_out");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(Directory.Exists(outDir));
+        Assert.Empty(Directory.GetFileSystemEntries(outDir));
+
+        var result = ParseJson<ExtractResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(0, result.ExtractedFiles);
+    }
+
     private static void CreateZipWithEntries(string archivePath, params (string Name, byte[] Content)[] entries)
     {
         using var fs = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None);

@@ -6,6 +6,7 @@ using RusZip.Core.Engines;
 using RusZip.Core.Models;
 using Xunit;
 using ZstdSharp;
+using ZstdSharp.Unsafe;
 
 namespace RusZip.Core.Tests;
 
@@ -588,5 +589,115 @@ public class ZstdTarArchiveEngineTests : IDisposable
         var req = new ArchiveExtractionRequest(archivePath, extractDir);
         var ex = await Assert.ThrowsAsync<SecurityException>(() => _engine.ExtractAsync(req));
         Assert.Contains("Malicious path traversal detected", ex.Message);
+    }
+
+    [Fact]
+    public async Task Compress_EmptyDirectory_ProducesValidEmptyTarZstd_RoundtripsViaListAndExtract()
+    {
+        // F-11: an empty directory previously produced a 13-byte zstd frame with empty content that
+        // tar readers could not parse. A valid empty tar is exactly two 512-byte zero blocks.
+        var sourceDir = Path.Combine(_testDir, "empty_dir_src");
+        Directory.CreateDirectory(sourceDir);
+
+        var archivePath = Path.Combine(_testDir, "empty_dir.zrus");
+        var extractDir = Path.Combine(_testDir, "empty_dir_out");
+
+        // Act — compress
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, archivePath, CompressionProfiles.Balanced));
+        Assert.True(File.Exists(archivePath));
+
+        // The decompressed payload must be exactly the two 512-byte zero blocks (a valid empty tar).
+        byte[] decompressed;
+        await using (var fs = File.OpenRead(archivePath))
+        await using (var ds = new DecompressionStream(fs))
+        using (var ms = new MemoryStream())
+        {
+            await ds.CopyToAsync(ms);
+            decompressed = ms.ToArray();
+        }
+        Assert.Equal(1024, decompressed.Length);
+        Assert.All(decompressed, b => Assert.Equal(0, b));
+
+        // Act — list
+        var entries = await _engine.ListEntriesAsync(archivePath);
+        Assert.Empty(entries);
+
+        // Act — extract
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(archivePath, extractDir));
+
+        // Assert — destination exists and is empty
+        Assert.True(Directory.Exists(extractDir));
+        Assert.Empty(Directory.GetFileSystemEntries(extractDir));
+    }
+
+    [Fact]
+    public async Task ListAndExtract_LegacyEmptyZrusFrame_TreatAsEmptyArchive()
+    {
+        // F-11 read-side compat: the pre-fix empty-directory output is a *valid* zstd frame with
+        // zero decompressed bytes (no tar end-of-archive blocks). It is unambiguous (no entries), so
+        // treat it as an empty archive instead of surfacing a confusing "end of stream" integrity error.
+        var archivePath = Path.Combine(_testDir, "legacy_empty.zrus");
+        await using (var fs = new FileStream(archivePath, FileMode.CreateNew, FileAccess.Write))
+        await using (var cs = new CompressionStream(fs, 3))
+        {
+            cs.SetParameter(ZSTD_cParameter.ZSTD_c_checksumFlag, 1);
+            // Write nothing — produces the legacy 13-byte empty frame.
+        }
+        Assert.Equal(13, new FileInfo(archivePath).Length);
+
+        // Act — list
+        var entries = await _engine.ListEntriesAsync(archivePath);
+        Assert.Empty(entries);
+
+        // Act — extract
+        var extractDir = Path.Combine(_testDir, "legacy_empty_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(archivePath, extractDir));
+
+        // Assert
+        Assert.True(Directory.Exists(extractDir));
+        Assert.Empty(Directory.GetFileSystemEntries(extractDir));
+        Assert.Equal(0, result.FilesExtracted);
+    }
+
+    [Fact]
+    public async Task CompressAndExtract_NonEmptyDirectory_RoundtripUnchanged_AndEndsWithTwoZeroBlocks()
+    {
+        // Regression for F-11: the write-path change (leaveOpen + explicit zero blocks for empty
+        // archives) must not alter non-empty round-trips. A non-empty tar must still end with the
+        // two 512-byte zero end-of-archive blocks written by TarWriter.
+        var sourceDir = Path.Combine(_testDir, "nonempty_regression_src");
+        var subDir = Path.Combine(sourceDir, "sub");
+        Directory.CreateDirectory(subDir);
+        var file1 = Path.Combine(sourceDir, "a.txt");
+        var file2 = Path.Combine(subDir, "b.txt");
+        await File.WriteAllTextAsync(file1, "alpha");
+        await File.WriteAllTextAsync(file2, "beta");
+
+        var archivePath = Path.Combine(_testDir, "nonempty_regression.zrus");
+        var extractDir = Path.Combine(_testDir, "nonempty_regression_out");
+
+        // Act — compress
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, archivePath, CompressionProfiles.Balanced));
+
+        // The decompressed tar must end with two 512-byte zero blocks.
+        byte[] decompressed;
+        await using (var fs = File.OpenRead(archivePath))
+        await using (var ds = new DecompressionStream(fs))
+        using (var ms = new MemoryStream())
+        {
+            await ds.CopyToAsync(ms);
+            decompressed = ms.ToArray();
+        }
+        Assert.True(decompressed.Length >= 1024);
+        Assert.All(decompressed.Skip(decompressed.Length - 1024), b => Assert.Equal(0, b));
+
+        // Act — list & extract
+        var entries = await _engine.ListEntriesAsync(archivePath);
+        Assert.Contains(entries, e => e.RelativePath.EndsWith("a.txt"));
+        Assert.Contains(entries, e => e.RelativePath.EndsWith("b.txt"));
+
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(archivePath, extractDir));
+        Assert.Equal("alpha", await File.ReadAllTextAsync(Path.Combine(extractDir, "a.txt")));
+        Assert.Equal("beta", await File.ReadAllTextAsync(Path.Combine(extractDir, "sub", "b.txt")));
     }
 }
