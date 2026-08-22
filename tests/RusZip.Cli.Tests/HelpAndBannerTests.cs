@@ -30,9 +30,13 @@ public sealed class HelpAndBannerTests : CliTestBase
         Assert.Contains(".7z", stdout);
         Assert.Contains("EXIT CODES:", stdout);
         Assert.Contains("0 = Success", stdout);
-        Assert.Contains("1 = Execution / Engine error", stdout);
-        Assert.Contains("2 = Invalid arguments / Path not found", stdout);
+        Assert.Contains("1 = Execution / Engine error, Security violation", stdout);
+        Assert.Contains("2 = Invalid arguments, Path not found, Unsupported format", stdout);
         Assert.Contains("--json", stdout);
+        Assert.Contains("--no-overwrite", stdout);
+        Assert.Contains("--max-uncompressed-size", stdout);
+        Assert.Contains("--max-entries", stdout);
+        Assert.Contains("--verbose-errors", stdout);
     }
 
     [Theory]
@@ -64,5 +68,30 @@ public sealed class HelpAndBannerTests : CliTestBase
         Assert.Contains("USAGE:", stdout);
         Assert.Contains(command, stdout);
         Assert.Contains("EXAMPLES:", stdout);
+    }
+
+    [Fact]
+    public async Task ExtractHelp_DocumentsNoOverwriteFlag()
+    {
+        // F-15/F-41: extract help must surface --no-overwrite (and the SEC-3 guardrail flags).
+        var (exitCode, stdout) = await RunCliAsync("extract", "--help");
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("--no-overwrite", stdout);
+        Assert.Contains("--max-uncompressed-size", stdout);
+        Assert.Contains("--max-entries", stdout);
+    }
+
+    [Fact]
+    public async Task CompressHelp_DocumentsPerFormatLevelRange()
+    {
+        // F-16/F-41: compress help must document the per-format level range (.zip 0-9 with
+        // 0 = Store, .zrus 1-22).
+        var (exitCode, stdout) = await RunCliAsync("compress", "--help");
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("0-9", stdout);
+        Assert.Contains("0 = Store", stdout);
+        Assert.Contains("1-22", stdout);
     }
 }

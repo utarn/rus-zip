@@ -20,11 +20,11 @@ public sealed class CompressSettings : JsonCommandSettings
     public string? DestinationPath { get; init; }
 
     [CommandOption("-l|--level <LEVEL>")]
-    [Description("Compression level (1-22 for .zrus, 1-9 for .zip). Default: 9.")]
+    [Description("Compression level (0-9 for .zip where 0 = Store, 1-22 for .zrus). Default: 9.")]
     public int? Level { get; init; }
 
     [CommandOption("-p|--profile <PROFILE>")]
-    [Description("Compression profile: fast (3), balanced (9), high (15), ultra (22).")]
+    [Description("Compression profile for .zrus: fast (3), balanced (9), high (15), ultra (22).")]
     public string? Profile { get; init; }
 }
 
@@ -59,14 +59,6 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     }
                 }
 
-                if (settings.Level.HasValue)
-                {
-                    if (settings.Level.Value < CompressionProfiles.MinLevel || settings.Level.Value > CompressionProfiles.MaxLevel)
-                    {
-                        throw new ArgumentException($"Compression level must be between {CompressionProfiles.MinLevel} and {CompressionProfiles.MaxLevel}.");
-                    }
-                }
-
                 var destination = settings.DestinationPath ?? (source + ".zrus");
                 destination = Path.GetFullPath(destination);
 
@@ -77,7 +69,18 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     throw new NotSupportedException($"Creation of archive format '{formatDescriptor.Format}' is not supported. Supported creation formats: {supportedCreationFormats}");
                 }
 
+                // F-16: level validation is per destination format. The registry models the real
+                // range for each format (.zip 0-9 with 0 = Store, .zrus 1-22), so `-l 15 x.zip`
+                // is rejected instead of silently capping, and `-l 0 x.zip` maps to Store.
                 var compressionLevel = CompressionProfiles.ResolveLevel(settings.Profile, settings.Level);
+                if (compressionLevel < formatDescriptor.MinCompressionLevel || compressionLevel > formatDescriptor.MaxCompressionLevel)
+                {
+                    var formatName = formatDescriptor.PrimaryExtension.TrimStart('.');
+                    string rangeNote = formatDescriptor.MinCompressionLevel == 0 ? " (0 = Store)" : "";
+                    throw new ArgumentException(
+                        $"Compression level {compressionLevel} is not valid for .{formatName} archives. Valid range: {formatDescriptor.MinCompressionLevel}-{formatDescriptor.MaxCompressionLevel}{rangeNote}.");
+                }
+
                 var request = new ArchiveCompressionRequest(source, destination, compressionLevel);
 
                 await _engine.CompressAsync(request, progress, ct);

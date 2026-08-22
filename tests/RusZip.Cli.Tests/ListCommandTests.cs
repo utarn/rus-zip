@@ -307,6 +307,48 @@ public sealed class ListCommandTests : CliTestBase
     }
 
     [Fact]
+    public async Task List_ArchiveNamedJson_AfterDoubleDash_ReturnsConsoleError_NotJson()
+    {
+        // F-22: referencing a file literally named "--json" via a "--" separator must produce a
+        // console (non-JSON) error. The old global handler scanned raw argv and saw "--json" as
+        // the JSON flag, forcing JSON error output for a non-JSON invocation.
+        var (exitCode, stdout) = await RunCliAsync("list", "--", "--json");
+
+        // Assert: exit 2 (SOURCE_NOT_FOUND for './--json'), console output, not JSON.
+        Assert.Equal(2, exitCode);
+        Assert.DoesNotContain("\"success\"", stdout);
+        Assert.DoesNotContain("\"error\"", stdout);
+        Assert.Contains("Error:", stdout);
+        Assert.Contains("--json", stdout);
+    }
+
+    [Fact]
+    public async Task List_ArchiveNamedJson_DotSlashPrefix_ReturnsConsoleError_NotJson()
+    {
+        // F-22: the "./--json" form (unambiguous literal filename) must also be a console error.
+        var (exitCode, stdout) = await RunCliAsync("list", "./--json");
+
+        Assert.Equal(2, exitCode);
+        Assert.DoesNotContain("\"success\"", stdout);
+        Assert.DoesNotContain("\"error\"", stdout);
+        Assert.Contains("Error:", stdout);
+        Assert.Contains("--json", stdout);
+    }
+
+    [Fact]
+    public async Task List_ArchiveNamedJson_WithActualJsonFlag_ReturnsJsonError()
+    {
+        // Guard: when the user genuinely passes --json, a missing-argument parse error must still
+        // be JSON — the F-22 fix must not swallow legitimate JSON mode.
+        var (exitCode, stdout) = await RunCliAsync("list", "--json");
+
+        Assert.Equal(2, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("ARGUMENT_ERROR", err.Error.Code);
+    }
+
+    [Fact]
     public async Task List_LegacyEmptyZrus_ReturnsExitCode0_AndZeroEntries()
     {
         // F-11 read-side compat: the pre-fix 13-byte empty frame (valid zstd, 0 decompressed bytes)

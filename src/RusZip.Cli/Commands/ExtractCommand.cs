@@ -21,9 +21,13 @@ public sealed class ExtractSettings : JsonCommandSettings
     public string? DestinationPath { get; init; }
 
     [CommandOption("-f|--force|--overwrite")]
-    [Description("Overwrite existing files at destination.")]
+    [Description("Overwrite existing files at destination (default).")]
     [DefaultValue(true)]
     public bool Overwrite { get; init; } = true;
+
+    [CommandOption("--no-overwrite")]
+    [Description("Do not overwrite existing files; extraction aborts (exit 1) naming the conflicting path if a destination file already exists.")]
+    public bool NoOverwrite { get; init; }
 
     [CommandOption("--max-uncompressed-size <SIZE>")]
     [Description("Maximum cumulative uncompressed output before extraction aborts. Accepts bytes or human units (e.g. 10GB, 500MB, 1KB); 0 = unlimited. Default: 64GB.")]
@@ -69,7 +73,7 @@ public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<Extract
                 var request = new ArchiveExtractionRequest(
                     archivePath,
                     destination,
-                    settings.Overwrite,
+                    settings.Overwrite && !settings.NoOverwrite,
                     BuildLimits(settings));
 
                 var result = await _engine.ExtractAsync(request, progress, ct);
