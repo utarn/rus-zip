@@ -46,5 +46,11 @@ Standard preset configurations mapping friendly names to compression levels:
 - **High**: Level 15 (improved ratio)
 - **Ultra**: Level 22 (maximum compression)
 
+### Untrusted Archive
+Any archive whose origin cannot be vouched for (downloaded, emailed, received). rus-zip treats every archive as untrusted: entry names and metadata are attacker-controlled and must never reach the filesystem or an output surface unsanitized.
+
+### Extraction Guardrails
+The safety limits enforced while extracting an untrusted archive: a cap on cumulative uncompressed output size and a cap on entry count. Exceeding either aborts the extraction with a clear error rather than warning; limits are user-configurable.
+
 ### Progress Report
 A real-time progress model capturing processed bytes, total bytes, current file being processed, percentage completed, and cancellation state.
