@@ -3,6 +3,7 @@ using System.Formats.Tar;
 using System.IO.Compression;
 using System.Runtime.CompilerServices;
 using System.Security;
+using System.Text;
 using RusZip.Core.Abstractions;
 using RusZip.Core.Models;
 using SharpCompress.Archives;
@@ -52,6 +53,8 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         {
             await Task.Run(async () =>
             {
+                var modesByPath = new Dictionary<string, ushort>(StringComparer.Ordinal);
+
                 await using (var outputStream = new FileStream(
                     tempOutput,
                     FileMode.CreateNew,
@@ -61,10 +64,21 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     useAsync: true))
                 {
                     var compressionType = request.CompressionLevel == 0 ? SharpCompress.Common.CompressionType.None : SharpCompress.Common.CompressionType.Deflate;
+                    // UTF-8 entry-name encoding: SharpCompress sets the EFS bit (bit 11) on both the
+                    // local and central headers only when GetEncoding() equals Encoding.UTF8. The
+                    // default ArchiveEncoding.Default is Encoding.Default, which is NOT object-equal to
+                    // Encoding.UTF8, so the EFS flag is never set (F-12). Point Default at Encoding.UTF8
+                    // so GetEncoding() returns UTF-8 (EFS bit set) and Encode() emits UTF-8 name bytes —
+                    // third-party readers (python zipfile, unzip) then decode names correctly.
                     var writerOptions = new ZipWriterOptions(compressionType)
                     {
                         UseZip64 = true,
-                        LeaveStreamOpen = false
+                        LeaveStreamOpen = false,
+                        ArchiveEncoding = new ArchiveEncoding
+                        {
+                            Default = Encoding.UTF8,
+                            UTF8 = Encoding.UTF8
+                        }
                     };
 
                     using var zipWriter = new ZipWriter(outputStream, writerOptions);
@@ -86,6 +100,10 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                         {
                             ct.ThrowIfCancellationRequested();
                             var relPath = Path.GetRelativePath(rootDirInfo.FullName, emptyDir.FullName).Replace('\\', '/');
+                            if (TryGetZipMode16(emptyDir.FullName, isDirectory: true) is ushort dirMode)
+                            {
+                                modesByPath[relPath] = dirMode;
+                            }
                             zipWriter.WriteDirectory(relPath, emptyDir.LastWriteTimeUtc);
                         }
 
@@ -93,6 +111,10 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                         {
                             ct.ThrowIfCancellationRequested();
                             var relPath = Path.GetRelativePath(rootDirInfo.FullName, fileInfo.FullName).Replace('\\', '/');
+                            if (TryGetZipMode16(fileInfo.FullName, isDirectory: false) is ushort fileMode)
+                            {
+                                modesByPath[relPath] = fileMode;
+                            }
 
                             await using var fileStream = new FileStream(
                                 fileInfo.FullName,
@@ -127,6 +149,10 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     {
                         var fileInfo = new FileInfo(sourcePath);
                         var relPath = fileInfo.Name;
+                        if (TryGetZipMode16(fileInfo.FullName, isDirectory: false) is ushort fileMode)
+                        {
+                            modesByPath[relPath] = fileMode;
+                        }
                         long totalBytes = fileInfo.Length;
                         long processedBytes = 0;
                         int processedFiles = 0;
@@ -159,6 +185,15 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                         zipWriter.Write(relPath, trackingStream, fileInfo.LastWriteTimeUtc);
                         Interlocked.Increment(ref processedFiles);
                     }
+                }
+
+                // SharpCompress's ZipWriter does not expose per-entry external attributes, so after the
+                // archive is fully written we patch the central directory in place: set the "version made
+                // by" upper byte to 3 (Unix) and store each source file's POSIX mode in the external
+                // attributes field (F-13 write side). Best-effort: a failure here never fails compression.
+                if (modesByPath.Count > 0)
+                {
+                    PatchZipExternalAttributes(tempOutput, modesByPath);
                 }
 
                 File.Move(tempOutput, destination, overwrite: true);
@@ -496,6 +531,16 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
             }
 
+            // ZIP entry names encode their POSIX mode in the central-directory external attributes, but
+            // only when the entry was created on Unix ("version made by" upper byte == 3). SharpCompress
+            // does not surface the version byte, so parse the central directory once to recover modes
+            // (F-13 read side). RAR/7z never carry Unix modes this way, so skip them.
+            Dictionary<string, UnixFileMode?>? zipUnixModes = null;
+            if (archive.Type == ArchiveType.Zip)
+            {
+                zipUnixModes = ParseZipEntryModes(archivePath);
+            }
+
             foreach (var entry in entries)
             {
                 ct.ThrowIfCancellationRequested();
@@ -508,15 +553,22 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 if (string.IsNullOrWhiteSpace(entry.Key))
                     continue;
 
-                bool isDir = entry.IsDirectory || entry.Key.Replace('\\', '/').EndsWith('/');
+                var key = entry.Key;
+                bool isDir = entry.IsDirectory || key.Replace('\\', '/').EndsWith('/');
                 DateTimeOffset? modTime = entry.LastModifiedTime.HasValue ? new DateTimeOffset(entry.LastModifiedTime.Value.ToUniversalTime()) : null;
 
+                UnixFileMode? unixMode = null;
+                if (zipUnixModes is not null && zipUnixModes.TryGetValue(key, out var parsedMode))
+                {
+                    unixMode = parsedMode;
+                }
+
                 yield return new ExtractionEntry(
-                    RelativePath: entry.Key,
+                    RelativePath: key,
                     IsDirectory: isDir,
                     UncompressedSize: entry.Size,
                     ModificationTime: modTime,
-                    UnixMode: null,
+                    UnixMode: unixMode,
                     OpenStreamAsync: _ =>
                     {
                         try
@@ -612,6 +664,225 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             LastModified: fileInfo.LastWriteTimeUtc,
             IsDirectory: false,
             IsEncrypted: false)];
+    }
+
+    private sealed record ZipCentralDirectoryRecord(string Name, ushort VersionMadeBy, uint ExternalFileAttributes, long RecordFileOffset);
+
+    /// <summary>
+    /// Reads a file's POSIX mode and encodes it as a 16-bit zip external-attribute value:
+    /// the file-type bits (S_IFREG / S_IFDIR) in the upper nibble plus the 12 permission/special
+    /// bits. Returns <see langword="null"/> on platforms or filesystems without POSIX modes so the
+    /// caller can skip mode storage (best-effort on Windows).
+    /// </summary>
+    private static ushort? TryGetZipMode16(string path, bool isDirectory)
+    {
+        if (OperatingSystem.IsWindows())
+            return null;
+
+        try
+        {
+            var mode = File.GetUnixFileMode(path);
+            ushort fileType = (ushort)(isDirectory ? 0x4000 : 0x8000); // S_IFDIR : S_IFREG
+            return (ushort)(fileType | ((int)mode & 0x0FFF));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Post-processes a finished zip archive, patching each central-directory entry that appears in
+    /// <paramref name="modeByPath"/>: the "version made by" upper byte is set to 3 (Unix) and the
+    /// external-attributes field is set to <c>(mode16 &lt;&lt; 16) | dosAttrs</c>. This is how POSIX modes
+    /// are stored in zip — SharpCompress's <see cref="ZipWriter"/> offers no per-entry API for it (F-13
+    /// write side). Best-effort: any failure leaves the archive as-written and never fails compression.
+    /// </summary>
+    private static void PatchZipExternalAttributes(string zipPath, IReadOnlyDictionary<string, ushort> modeByPath)
+    {
+        if (modeByPath.Count == 0)
+            return;
+
+        List<ZipCentralDirectoryRecord> records;
+        try
+        {
+            records = ParseZipCentralDirectory(zipPath);
+        }
+        catch
+        {
+            return;
+        }
+        if (records.Count == 0)
+            return;
+
+        try
+        {
+            using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            Span<byte> buf = stackalloc byte[4];
+            foreach (var rec in records)
+            {
+                if (!modeByPath.TryGetValue(rec.Name, out ushort mode16))
+                    continue;
+
+                // version-made-by high byte = 3 (Unix) tells readers the external attributes hold a mode.
+                ushort newVersionMadeBy = (ushort)((rec.VersionMadeBy & 0x00FF) | (3 << 8));
+                fs.Position = rec.RecordFileOffset + 4;
+                fs.WriteByte((byte)(newVersionMadeBy & 0xFF));
+                fs.WriteByte((byte)(newVersionMadeBy >> 8));
+
+                // Upper 16 bits = (fileType | permissions); low byte keeps DOS attributes (archive/dir bit).
+                bool isDir = (mode16 & 0xF000) == 0x4000;
+                uint newExternalAttr = ((uint)mode16 << 16) | (rec.ExternalFileAttributes & 0xFF) | (isDir ? 0x10u : 0x20u);
+                fs.Position = rec.RecordFileOffset + 38;
+                buf[0] = (byte)(newExternalAttr & 0xFF);
+                buf[1] = (byte)((newExternalAttr >> 8) & 0xFF);
+                buf[2] = (byte)((newExternalAttr >> 16) & 0xFF);
+                buf[3] = (byte)((newExternalAttr >> 24) & 0xFF);
+                fs.Write(buf);
+            }
+        }
+        catch
+        {
+            // best-effort
+        }
+    }
+
+    /// <summary>
+    /// Parses the central directory of a zip archive into per-entry records (name, version-made-by,
+    /// external attributes, and the record's absolute file offset). Handles both classic EOCD records
+    /// and the zip64 EOCD locator form. Returns an empty list if the directory cannot be parsed.
+    /// </summary>
+    private static List<ZipCentralDirectoryRecord> ParseZipCentralDirectory(string archivePath)
+    {
+        var result = new List<ZipCentralDirectoryRecord>();
+        using var fs = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        long length = fs.Length;
+        if (length < 22)
+            return result;
+
+        int scanLength = (int)Math.Min(length, 22 + ushort.MaxValue); // EOCD + up to 64 KB comment
+        fs.Seek(-scanLength, SeekOrigin.End);
+        var tail = new byte[scanLength];
+        if (!ReadExactly(fs, tail))
+            return result;
+
+        // EOCD signature: PK\x05\x06 — scan backwards for the last occurrence.
+        int eocdIndex = -1;
+        for (int i = tail.Length - 22; i >= 0; i--)
+        {
+            if (tail[i] == 0x50 && tail[i + 1] == 0x4B && tail[i + 2] == 0x05 && tail[i + 3] == 0x06)
+            {
+                eocdIndex = i;
+                break;
+            }
+        }
+        if (eocdIndex < 0)
+            return result;
+
+        long eocdOffset = length - scanLength + eocdIndex;
+        ushort totalEntries = (ushort)(tail[eocdIndex + 10] | (tail[eocdIndex + 11] << 8));
+        uint cdSize = BitConverter.ToUInt32(tail, eocdIndex + 12);
+        uint cdOffset = BitConverter.ToUInt32(tail, eocdIndex + 16);
+
+        if (totalEntries == ushort.MaxValue || cdSize == uint.MaxValue || cdOffset == uint.MaxValue)
+        {
+            // Zip64 sentinels — the real values live in the zip64 EOCD, located via the locator that
+            // sits immediately before the EOCD (signature PK\x06\x07).
+            long locatorOffset = eocdOffset - 20;
+            if (locatorOffset >= 0)
+            {
+                fs.Position = locatorOffset;
+                var locator = new byte[20];
+                if (ReadExactly(fs, locator) && locator[0] == 0x50 && locator[1] == 0x4B && locator[2] == 0x06 && locator[3] == 0x07)
+                {
+                    ulong z64EocdOffset = BitConverter.ToUInt64(locator, 8);
+                    fs.Position = (long)z64EocdOffset;
+                    var z64 = new byte[56];
+                    if (ReadExactly(fs, z64))
+                    {
+                        // Zip64 EOCD: sig(4) size(8) verMade(2) verNeeded(2) disk(4) cdStart(4)
+                        //              entriesOnDisk(8) entries(8) cdSize(8) cdOffset(8)
+                        ulong entries = BitConverter.ToUInt64(z64, 32);
+                        ulong z64CdSize = BitConverter.ToUInt64(z64, 40);
+                        ulong z64CdOffset = BitConverter.ToUInt64(z64, 48);
+                        if (entries > 0 || z64CdSize > 0)
+                        {
+                            totalEntries = entries > ushort.MaxValue ? ushort.MaxValue : (ushort)entries;
+                            cdSize = z64CdSize > uint.MaxValue ? uint.MaxValue : (uint)z64CdSize;
+                            cdOffset = z64CdOffset > uint.MaxValue ? uint.MaxValue : (uint)z64CdOffset;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (cdSize == 0)
+            return result;
+
+        fs.Position = cdOffset;
+        var cdBytes = new byte[cdSize];
+        if (!ReadExactly(fs, cdBytes))
+            return result;
+
+        int pos = 0;
+        while (pos + 46 <= cdBytes.Length &&
+               cdBytes[pos] == 0x50 && cdBytes[pos + 1] == 0x4B && cdBytes[pos + 2] == 0x01 && cdBytes[pos + 3] == 0x02)
+        {
+            ushort versionMadeBy = (ushort)(cdBytes[pos + 4] | (cdBytes[pos + 5] << 8));
+            ushort nameLen = (ushort)(cdBytes[pos + 28] | (cdBytes[pos + 29] << 8));
+            ushort extraLen = (ushort)(cdBytes[pos + 30] | (cdBytes[pos + 31] << 8));
+            ushort commentLen = (ushort)(cdBytes[pos + 32] | (cdBytes[pos + 33] << 8));
+            uint externalAttr = BitConverter.ToUInt32(cdBytes, pos + 38);
+            string name = Encoding.UTF8.GetString(cdBytes, pos + 46, nameLen);
+
+            result.Add(new ZipCentralDirectoryRecord(name, versionMadeBy, externalAttr, cdOffset + pos));
+
+            pos += 46 + nameLen + extraLen + commentLen;
+            if (pos > cdBytes.Length)
+                break;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Builds a map of zip entry name → POSIX mode for extraction. Only entries whose "version made by"
+    /// upper byte is 3 (Unix) carry a mode in their external attributes; everything else falls back to
+    /// default permissions. Returns an empty map on any parse failure so extraction still succeeds.
+    /// </summary>
+    private static Dictionary<string, UnixFileMode?> ParseZipEntryModes(string archivePath)
+    {
+        var result = new Dictionary<string, UnixFileMode?>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var rec in ParseZipCentralDirectory(archivePath))
+            {
+                if ((rec.VersionMadeBy >> 8) != 3)
+                    continue;
+
+                uint perms = (rec.ExternalFileAttributes >> 16) & 0x0FFF;
+                result[rec.Name] = perms != 0 ? (UnixFileMode)perms : null;
+            }
+        }
+        catch
+        {
+            // Mode restoration is best-effort; a malformed central directory must not block extraction.
+        }
+        return result;
+    }
+
+    /// <summary>Reads exactly <paramref name="buffer"/>.Length bytes, returning false on EOF.</summary>
+    private static bool ReadExactly(Stream stream, byte[] buffer)
+    {
+        int offset = 0;
+        while (offset < buffer.Length)
+        {
+            int n = stream.Read(buffer, offset, buffer.Length - offset);
+            if (n <= 0)
+                return false;
+            offset += n;
+        }
+        return true;
     }
 
     private static bool IsPasswordOrEncryptedException(Exception ex)

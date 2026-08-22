@@ -682,6 +682,83 @@ public static class TestArchiveFixtures
         return ms.ToArray();
     }
 
+    /// <summary>
+    /// Builds a single-entry store-method ZIP whose central-directory entry carries a POSIX mode in its
+    /// external attributes and a Unix "version made by" byte — the shape a python-created zip has on
+    /// Unix (F-13 read side). <paramref name="mode"/> is the 12-bit permission mode (e.g. 0o755).
+    /// </summary>
+    public static byte[] BuildZipWithUnixMode(string name, string content, int mode)
+    {
+        uint externalAttr = (uint)((0x8000 | mode) << 16) | 0x20u; // S_IFREG | perms, plus DOS archive bit
+        return BuildZipWithCentralDirectoryMetadata(name, content, 0x0314, externalAttr);
+    }
+
+    /// <summary>
+    /// Builds a single-entry store-method ZIP with arbitrary central-directory metadata — the "version
+    /// made by" field and external file attributes. Used to construct python/Unix, DOS and legacy-writer
+    /// shaped zips for mode-restoration tests.
+    /// </summary>
+    public static byte[] BuildZipWithCentralDirectoryMetadata(string name, string content, ushort versionMadeBy, uint externalAttr)
+    {
+        var data = Encoding.UTF8.GetBytes(content);
+        var nameBytes = Encoding.UTF8.GetBytes(name);
+        uint crc = ComputeCrc32(data);
+
+        using var ms = new MemoryStream();
+        using var bw = new BinaryWriter(ms);
+
+        // Local file header (PK\x03\x04)
+        bw.Write(0x04034b50);
+        bw.Write((ushort)20);
+        bw.Write((ushort)0x0800); // EFS flag so the name decodes as UTF-8
+        bw.Write((ushort)0);
+        bw.Write((ushort)0x4B3A);
+        bw.Write((ushort)0x7021);
+        bw.Write(crc);
+        bw.Write((uint)data.Length);
+        bw.Write((uint)data.Length);
+        bw.Write((ushort)nameBytes.Length);
+        bw.Write((ushort)0);
+        bw.Write(nameBytes);
+        bw.Write(data);
+
+        uint centralDirOffset = (uint)ms.Position;
+
+        // Central directory header (PK\x01\x02)
+        bw.Write(0x02014b50);
+        bw.Write(versionMadeBy);
+        bw.Write((ushort)20);
+        bw.Write((ushort)0x0800);
+        bw.Write((ushort)0);
+        bw.Write((ushort)0x4B3A);
+        bw.Write((ushort)0x7021);
+        bw.Write(crc);
+        bw.Write((uint)data.Length);
+        bw.Write((uint)data.Length);
+        bw.Write((ushort)nameBytes.Length);
+        bw.Write((ushort)0);
+        bw.Write((ushort)0);
+        bw.Write((ushort)0);
+        bw.Write((ushort)0);
+        bw.Write(externalAttr);
+        bw.Write((uint)0);
+        bw.Write(nameBytes);
+
+        uint centralDirSize = (uint)ms.Position - centralDirOffset;
+
+        // End of central directory (PK\x05\x06)
+        bw.Write(0x06054b50);
+        bw.Write((ushort)0);
+        bw.Write((ushort)0);
+        bw.Write((ushort)1);
+        bw.Write((ushort)1);
+        bw.Write(centralDirSize);
+        bw.Write(centralDirOffset);
+        bw.Write((ushort)0);
+
+        return ms.ToArray();
+    }
+
     /// <summary>Flips a byte in the first local-file data region of a ZIP, corrupting its content while
     /// leaving the central directory and its CRC-32 intact (F-09: CRC mismatch on extraction).</summary>
     public static byte[] FlipByteInFirstLocalData(byte[] zipBytes)
