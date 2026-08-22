@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/RusZip.Cli/RusZip.Cli.csproj" />
+    <Project Path="src/RusZip.Core/RusZip.Core.csproj" />
+    <Project Path="src/RusZip.Desktop/RusZip.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/RusZip.Core.Tests/RusZip.Core.Tests.csproj" />
+  </Folder>
+</Solution>

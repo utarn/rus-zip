@@ -1,0 +1,104 @@
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
+using RusZip.Desktop.ViewModels;
+
+namespace RusZip.Desktop.Views;
+
+public partial class MainWindow : Window
+{
+    public MainWindow()
+    {
+        InitializeComponent();
+
+        DragDrop.SetAllowDrop(this, true);
+        AddHandler(DragDrop.DragOverEvent, OnDragOver);
+        AddHandler(DragDrop.DropEvent, OnDrop);
+    }
+
+    private void OnDragOver(object? sender, DragEventArgs e)
+    {
+        if (e.Data.Contains(DataFormats.Files))
+        {
+            e.DragEffects = DragDropEffects.Copy;
+        }
+        else
+        {
+            e.DragEffects = DragDropEffects.None;
+        }
+    }
+
+    private async void OnDrop(object? sender, DragEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+
+        var items = e.Data.GetFiles();
+        if (items == null) return;
+
+        var paths = new List<string>();
+        foreach (var item in items)
+        {
+            var localPath = item.TryGetLocalPath();
+            if (!string.IsNullOrEmpty(localPath))
+            {
+                paths.Add(localPath);
+            }
+        }
+
+        if (paths.Count > 0)
+        {
+            await vm.HandleDroppedPathsAsync(paths);
+        }
+    }
+
+    private async void OnOpenArchiveClicked(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Open Archive",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz)")
+                {
+                    Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz"]
+                },
+                new FilePickerFileType("Zstandard Tar Archives (*.zrus)") { Patterns = ["*.zrus"] },
+                new FilePickerFileType("Zip Archives (*.zip)") { Patterns = ["*.zip"] },
+                new FilePickerFileType("All Files (*.*)") { Patterns = ["*.*"] }
+            ]
+        });
+
+        if (files.Count > 0)
+        {
+            var path = files[0].TryGetLocalPath();
+            if (!string.IsNullOrEmpty(path))
+            {
+                await vm.OpenArchiveAsync(path);
+            }
+        }
+    }
+
+    private async void OnExtractAllClicked(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Select Destination Directory for Extraction",
+            AllowMultiple = false
+        });
+
+        if (folders.Count > 0)
+        {
+            var path = folders[0].TryGetLocalPath();
+            if (!string.IsNullOrEmpty(path))
+            {
+                await vm.ExecuteExtractAllAsync(path);
+            }
+        }
+    }
+}

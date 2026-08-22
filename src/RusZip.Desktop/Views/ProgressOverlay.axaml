@@ -1,0 +1,70 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:RusZip.Desktop.ViewModels"
+             x:Class="RusZip.Desktop.Views.ProgressOverlay"
+             x:DataType="vm:OperationProgressViewModel"
+             IsVisible="{Binding IsOperationRunning}">
+
+    <Grid Background="#7F000000">
+        <Border HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Width="480"
+                Padding="24"
+                Background="{DynamicResource SolidBackgroundFillColorBase}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="1"
+                CornerRadius="8"
+                BoxShadow="0 8 32 #40000000">
+
+            <StackPanel Spacing="16">
+                <!-- Title & Current File -->
+                <TextBlock Text="{Binding OperationTitle}"
+                           FontSize="18"
+                           FontWeight="SemiBold" />
+
+                <TextBlock Text="{Binding CurrentFileName}"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextFillColorSecondary}"
+                           TextTrimming="CharacterEllipsis"
+                           MaxLines="1" />
+
+                <!-- Progress Bar -->
+                <ProgressBar Value="{Binding ProgressPercentage}"
+                             Minimum="0"
+                             Maximum="100"
+                             IsIndeterminate="{Binding IsIndeterminate}"
+                             Height="8"
+                             CornerRadius="4" />
+
+                <!-- Metrics Grid: Bytes, Percentage, Speed, ETA -->
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Text="{Binding BytesProgressFormatted}"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondary}" />
+
+                    <TextBlock Grid.Row="0" Grid.Column="1"
+                               Text="{Binding ProgressPercentage, StringFormat='{}{0:0}%'}"
+                               FontWeight="SemiBold"
+                               FontSize="12" />
+
+                    <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
+                        <TextBlock Text="Speed:" FontSize="12" Foreground="{DynamicResource TextFillColorTertiary}" />
+                        <TextBlock Text="{Binding SpeedFormatted}" FontSize="12" Foreground="{DynamicResource TextFillColorSecondary}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
+                        <TextBlock Text="ETA:" FontSize="12" Foreground="{DynamicResource TextFillColorTertiary}" />
+                        <TextBlock Text="{Binding EtaFormatted}" FontSize="12" Foreground="{DynamicResource TextFillColorSecondary}" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Cancel Button -->
+                <Button Content="Cancel"
+                        HorizontalAlignment="Right"
+                        Command="{Binding CancelCommand}"
+                        Padding="24,6" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

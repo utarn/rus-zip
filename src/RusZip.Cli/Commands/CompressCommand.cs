@@ -1,0 +1,130 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using RusZip.Cli.Commands.Settings;
+using RusZip.Cli.Infrastructure;
+using RusZip.Cli.Models;
+using RusZip.Core.Abstractions;
+using RusZip.Core.Models;
+using Spectre.Console;
+using Spectre.Console.Cli;
+
+namespace RusZip.Cli.Commands;
+
+public sealed class CompressSettings : JsonCommandSettings
+{
+    [CommandArgument(0, "<SOURCE>")]
+    [Description("File or directory to compress.")]
+    public string SourcePath { get; init; } = string.Empty;
+
+    [CommandArgument(1, "[DESTINATION]")]
+    [Description("Destination archive path (defaults to <SOURCE>.zrus).")]
+    public string? DestinationPath { get; init; }
+
+    [CommandOption("-l|--level <LEVEL>")]
+    [Description("Compression level (1-22 for .zrus, 1-9 for .zip). Default: 9.")]
+    public int? Level { get; init; }
+
+    [CommandOption("-p|--profile <PROFILE>")]
+    [Description("Compression profile: fast (3), balanced (9), high (15), ultra (22).")]
+    public string? Profile { get; init; }
+}
+
+public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<CompressSettings>
+{
+    private readonly IArchiveEngine _engine = engine;
+
+    public override async Task<int> ExecuteAsync(CommandContext context, CompressSettings settings)
+    {
+        var source = Path.GetFullPath(settings.SourcePath);
+        if (!File.Exists(source) && !Directory.Exists(source))
+        {
+            if (settings.Json)
+                CliJsonSerializer.EmitError("SOURCE_NOT_FOUND", $"Source path '{settings.SourcePath}' does not exist.");
+            else
+                AnsiConsole.MarkupLine($"[red]Error:[/] Source path '{Markup.Escape(settings.SourcePath)}' does not exist.");
+            return 2;
+        }
+
+        var destination = settings.DestinationPath ?? (source + ".zrus");
+        destination = Path.GetFullPath(destination);
+
+        var compressionLevel = ResolveCompressionLevel(settings.Profile, settings.Level);
+        var request = new ArchiveCompressionRequest(source, destination, compressionLevel);
+
+        var sw = Stopwatch.StartNew();
+
+        try
+        {
+            await CliProgressBridge.ExecuteWithProgressAsync(
+                "Compressing",
+                settings.Json,
+                async (prog, ct) => await _engine.CompressAsync(request, prog, ct)
+            );
+
+            sw.Stop();
+
+            var destInfo = new FileInfo(destination);
+            long uncompressedSize = Directory.Exists(source)
+                ? Directory.GetFiles(source, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length)
+                : new FileInfo(source).Length;
+            int fileCount = Directory.Exists(source)
+                ? Directory.GetFiles(source, "*", SearchOption.AllDirectories).Length
+                : 1;
+
+            double ratio = uncompressedSize > 0 ? (double)destInfo.Length / uncompressedSize : 1.0;
+
+            if (settings.Json)
+            {
+                CliJsonSerializer.Emit(new CompressResult(
+                    Success: true,
+                    SourcePath: source,
+                    ArchivePath: destination,
+                    Format: Path.GetExtension(destination).TrimStart('.').ToLowerInvariant(),
+                    TotalFiles: fileCount,
+                    UncompressedBytes: uncompressedSize,
+                    CompressedBytes: destInfo.Length,
+                    CompressionRatio: Math.Round(ratio, 4),
+                    ElapsedMilliseconds: sw.ElapsedMilliseconds
+                ));
+            }
+            else
+            {
+                var summaryTable = new Table()
+                    .Border(TableBorder.Rounded)
+                    .AddColumn("Metric")
+                    .AddColumn("Value")
+                    .AddRow("Archive Path", Markup.Escape(destination))
+                    .AddRow("Total Files", fileCount.ToString("N0"))
+                    .AddRow("Uncompressed Size", CliProgressBridge.FormatBytes(uncompressedSize))
+                    .AddRow("Compressed Size", CliProgressBridge.FormatBytes(destInfo.Length))
+                    .AddRow("Ratio", $"{ratio * 100:N1}%")
+                    .AddRow("Time Elapsed", $"{sw.ElapsedMilliseconds} ms");
+
+                AnsiConsole.Write(new Panel(summaryTable).Header("[bold green]Compression Summary[/]"));
+            }
+
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            if (settings.Json)
+                CliJsonSerializer.EmitError("COMPRESS_FAILED", ex.Message, ex.StackTrace);
+            else
+                AnsiConsole.WriteException(ex);
+            return 1;
+        }
+    }
+
+    private static int ResolveCompressionLevel(string? profile, int? level)
+    {
+        if (level.HasValue) return level.Value;
+        return profile?.ToLowerInvariant() switch
+        {
+            "fast" => 3,
+            "balanced" => 9,
+            "high" => 15,
+            "ultra" => 22,
+            _ => 9
+        };
+    }
+}

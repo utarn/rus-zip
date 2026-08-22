@@ -1,0 +1,105 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RusZip.Desktop.ViewModels"
+        xmlns:views="using:RusZip.Desktop.Views"
+        x:Class="RusZip.Desktop.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="rus-zip - Compression Suite"
+        Width="900" Height="600"
+        MinWidth="700" MinHeight="450">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <!-- Modern Ribbon / Toolbar -->
+        <Border Grid.Row="0"
+                Background="{DynamicResource CardBackgroundFillColorDefault}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="0,0,0,1"
+                Padding="12,8">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="📦 New Archive"
+                        Command="{Binding ShowCompressDialogCommand}"
+                        Padding="14,8" />
+
+                <Button Content="📂 Open Archive"
+                        Click="OnOpenArchiveClicked"
+                        Padding="14,8" />
+
+                <Button Content="📥 Extract All"
+                        Click="OnExtractAllClicked"
+                        IsEnabled="{Binding HasOpenArchive}"
+                        Padding="14,8" />
+            </StackPanel>
+        </Border>
+
+        <!-- Main Content Area -->
+        <Grid Grid.Row="1">
+            <!-- Mode 1: Empty / Drop Zone Placeholder -->
+            <Border IsVisible="{Binding !HasOpenArchive}"
+                    Margin="32"
+                    BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                    BorderThickness="2"
+                    CornerRadius="12"
+                    Background="{DynamicResource CardBackgroundFillColorSecondary}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16">
+                    <TextBlock Text="📦" FontSize="64" HorizontalAlignment="Center" />
+                    <TextBlock Text="Drag and drop archives to open, or files to compress"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Supported formats: .zrus (Tar+Zstd), .zip, .rar, .7z, .gz, .tar.gz"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondary}"
+                               HorizontalAlignment="Center" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center" Margin="0,12,0,0">
+                        <Button Content="Open Archive" Click="OnOpenArchiveClicked" Padding="16,8" />
+                        <Button Content="Create .zrus Archive" Command="{Binding ShowCompressDialogCommand}" Padding="16,8" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Mode 2: Archive Browser -->
+            <views:ArchiveBrowserView DataContext="{Binding Browser}"
+                                      IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasOpenArchive}" />
+
+            <!-- Mode 3: Compress Dialog Overlay -->
+            <Grid Background="#7F000000" IsVisible="{Binding IsCompressDialogVisible}">
+                <Border HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Width="560"
+                        Background="{DynamicResource SolidBackgroundFillColorBase}"
+                        BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        BoxShadow="0 8 32 #40000000">
+                    <Grid RowDefinitions="Auto,*,Auto">
+                        <Border Grid.Row="0" Padding="16,12" BorderBrush="{DynamicResource SurfaceStrokeColorDefault}" BorderThickness="0,0,0,1">
+                            <TextBlock Text="Create Archive" FontSize="16" FontWeight="SemiBold" />
+                        </Border>
+
+                        <views:CompressionSettingsView Grid.Row="1" DataContext="{Binding Settings}" />
+
+                        <Border Grid.Row="2" Padding="16,12" Background="{DynamicResource CardBackgroundFillColorDefault}" BorderBrush="{DynamicResource SurfaceStrokeColorDefault}" BorderThickness="0,1,0,0">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                                <Button Content="Cancel" Command="{Binding CloseCompressDialogCommand}" Padding="16,6" />
+                                <Button Content="Compress" Command="{Binding ExecuteCompressCommand}" Classes="accent" Padding="20,6" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- Mode 4: Progress Overlay -->
+            <views:ProgressOverlay DataContext="{Binding Progress}" />
+        </Grid>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="2"
+                Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="0,1,0,0"
+                Padding="12,4">
+            <TextBlock Text="{Binding StatusText}" FontSize="12" Foreground="{DynamicResource TextFillColorSecondary}" />
+        </Border>
+    </Grid>
+</Window>

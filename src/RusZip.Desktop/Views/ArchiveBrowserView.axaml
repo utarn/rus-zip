@@ -1,0 +1,28 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:RusZip.Desktop.ViewModels"
+             x:Class="RusZip.Desktop.Views.ArchiveBrowserView"
+             x:DataType="vm:ArchiveBrowserViewModel">
+
+    <Grid RowDefinitions="Auto,*">
+        <!-- Status / Details Bar -->
+        <Border Grid.Row="0" Padding="12,8" Background="{DynamicResource CardBackgroundFillColorSecondary}" BorderBrush="{DynamicResource SurfaceStrokeColorDefault}" BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Archive:" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding LoadedArchivePath}" Foreground="{DynamicResource TextFillColorSecondary}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16">
+                    <TextBlock Text="{Binding TotalEntries, StringFormat='{}Items: {0:N0}'}" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource TextFillColorTertiary}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Virtualized TreeDataGrid -->
+        <TreeDataGrid Grid.Row="1"
+                      Source="{Binding GridSource}"
+                      CanUserResizeColumns="True"
+                      ShowColumnHeaders="True" />
+    </Grid>
+</UserControl>

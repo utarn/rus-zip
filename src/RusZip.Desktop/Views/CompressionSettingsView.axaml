@@ -1,0 +1,107 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:RusZip.Desktop.ViewModels"
+             x:Class="RusZip.Desktop.Views.CompressionSettingsView"
+             x:DataType="vm:CompressionSettingsViewModel">
+
+    <StackPanel Spacing="16" Margin="16">
+        <!-- Source Path -->
+        <StackPanel Spacing="6">
+            <TextBlock Text="Source File / Directory:" FontWeight="SemiBold" />
+            <TextBox Text="{Binding SourcePath}" Watermark="Select file or directory to compress" />
+        </StackPanel>
+
+        <!-- Destination Path & Format -->
+        <Grid ColumnDefinitions="*,120" RowDefinitions="Auto,Auto">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Destination Archive:" FontWeight="SemiBold" />
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="Format:" FontWeight="SemiBold" Margin="8,0,0,0" />
+
+            <TextBox Grid.Row="1" Grid.Column="0" Text="{Binding DestinationPath}" Watermark="Destination archive path" Margin="0,6,0,0" />
+            <ComboBox Grid.Row="1" Grid.Column="1" SelectedItem="{Binding SelectedFormat}" Margin="8,6,0,0" HorizontalAlignment="Stretch">
+                <x:String>.zrus</x:String>
+                <x:String>.zip</x:String>
+            </ComboBox>
+        </Grid>
+
+        <!-- Compression Level Slider & Dynamic Badge -->
+        <Border BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="16"
+                Background="{DynamicResource CardBackgroundFillColorDefault}">
+            <StackPanel Spacing="12">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Compression Level:" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding CompressionLevel}" FontWeight="Bold" VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <!-- Dynamic Profile Badge -->
+                    <Border Grid.Column="1"
+                            Background="{Binding ProfileBadgeColor}"
+                            CornerRadius="12"
+                            Padding="12,3">
+                        <TextBlock Text="{Binding ProfileName}"
+                                   Foreground="White"
+                                   FontSize="11"
+                                   FontWeight="Bold" />
+                    </Border>
+                </Grid>
+
+                <Slider Minimum="1"
+                        Maximum="22"
+                        Value="{Binding CompressionLevel}"
+                        TickFrequency="1"
+                        IsSnapToTickEnabled="True" />
+
+                <!-- Preset Buttons -->
+                <Grid ColumnDefinitions="*,*,*,*">
+                    <Button Grid.Column="0" Content="Fast (3)"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Margin="2"
+                            Command="{Binding SetPresetCommand}">
+                        <Button.CommandParameter>
+                            <x:Int32>3</x:Int32>
+                        </Button.CommandParameter>
+                    </Button>
+
+                    <Button Grid.Column="1" Content="Balanced (9)"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Margin="2"
+                            Command="{Binding SetPresetCommand}">
+                        <Button.CommandParameter>
+                            <x:Int32>9</x:Int32>
+                        </Button.CommandParameter>
+                    </Button>
+
+                    <Button Grid.Column="2" Content="High (15)"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Margin="2"
+                            Command="{Binding SetPresetCommand}">
+                        <Button.CommandParameter>
+                            <x:Int32>15</x:Int32>
+                        </Button.CommandParameter>
+                    </Button>
+
+                    <Button Grid.Column="3" Content="Ultra (22)"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Margin="2"
+                            Command="{Binding SetPresetCommand}">
+                        <Button.CommandParameter>
+                            <x:Int32>22</x:Int32>
+                        </Button.CommandParameter>
+                    </Button>
+                </Grid>
+
+                <TextBlock Text="{Binding ProfileDescription}"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextFillColorSecondary}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>
