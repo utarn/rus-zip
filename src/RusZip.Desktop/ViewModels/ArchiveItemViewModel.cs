@@ -93,13 +93,13 @@ public partial class ArchiveItemViewModel : ObservableObject
     {
         var vm = new ArchiveItemViewModel
         {
-            Name = node.Name,
-            RelativePath = node.RelativePath,
+            Name = EntryNameSanitizer.Sanitize(node.Name),
+            RelativePath = EntryNameSanitizer.Sanitize(node.RelativePath),
             ItemType = node.IsDirectory ? ArchiveItemType.Directory : ArchiveItemType.File,
             UncompressedSize = node.UncompressedSize,
             CompressedSize = node.CompressedSize,
             LastModified = node.LastModified,
-            Attributes = node.Attributes,
+            Attributes = EntryNameSanitizer.Sanitize(node.Attributes),
             IsExpanded = autoExpand
         };
 

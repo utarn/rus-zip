@@ -60,7 +60,8 @@ public partial class OperationProgressViewModel : ObservableObject
 
     public void ReportProgress(ProgressReport report)
     {
-        CurrentFileName = report.CurrentFileName ?? string.Empty;
+        // Entry names come from untrusted archives; strip control bytes before they reach the UI.
+        CurrentFileName = EntryNameSanitizer.Sanitize(report.CurrentFileName ?? string.Empty);
         ProgressPercentage = report.Percentage;
         IsIndeterminate = report.IsIndeterminate;
 

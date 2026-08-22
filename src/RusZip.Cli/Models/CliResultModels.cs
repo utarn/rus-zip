@@ -9,8 +9,9 @@ public static class CliJsonSerializer
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        // Strict/default escaping is used on purpose: '<', '>', '&' and control characters
+        // are escaped, which keeps machine-parsed JSON safe to embed and re-render.
     };
 
     public static void Emit<T>(T value, TextWriter? writer = null) =>

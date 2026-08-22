@@ -16,7 +16,8 @@ public static class CliCommandRunner
         Func<IProgress<ProgressReport>?, CancellationToken, Task<TResult>> operation,
         Action<TResult, long>? renderConsoleSummary = null,
         CancellationToken ct = default,
-        TextWriter? outputWriter = null)
+        TextWriter? outputWriter = null,
+        bool verboseErrors = false)
     {
         var sw = Stopwatch.StartNew();
 
@@ -61,11 +62,11 @@ public static class CliCommandRunner
         }
         catch (Exception ex)
         {
-            return HandleException(ex, isJson, outputWriter);
+            return HandleException(ex, isJson, outputWriter, verboseErrors);
         }
     }
 
-    public static int HandleException(Exception ex, bool isJson, TextWriter? writer = null)
+    public static int HandleException(Exception ex, bool isJson, TextWriter? writer = null, bool verboseErrors = false)
     {
         var actual = ex is CommandRuntimeException runtimeEx && runtimeEx.InnerException != null
             ? runtimeEx.InnerException
@@ -73,33 +74,35 @@ public static class CliCommandRunner
 
         return actual switch
         {
-            CommandParseException parseEx => EmitError("ARGUMENT_ERROR", parseEx.Message, isJson, exitCode: 2, writer: writer),
-            FileNotFoundException fnf => EmitError("SOURCE_NOT_FOUND", fnf.Message, isJson, exitCode: 2, writer: writer),
-            DirectoryNotFoundException dnf => EmitError("SOURCE_NOT_FOUND", dnf.Message, isJson, exitCode: 2, writer: writer),
-            SecurityException sec => EmitError("SECURITY_VIOLATION", sec.Message, isJson, exitCode: 1, writer: writer),
-            ExtractionLimitExceededException elee => EmitError("EXECUTION_ERROR", elee.Message, isJson, exitCode: 1, writer: writer),
-            NotSupportedException nse => EmitError("UNSUPPORTED_FORMAT", nse.Message, isJson, exitCode: 2, writer: writer),
-            CommandAppException appEx => EmitError("ARGUMENT_ERROR", appEx.Message, isJson, exitCode: 2, writer: writer),
-            ArgumentException argEx => EmitError("ARGUMENT_ERROR", argEx.Message, isJson, exitCode: 2, writer: writer),
-            _ => EmitError("EXECUTION_ERROR", actual.Message, isJson, exitCode: 1, actual.StackTrace, writer: writer)
+            CommandParseException parseEx => EmitError("ARGUMENT_ERROR", parseEx.Message, isJson, exitCode: 2, writer: writer, verboseErrors: verboseErrors),
+            FileNotFoundException fnf => EmitError("SOURCE_NOT_FOUND", fnf.Message, isJson, exitCode: 2, writer: writer, verboseErrors: verboseErrors),
+            DirectoryNotFoundException dnf => EmitError("SOURCE_NOT_FOUND", dnf.Message, isJson, exitCode: 2, writer: writer, verboseErrors: verboseErrors),
+            SecurityException sec => EmitError("SECURITY_VIOLATION", sec.Message, isJson, exitCode: 1, writer: writer, verboseErrors: verboseErrors),
+            ExtractionLimitExceededException elee => EmitError("EXECUTION_ERROR", elee.Message, isJson, exitCode: 1, writer: writer, verboseErrors: verboseErrors),
+            NotSupportedException nse => EmitError("UNSUPPORTED_FORMAT", nse.Message, isJson, exitCode: 2, writer: writer, verboseErrors: verboseErrors),
+            CommandAppException appEx => EmitError("ARGUMENT_ERROR", appEx.Message, isJson, exitCode: 2, writer: writer, verboseErrors: verboseErrors),
+            ArgumentException argEx => EmitError("ARGUMENT_ERROR", argEx.Message, isJson, exitCode: 2, writer: writer, verboseErrors: verboseErrors),
+            _ => EmitError("EXECUTION_ERROR", actual.Message, isJson, exitCode: 1, stackTrace: actual.StackTrace, writer: writer, verboseErrors: verboseErrors)
         };
     }
 
-    public static int EmitError(string code, string message, bool isJson, int exitCode, string? stackTrace = null, TextWriter? writer = null)
+    public static int EmitError(string code, string message, bool isJson, int exitCode, string? stackTrace = null, TextWriter? writer = null, bool verboseErrors = false)
     {
         if (isJson)
         {
-            CliJsonSerializer.EmitError(code, message, stackTrace, writer);
+            CliJsonSerializer.EmitError(code, EntryNameSanitizer.Sanitize(message), verboseErrors ? stackTrace : null, writer);
         }
         else
         {
+            var sanitized = EntryNameSanitizer.SingleLine(message);
+
             if (code == "SECURITY_VIOLATION")
             {
-                AnsiConsole.MarkupLine($"[red]Security Violation:[/] {Markup.Escape(message)}");
+                AnsiConsole.MarkupLine($"[red]Security Violation:[/] {Markup.Escape(sanitized)}");
             }
             else
             {
-                AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(message)}");
+                AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(sanitized)}");
             }
         }
         return exitCode;

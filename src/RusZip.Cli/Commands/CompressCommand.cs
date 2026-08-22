@@ -111,7 +111,7 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     .Border(TableBorder.Rounded)
                     .AddColumn("Metric")
                     .AddColumn("Value")
-                    .AddRow("Archive Path", Markup.Escape(result.ArchivePath))
+                    .AddRow("Archive Path", Markup.Escape(EntryNameSanitizer.Sanitize(result.ArchivePath)))
                     .AddRow("Total Files", result.TotalFiles.ToString("N0"))
                     .AddRow("Uncompressed Size", DataMetricsFormatter.FormatBytes(result.UncompressedBytes))
                     .AddRow("Compressed Size", DataMetricsFormatter.FormatBytes(result.CompressedBytes))
@@ -119,7 +119,8 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     .AddRow("Time Elapsed", $"{elapsedMs} ms");
 
                 AnsiConsole.Write(new Panel(summaryTable).Header("[bold green]Compression Summary[/]"));
-            }
+            },
+            verboseErrors: settings.VerboseErrors
         );
     }
 }

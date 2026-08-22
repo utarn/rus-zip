@@ -145,6 +145,32 @@ public class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task StatusText_StripsControlBytesAndCollapsesToSingleLine()
+    {
+        char esc = (char)0x1b;
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine
+            {
+                ExceptionToThrow = new InvalidDataException($"boom{esc}[31m{esc}[0m\nsecond line")
+            };
+
+            var vm = new MainWindowViewModel(fakeEngine);
+            await vm.OpenArchiveAsync(tempFile);
+
+            Assert.Contains("Failed to open archive: boom[31m[0m second line", vm.StatusText);
+            Assert.DoesNotContain(esc, vm.StatusText);
+            Assert.DoesNotContain('\n', vm.StatusText);
+            Assert.DoesNotContain('\r', vm.StatusText);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public async Task HandleDroppedPathsAsync_SupportedArchive_OpensDirectly()
     {
         var tempFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.zrus");

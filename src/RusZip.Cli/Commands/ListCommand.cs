@@ -43,7 +43,7 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
 
                 string formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
                 var entryItems = entries.Select(e => new ListEntryItem(
-                    Path: e.RelativePath,
+                    Path: EntryNameSanitizer.Sanitize(e.RelativePath),
                     IsDirectory: e.IsDirectory,
                     UncompressedSize: e.UncompressedSize,
                     CompressedSize: e.CompressedSize,
@@ -63,7 +63,7 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
             {
                 var table = new Table()
                     .Border(TableBorder.Rounded)
-                    .Title($"[bold cyan]{Markup.Escape(Path.GetFileName(result.ArchivePath))}[/]")
+                    .Title($"[bold cyan]{Markup.Escape(EntryNameSanitizer.Sanitize(Path.GetFileName(result.ArchivePath)))}[/]")
                     .AddColumn(new TableColumn("Path").LeftAligned())
                     .AddColumn(new TableColumn("Size").RightAligned())
                     .AddColumn(new TableColumn("Modified").RightAligned());
@@ -79,7 +79,8 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
 
                 AnsiConsole.Write(table);
                 AnsiConsole.MarkupLine($"\n[dim]Total: {result.TotalEntries:N0} entries ({DataMetricsFormatter.FormatBytes(result.TotalUncompressedBytes)})[/]");
-            }
+            },
+            verboseErrors: settings.VerboseErrors
         );
     }
 }

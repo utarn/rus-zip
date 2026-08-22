@@ -39,7 +39,7 @@ public static class CliProgressBridge
                         task.IsIndeterminate = true;
                         if (!string.IsNullOrEmpty(report.CurrentFileName))
                         {
-                            task.Description = $"[cyan]{Markup.Escape(title)}:[/] [dim]{Markup.Escape(Path.GetFileName(report.CurrentFileName))}[/]";
+                            task.Description = $"[cyan]{Markup.Escape(title)}:[/] [dim]{Markup.Escape(EntryNameSanitizer.Sanitize(Path.GetFileName(report.CurrentFileName)))}[/]";
                         }
                     }
                     else
@@ -49,7 +49,7 @@ public static class CliProgressBridge
                         task.Value = Math.Clamp(report.ProcessedBytes, 0, report.TotalBytes);
 
                         var filePart = !string.IsNullOrEmpty(report.CurrentFileName)
-                            ? $" [dim]({Markup.Escape(Path.GetFileName(report.CurrentFileName))})[/]"
+                            ? $" [dim]({Markup.Escape(EntryNameSanitizer.Sanitize(Path.GetFileName(report.CurrentFileName)))})[/]"
                             : string.Empty;
 
                         // Metadata-derived pre-scan totals are spoofable, so they are surfaced as
