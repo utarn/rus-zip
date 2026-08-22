@@ -21,11 +21,12 @@ Following the deep module philosophy (`/codebase-design`):
 - **Interfaces & Types**:
   - `ExtractionEntry(string RelativePath, bool IsDirectory, long UncompressedSize, DateTimeOffset? ModificationTime, UnixFileMode? UnixMode, Func<CancellationToken, ValueTask<Stream>> OpenStreamAsync)`
   - `IArchiveExtractionSource { IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync(CancellationToken ct); }`
-  - `SafeArchiveExtractor.ExtractAllAsync(IArchiveExtractionSource source, string destinationDirectory, bool overwrite, long totalBytes, IProgress<ProgressReport>? progress, CancellationToken ct)`
+  - `SafeArchiveExtractor.ExtractAllAsync(IArchiveExtractionSource source, string destinationDirectory, bool overwrite, long totalBytes, IProgress<ProgressReport>? progress, CancellationToken ct = default, ExtractionLimits? limits = null, bool totalIsEstimate = false)` returning `Task<ExtractionResult>` (actual streamed bytes/files/entries, never header metadata)
 - **Invariants**:
   - **Path Traversal (Zip-Slip)**: Verifies destination root prefix before opening any file stream; throws `SecurityException` upon malicious path detection.
   - **Buffer Pooling**: Rents 80 KB (`ArrayPool<byte>.Shared`) buffers for zero-allocation stream copying.
   - **Metadata Restoration**: Two-pass model restores file timestamps immediately and directory timestamps/POSIX modes in bottom-up (reverse depth) order.
+  - **Extraction Guardrails**: Caps cumulative uncompressed output (default 64 GB) and entry count (default 1,000,000), measured from actual streamed bytes and processed entries; exceeding either aborts with `ExtractionLimitExceededException` and cleans up partial output. A `0`/`null` limit means unlimited (see ADR-0007).
 
 ### 2.2 Format Capability Model (`ArchiveFormatRegistry`)
 - **Location**: `RusZip.Core/Models/ArchiveFormatRegistry.cs`
@@ -57,17 +58,19 @@ Following the deep module philosophy (`/codebase-design`):
   - `ArchiveHierarchy.BuildTree(IEnumerable<ArchiveEntry> entries, string? filterText = null)`
 - **Leverage**:
   - Removes 70 lines of path tokenization from `ArchiveBrowserViewModel`.
-  - Enables CLI tree view (`rus-zip list --tree`) and headless testing.
+  - Enables headless testing of tree operations. A CLI tree view (`rus-zip list --tree`) is
+    future work (per PRD #31) and no such flag ships today.
 
 ### 2.5 CLI Command Execution Pipeline (`CliCommandRunner`)
 - **Location**: `RusZip.Cli/Infrastructure/CliCommandRunner.cs`
 - **Purpose**: Collapses command lifecycle management, timing, progress bridge dispatch, and exception-to-exit-code translation.
 - **Interfaces & Types**:
-  - `CliCommandRunner.RunAsync<TResult>(string title, bool isJson, Func<IProgress<ProgressReport>?, CancellationToken, Task<TResult>> operation, Action<TResult, long>? renderConsoleSummary, CancellationToken ct, TextWriter? writer)`
-  - `CliCommandRunner.HandleException(Exception ex, bool isJson, TextWriter? writer)`
-  - `CliCommandRunner.EmitError(string code, string message, bool isJson, int exitCode, string? stackTrace, TextWriter? writer)`
+  - `CliCommandRunner.RunAsync<TResult>(string operationTitle, bool isJson, Func<IProgress<ProgressReport>?, CancellationToken, Task<TResult>> operation, Action<TResult, long>? renderConsoleSummary = null, CancellationToken ct = default, TextWriter? outputWriter = null, bool verboseErrors = false)`
+  - `CliCommandRunner.HandleException(Exception ex, bool isJson, TextWriter? writer = null, bool verboseErrors = false)`
+  - `CliCommandRunner.EmitError(string code, string message, bool isJson, int exitCode, string? stackTrace = null, TextWriter? writer = null, bool verboseErrors = false)`
 - **Leverage**:
   - Standardizes exit codes: `SOURCE_NOT_FOUND` (2), `ARGUMENT_ERROR` (2), `UNSUPPORTED_FORMAT` (2), `SECURITY_VIOLATION` (1), `EXECUTION_ERROR` (1).
+  - `ArchiveIntegrityException` (integrity verification) and `ExtractionLimitExceededException` (extraction guardrails) both map to `EXECUTION_ERROR` (1).
   - Turns `CompressCommand`, `ExtractCommand`, and `ListCommand` into declarative parameter mappers.
 
 ---
