@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -8,13 +9,53 @@ namespace RusZip.Desktop.Views;
 
 public partial class MainWindow : Window
 {
+    public const double MacOsTrafficLightMargin = 76.0;
+
     public MainWindow()
     {
         InitializeComponent();
 
+        ApplyPlatformWindowChrome();
+        Loaded += (_, _) => ApplyPlatformWindowChrome();
+
         DragDrop.SetAllowDrop(this, true);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
+    }
+
+    public void ApplyPlatformWindowChrome(bool? isMacOSOverride = null)
+    {
+        var isMacOS = isMacOSOverride ?? OperatingSystem.IsMacOS();
+        var contentGrid = this.FindControl<Grid>("TitleBarContentGrid");
+        if (contentGrid != null)
+        {
+            contentGrid.Margin = GetPlatformTitleBarMargin(isMacOS);
+        }
+    }
+
+    public static Thickness GetPlatformTitleBarMargin(bool isMacOS)
+    {
+        return isMacOS ? new Thickness(MacOsTrafficLightMargin, 0, 0, 0) : new Thickness(0);
+    }
+
+    public void OnTitleBarPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            if (e.ClickCount == 2)
+            {
+                if (CanResize)
+                {
+                    WindowState = WindowState == WindowState.Maximized
+                        ? WindowState.Normal
+                        : WindowState.Maximized;
+                }
+            }
+            else
+            {
+                BeginMoveDrag(e);
+            }
+        }
     }
 
     protected override void OnDataContextChanged(EventArgs e)
