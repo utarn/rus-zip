@@ -239,7 +239,7 @@ public static class SafeArchiveExtractor
             }
         }
 
-        var targetPath = Path.GetFullPath(Path.Combine(destDir, entryName));
+        var targetPath = ResolvePath(destDir, entryName, originalPath);
 
         // 2. Path traversal security check (lexical prefix)
         if (!targetPath.StartsWith(normalizedDestDir, StringComparison.OrdinalIgnoreCase) &&
@@ -260,6 +260,32 @@ public static class SafeArchiveExtractor
         }
 
         return targetPath;
+    }
+
+    /// <summary>
+    /// Combines <paramref name="destDir"/> and <paramref name="entryName"/> and normalizes the result to
+    /// an absolute path, converting path-construction failures that originate from archive entry data
+    /// into <see cref="ArchiveIntegrityException"/>.
+    /// </summary>
+    /// <remarks>
+    /// F-10: an entry name from a malformed archive can contain characters the OS path APIs reject
+    /// (e.g. a NUL byte), which surfaces as <see cref="ArgumentException"/> ("Null character in path").
+    /// That failure originates from archive data, not from user-supplied arguments, so it must be
+    /// classified as an engine error (exit 1) rather than leak as an argument error (exit 2).
+    /// </remarks>
+    private static string ResolvePath(string destDir, string entryName, string originalPath)
+    {
+        try
+        {
+            return Path.GetFullPath(Path.Combine(destDir, entryName));
+        }
+        catch (ArgumentException ex)
+        {
+            throw new ArchiveIntegrityException(
+                $"Archive entry '{originalPath}' has an invalid path: {ex.Message}",
+                originalPath,
+                ex);
+        }
     }
 
     /// <summary>

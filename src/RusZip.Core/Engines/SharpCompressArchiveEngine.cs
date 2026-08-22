@@ -925,16 +925,54 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         return true;
     }
 
-    private static bool IsPasswordOrEncryptedException(Exception ex)
+    /// <summary>
+    /// Determines whether <paramref name="ex"/> indicates an encrypted or password-protected archive
+    /// (as opposed to corruption, cancellation, or a security violation).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Typed signals are checked first. SharpCompress raises <see cref="SharpCompress.Common.CryptographicException"/>
+    /// for AES-encrypted 7z/RAR5 archives opened without a password, and
+    /// <see cref="System.Security.Cryptography.CryptographicException"/> surfaces from the underlying crypto
+    /// primitives when decryption fails.
+    /// </para>
+    /// <para>
+    /// SharpCompress does not surface a typed signal for every encrypted-archive scenario, so a narrow
+    /// message/stack fallback is retained (F-18): a missing crypto-info block can surface as a bare
+    /// <see cref="ArgumentNullException"/> from its <c>DecoderRegistry</c>, and the password path is the
+    /// only place <c>IPasswordProvider</c> appears in a stack. The patterns are deliberately specific so
+    /// an unrelated exception whose message merely contains "password" or "encrypted" is never
+    /// misclassified as an unsupported encrypted archive.
+    /// </para>
+    /// </remarks>
+    internal static bool IsPasswordOrEncryptedException(Exception ex)
     {
-        return ex is SharpCompress.Common.CryptographicException or System.Security.Cryptography.CryptographicException
-            || ex.GetType().Name.Contains("Cryptographic", StringComparison.OrdinalIgnoreCase)
-            || ex.GetType().Name.Contains("Password", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("encrypted", StringComparison.OrdinalIgnoreCase)
-            || (ex is ArgumentNullException && ex.StackTrace?.Contains("DecoderRegistry", StringComparison.OrdinalIgnoreCase) == true)
-            || ex.StackTrace?.Contains("IPasswordProvider", StringComparison.OrdinalIgnoreCase) == true
-            || (ex.InnerException is not null && IsPasswordOrEncryptedException(ex.InnerException));
+        // 1. Typed signals first.
+        if (ex is SharpCompress.Common.CryptographicException
+            or System.Security.Cryptography.CryptographicException)
+        {
+            return true;
+        }
+
+        // 2. Narrow fallback for cases where SharpCompress lacks a typed signal (see remarks).
+        if (ex is ArgumentNullException
+            && ex.StackTrace?.Contains("DecoderRegistry", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return true;
+        }
+
+        if (ex.StackTrace?.Contains("IPasswordProvider", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return true;
+        }
+
+        if (ex.Message.Contains("no password specified", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // 3. Recurse into the inner chain — SharpCompress often wraps the root cause.
+        return ex.InnerException is not null && IsPasswordOrEncryptedException(ex.InnerException);
     }
 
     /// <summary>

@@ -71,6 +71,73 @@ public class CliCommandRunnerTests : CliTestBase
     }
 
     [Fact]
+    public void HandleException_UnwrapsCommandAppException_WrappingSecurityException_MapsToExit1SecurityViolation()
+    {
+        // F-17: a CommandAppException that is *not* a CommandRuntimeException (here
+        // CommandConfigurationException) wrapping a SecurityException must unwrap to the inner cause
+        // and map to SECURITY_VIOLATION (exit 1), not fall through to the wrapper's ARGUMENT_ERROR (2).
+        var ex = CreateCommandAppException(new SecurityException("Elevated path denied"));
+
+        using var sw = new StringWriter();
+
+        int code = CliCommandRunner.HandleException(ex, isJson: true, writer: sw);
+
+        Assert.Equal(1, code);
+        var err = CliTestBase.ParseJson<ErrorResult>(sw.ToString());
+        Assert.Equal("SECURITY_VIOLATION", err.Error.Code);
+        Assert.Contains("Elevated path denied", err.Error.Message);
+    }
+
+    [Fact]
+    public void HandleException_UnwrapsCommandAppException_WrappingFileNotFound_MapsToExit2SourceNotFound()
+    {
+        // F-17: uniform unwrapping must also preserve correct translation for a non-command error
+        // wrapped inside a CommandAppException — the inner FileNotFoundException (not the wrapper)
+        // drives the SOURCE_NOT_FOUND classification.
+        var ex = CreateCommandAppException(new FileNotFoundException("Missing target"));
+
+        using var sw = new StringWriter();
+
+        int code = CliCommandRunner.HandleException(ex, isJson: true, writer: sw);
+
+        Assert.Equal(2, code);
+        var err = CliTestBase.ParseJson<ErrorResult>(sw.ToString());
+        Assert.Equal("SOURCE_NOT_FOUND", err.Error.Code);
+        Assert.Contains("Missing target", err.Error.Message);
+    }
+
+    [Fact]
+    public void HandleException_CommandAppException_WithoutInner_MapsToExit2ArgumentError()
+    {
+        // A bare CommandAppException (no inner cause) must still map to ARGUMENT_ERROR (2).
+        var ex = CreateCommandAppException(inner: null);
+
+        using var sw = new StringWriter();
+
+        int code = CliCommandRunner.HandleException(ex, isJson: true, writer: sw);
+
+        Assert.Equal(2, code);
+        Assert.Contains("ARGUMENT_ERROR", sw.ToString());
+    }
+
+    private static Exception CreateCommandAppException(Exception? inner, string message = "Command wrapper")
+    {
+        var ctor = typeof(CommandConfigurationException).GetConstructors(
+                System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.Public)
+            .FirstOrDefault(c => c.GetParameters().Any(p => typeof(Exception).IsAssignableFrom(p.ParameterType)))
+            ?? throw new InvalidOperationException("No matching ctor on CommandConfigurationException");
+
+        var args = ctor.GetParameters().Select(p =>
+            typeof(Exception).IsAssignableFrom(p.ParameterType) ? (object?)inner :
+            p.ParameterType == typeof(string) ? (object)message : null
+        ).ToArray();
+
+        return (Exception)ctor.Invoke(args);
+    }
+
+    [Fact]
     public async Task RunAsync_DirectInvocation_EmitsJsonToWriter()
     {
         using var sw = new StringWriter();

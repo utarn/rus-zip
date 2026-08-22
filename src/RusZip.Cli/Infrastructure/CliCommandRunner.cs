@@ -68,9 +68,17 @@ public static class CliCommandRunner
 
     public static int HandleException(Exception ex, bool isJson, TextWriter? writer = null, bool verboseErrors = false)
     {
-        var actual = ex is CommandRuntimeException runtimeEx && runtimeEx.InnerException != null
-            ? runtimeEx.InnerException
-            : ex;
+        // F-17: unwrap Spectre wrapper exceptions uniformly so classification is driven by the
+        // innermost cause. CommandRuntimeException is a CommandAppException, but we name both for
+        // clarity; every concrete wrapper (parse/runtime/config/template) is unwrapped until a
+        // domain exception or a wrapper with no inner exception is reached. This fixes a
+        // CommandAppException wrapping a SecurityException mapping to ARGUMENT_ERROR(2) instead
+        // of SECURITY_VIOLATION(1).
+        var actual = ex;
+        while ((actual is CommandRuntimeException or CommandAppException) && actual.InnerException is not null)
+        {
+            actual = actual.InnerException;
+        }
 
         return actual switch
         {

@@ -500,6 +500,29 @@ public sealed class ExtractCommandTests : CliTestBase
     }
 
     [Fact]
+    public async Task Extract_ZipEntryWithNullCharacterInName_ReturnsExitCode1_AndExecutionError_AndCleansUp()
+    {
+        // F-10 (translation half): a corrupt archive whose entry name contains a NUL byte surfaces as
+        // ArgumentException ("Null character in path") from path resolution inside the engine. Because
+        // the failure originates from archive data (engine boundary) — not a user-supplied bad path —
+        // it must map to EXECUTION_ERROR (1), not ARGUMENT_ERROR (2), and partial output must be cleaned up.
+        var archivePath = Path.Combine(TempDirectory, "null_char_entry.zip");
+        TestArchiveFixtures.CreateZipArchiveWithEntryName(archivePath, "bad\u0000name.txt", "payload");
+        var outDir = Path.Combine(TempDirectory, "null_char_out");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("invalid path", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Directory.GetFiles(outDir, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
     public async Task Extract_EmptyZip_ReturnsExitCode0()
     {
         // A genuinely empty zip must keep working (zero-entry success is legal only for empty archives).
