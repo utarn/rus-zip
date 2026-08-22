@@ -8,6 +8,17 @@ public static class SafeArchiveExtractor
 {
     public const int BufferSize = 81920; // 80 KB
 
+    /// <summary>
+    /// Extracts all entries from <paramref name="source"/> into <paramref name="destinationDirectory"/>.
+    /// </summary>
+    /// <remarks>
+    /// Partial-cleanup semantics: if extraction aborts with a <see cref="SecurityException"/> (a malicious
+    /// entry name or a symlinked/reparse-point path component under the destination), any files and
+    /// directories that this invocation created are removed best-effort before the exception propagates.
+    /// Cleanup is best-effort only: paths that pre-existed before the call are left untouched (an
+    /// overwritten pre-existing file cannot be restored and is not deleted), and a file that is locked or
+    /// in use may survive cleanup.
+    /// </remarks>
     public static async Task ExtractAllAsync(
         IArchiveExtractionSource source,
         string destinationDirectory,
@@ -26,6 +37,7 @@ public static class SafeArchiveExtractor
         long processedBytes = 0;
         int processedFiles = 0;
         var extractedDirectories = new List<(string TargetPath, DateTimeOffset? ModTime, UnixFileMode? Mode)>();
+        var createdPaths = new List<string>();
         byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
 
         try
@@ -38,19 +50,15 @@ public static class SafeArchiveExtractor
                     continue;
 
                 var entryName = entry.RelativePath.Replace('\\', '/');
-                var targetPath = Path.GetFullPath(Path.Combine(destDir, entryName));
+                var targetPath = ResolveAndValidateTargetPath(destDir, normalizedDestDir, entryName, entry.RelativePath);
 
-                // 1. Path traversal security check
-                if (!targetPath.StartsWith(normalizedDestDir, StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(targetPath, destDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new SecurityException($"Malicious entry detected. Malicious path traversal detected in archive entry: {entry.RelativePath}");
-                }
+                // Refuse to write through a symlinked/reparse-point path component under destDir.
+                EnsureNoSymlinkedPathComponents(destDir, targetPath);
 
                 // 2. Directory handling
                 if (entry.IsDirectory || entryName.EndsWith('/') || Directory.Exists(targetPath))
                 {
-                    Directory.CreateDirectory(targetPath);
+                    EnsureDirectoryExists(targetPath, createdPaths);
                     if (entry.ModificationTime.HasValue || entry.UnixMode.HasValue)
                     {
                         extractedDirectories.Add((targetPath, entry.ModificationTime, entry.UnixMode));
@@ -62,7 +70,7 @@ public static class SafeArchiveExtractor
                 var parentDir = Path.GetDirectoryName(targetPath);
                 if (!string.IsNullOrEmpty(parentDir))
                 {
-                    Directory.CreateDirectory(parentDir);
+                    EnsureDirectoryExists(parentDir, createdPaths);
                 }
 
                 // 4. Overwrite check
@@ -72,6 +80,7 @@ public static class SafeArchiveExtractor
                 }
 
                 // 5. Stream writing with buffer pooling & progress reporting
+                var fileExistedBefore = File.Exists(targetPath);
                 await using (var entryStream = await entry.OpenStreamAsync(ct))
                 await using (var outFs = new FileStream(
                     targetPath,
@@ -97,6 +106,9 @@ public static class SafeArchiveExtractor
                         ));
                     }
                 }
+
+                if (!fileExistedBefore)
+                    createdPaths.Add(targetPath);
 
                 processedFiles++;
 
@@ -134,9 +146,143 @@ public static class SafeArchiveExtractor
                 }
             }
         }
+        catch (SecurityException)
+        {
+            CleanupCreatedPaths(createdPaths);
+            throw;
+        }
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    /// <summary>
+    /// Resolves the absolute target path for an entry and validates it stays inside <paramref name="destDir"/>.
+    /// </summary>
+    /// <remarks>
+    /// Three layers of defense:
+    /// 1. Lexical component rejection: any path component ending in '.' or ' ' (excluding '.'/'..' themselves)
+    ///    is rejected. On Windows, Win32 normalizes trailing dots/spaces, so ".. " resolves to the parent
+    ///    directory and "file." to "file"; on Unix these become literal, confusingly-named entries. Rejecting
+    ///    them everywhere keeps behavior consistent and safe on all operating systems.
+    /// 2. Prefix containment check (legacy) against the normalized destination root.
+    /// 3. Defense-in-depth containment re-check using <see cref="Path.GetRelativePath"/>: the relative path
+    ///    must not be rooted and must not begin with a ".." path segment.
+    /// </remarks>
+    private static string ResolveAndValidateTargetPath(string destDir, string normalizedDestDir, string entryName, string originalPath)
+    {
+        // 1. Reject path components ending in '.' or ' ' (trailing dots/spaces are normalized by
+        //    Win32 into traversal or name collisions; rejecting them uniformly on all OSes is safest).
+        var components = entryName.Split('/');
+        foreach (var component in components)
+        {
+            if (component.Length == 0 || component == "." || component == "..")
+                continue;
+
+            if (component[^1] is '.' or ' ')
+            {
+                throw new SecurityException($"Malicious entry detected. Malicious path traversal detected in archive entry: {originalPath}");
+            }
+        }
+
+        var targetPath = Path.GetFullPath(Path.Combine(destDir, entryName));
+
+        // 2. Path traversal security check (lexical prefix)
+        if (!targetPath.StartsWith(normalizedDestDir, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(targetPath, destDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SecurityException($"Malicious entry detected. Malicious path traversal detected in archive entry: {originalPath}");
+        }
+
+        // 3. Defense in depth: re-verify containment via Path.GetRelativePath. The relative path must
+        //    not be rooted (e.g. different drive) and must not begin with a ".." path segment.
+        var relativePath = Path.GetRelativePath(destDir, targetPath);
+        if (Path.IsPathRooted(relativePath) ||
+            relativePath.Equals("..", StringComparison.Ordinal) ||
+            relativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) ||
+            relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal))
+        {
+            throw new SecurityException($"Malicious entry detected. Malicious path traversal detected in archive entry: {originalPath}");
+        }
+
+        return targetPath;
+    }
+
+    /// <summary>
+    /// Walks every path component of <paramref name="targetPath"/> below <paramref name="destDir"/> and
+    /// rejects the write if any existing component is a symlink or reparse point. Prevents a hostile
+    /// pre-seeded destination (e.g. <c>dest/evil → /etc</c>) from redirecting writes outside the destination.
+    /// </summary>
+    private static void EnsureNoSymlinkedPathComponents(string destDir, string targetPath)
+    {
+        var relative = Path.GetRelativePath(destDir, targetPath);
+        if (relative == ".")
+            return;
+
+        var current = destDir;
+        foreach (var component in relative.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, component);
+            if (IsSymlinkOrReparsePoint(current))
+            {
+                throw new SecurityException($"Malicious entry detected. Refusing to extract through symlinked path component: {current}");
+            }
+        }
+    }
+
+    private static bool IsSymlinkOrReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Creates <paramref name="path"/> and any missing ancestor directories, tracking each directory that
+    /// this call actually created so it can be cleaned up if extraction aborts.
+    /// </summary>
+    private static void EnsureDirectoryExists(string path, List<string> createdPaths)
+    {
+        if (Directory.Exists(path))
+            return;
+
+        var parent = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(parent))
+            EnsureDirectoryExists(parent, createdPaths);
+
+        Directory.CreateDirectory(path);
+        createdPaths.Add(path);
+    }
+
+    /// <summary>
+    /// Best-effort removal of paths created by this extraction invocation. Deepest paths are removed first
+    /// so parent directories are emptied before being deleted.
+    /// </summary>
+    private static void CleanupCreatedPaths(List<string> createdPaths)
+    {
+        foreach (var path in createdPaths.OrderByDescending(p => p.Length))
+        {
+            try
+            {
+                if (Directory.Exists(path))
+                    Directory.Delete(path, recursive: true);
+                else if (File.Exists(path))
+                    File.Delete(path);
+            }
+            catch
+            {
+                // Best-effort cleanup; ignore failures (locked/in-use files may survive).
+            }
         }
     }
 }
