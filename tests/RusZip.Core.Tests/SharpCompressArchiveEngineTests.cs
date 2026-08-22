@@ -953,6 +953,184 @@ public class SharpCompressArchiveEngineTests : IDisposable
 
     #endregion
 
+    #region Selective extraction (entry filter)
+
+    [Fact]
+    public async Task Zip_Extract_WithSingleFileFilter_ExtractsOnlyThatFile()
+    {
+        var sourceDir = Path.Combine(_testDir, "zip_filter_single_src");
+        Directory.CreateDirectory(Path.Combine(sourceDir, "folder"));
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "a.txt"), "alpha");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "b.txt"), "beta");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "folder", "c.txt"), "gamma");
+
+        var zipPath = Path.Combine(_testDir, "zip_filter_single.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9));
+
+        var extractDir = Path.Combine(_testDir, "zip_filter_single_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir, Entries: ["b.txt"]));
+
+        Assert.Equal(1, result.FilesExtracted);
+        Assert.Equal("beta", await File.ReadAllTextAsync(Path.Combine(extractDir, "b.txt")));
+        Assert.False(File.Exists(Path.Combine(extractDir, "a.txt")));
+        Assert.False(Directory.Exists(Path.Combine(extractDir, "folder")));
+    }
+
+    [Fact]
+    public async Task Zip_Extract_WithFolderSubtreeFilter_ExtractsSubtreeOnly()
+    {
+        var sourceDir = Path.Combine(_testDir, "zip_filter_folder_src");
+        Directory.CreateDirectory(Path.Combine(sourceDir, "sub", "deep"));
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "root.txt"), "root");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "sub", "one.txt"), "one");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "sub", "deep", "two.txt"), "two");
+
+        var zipPath = Path.Combine(_testDir, "zip_filter_folder.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9));
+
+        var extractDir = Path.Combine(_testDir, "zip_filter_folder_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir, Entries: ["sub"]));
+
+        Assert.Equal(2, result.FilesExtracted);
+        Assert.True(File.Exists(Path.Combine(extractDir, "sub", "one.txt")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "sub", "deep", "two.txt")));
+        Assert.False(File.Exists(Path.Combine(extractDir, "root.txt")));
+    }
+
+    [Fact]
+    public async Task Zip_Extract_WithNoMatchFilter_ThrowsInvalidOperationException()
+    {
+        var sourceDir = Path.Combine(_testDir, "zip_filter_nomatch_src");
+        Directory.CreateDirectory(sourceDir);
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "a.txt"), "alpha");
+
+        var zipPath = Path.Combine(_testDir, "zip_filter_nomatch.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9));
+
+        var extractDir = Path.Combine(_testDir, "zip_filter_nomatch_out");
+        var req = new ArchiveExtractionRequest(zipPath, extractDir, Entries: ["nonexistent.txt"]);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _engine.ExtractAsync(req));
+        Assert.Contains("No archive entries matched", ex.Message);
+        Assert.Empty(Directory.GetFileSystemEntries(extractDir));
+    }
+
+    [Fact]
+    public async Task Zip_Extract_FilterWithTraversalName_StillRefused()
+    {
+        var zipPath = Path.Combine(_testDir, "zip_filter_slip.zip");
+        TestArchiveFixtures.CreateZipSlipArchive(zipPath, "../../evil.txt");
+
+        var extractDir = Path.Combine(_testDir, "zip_filter_slip_out");
+        Directory.CreateDirectory(extractDir);
+
+        // The filter matches the malicious entry, but SafeArchiveExtractor must still refuse it.
+        var req = new ArchiveExtractionRequest(zipPath, extractDir, Entries: ["../../evil.txt"]);
+        var ex = await Assert.ThrowsAsync<SecurityException>(() => _engine.ExtractAsync(req));
+        Assert.Contains("Malicious entry detected", ex.Message);
+    }
+
+    [Fact]
+    public async Task Zip_Extract_NullFilter_ExtractsAllEntries()
+    {
+        var sourceDir = Path.Combine(_testDir, "zip_filter_null_src");
+        Directory.CreateDirectory(Path.Combine(sourceDir, "sub"));
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "a.txt"), "alpha");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "sub", "b.txt"), "beta");
+
+        var zipPath = Path.Combine(_testDir, "zip_filter_null.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9));
+
+        var extractDir = Path.Combine(_testDir, "zip_filter_null_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir, Entries: null));
+
+        Assert.Equal(2, result.FilesExtracted);
+        Assert.True(File.Exists(Path.Combine(extractDir, "a.txt")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "sub", "b.txt")));
+    }
+
+    [Fact]
+    public async Task TarGz_Extract_WithSingleFileFilter_ExtractsOnlyThatFile()
+    {
+        var tarGzPath = Path.Combine(_testDir, "targz_filter_single.tar.gz");
+        var files = new Dictionary<string, string>
+        {
+            ["file1.txt"] = "one",
+            ["nested/file2.txt"] = "two"
+        };
+        await TestArchiveFixtures.CreateTarGzArchiveAsync(tarGzPath, files);
+
+        var extractDir = Path.Combine(_testDir, "targz_filter_single_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(tarGzPath, extractDir, Entries: ["nested/file2.txt"]));
+
+        Assert.Equal(1, result.FilesExtracted);
+        Assert.Equal("two", await File.ReadAllTextAsync(Path.Combine(extractDir, "nested", "file2.txt")));
+        Assert.False(File.Exists(Path.Combine(extractDir, "file1.txt")));
+    }
+
+    [Fact]
+    public async Task TarGz_Extract_WithFolderSubtreeFilter_ExtractsSubtreeOnly()
+    {
+        var tarGzPath = Path.Combine(_testDir, "targz_filter_folder.tar.gz");
+        var files = new Dictionary<string, string>
+        {
+            ["root.txt"] = "root",
+            ["sub/one.txt"] = "one",
+            ["sub/deep/two.txt"] = "two"
+        };
+        await TestArchiveFixtures.CreateTarGzArchiveAsync(tarGzPath, files);
+
+        var extractDir = Path.Combine(_testDir, "targz_filter_folder_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(tarGzPath, extractDir, Entries: ["sub"]));
+
+        Assert.Equal(2, result.FilesExtracted);
+        Assert.True(File.Exists(Path.Combine(extractDir, "sub", "one.txt")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "sub", "deep", "two.txt")));
+        Assert.False(File.Exists(Path.Combine(extractDir, "root.txt")));
+    }
+
+    [Fact]
+    public async Task TarGz_Extract_WithNoMatchFilter_ThrowsInvalidOperationException()
+    {
+        var tarGzPath = Path.Combine(_testDir, "targz_filter_nomatch.tar.gz");
+        var files = new Dictionary<string, string> { ["file1.txt"] = "one" };
+        await TestArchiveFixtures.CreateTarGzArchiveAsync(tarGzPath, files);
+
+        var extractDir = Path.Combine(_testDir, "targz_filter_nomatch_out");
+        var req = new ArchiveExtractionRequest(tarGzPath, extractDir, Entries: ["nonexistent.txt"]);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _engine.ExtractAsync(req));
+        Assert.Contains("No archive entries matched", ex.Message);
+    }
+
+    [Fact]
+    public async Task Gz_Extract_WithMatchingFilter_ExtractsFile()
+    {
+        var gzPath = Path.Combine(_testDir, "doc.txt.gz");
+        await TestArchiveFixtures.CreateGzArchiveAsync(gzPath, "gz filtered content");
+
+        var extractDir = Path.Combine(_testDir, "gz_filter_match_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(gzPath, extractDir, Entries: ["doc.txt"]));
+
+        Assert.Equal(1, result.FilesExtracted);
+        Assert.Equal("gz filtered content", await File.ReadAllTextAsync(Path.Combine(extractDir, "doc.txt")));
+    }
+
+    [Fact]
+    public async Task Gz_Extract_WithNonMatchingFilter_ThrowsInvalidOperationException()
+    {
+        var gzPath = Path.Combine(_testDir, "doc.txt.gz");
+        await TestArchiveFixtures.CreateGzArchiveAsync(gzPath, "gz content");
+
+        var extractDir = Path.Combine(_testDir, "gz_filter_nomatch_out");
+        var req = new ArchiveExtractionRequest(gzPath, extractDir, Entries: ["other.txt"]);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _engine.ExtractAsync(req));
+        Assert.Contains("No archive entries matched", ex.Message);
+    }
+
+    #endregion
+
     private sealed class SyncProgress<T>(Action<T> handler) : IProgress<T>
     {
         public void Report(T value) => handler(value);

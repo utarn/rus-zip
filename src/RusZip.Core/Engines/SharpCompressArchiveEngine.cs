@@ -226,12 +226,12 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
 
         if (format == ArchiveFormat.TarGz)
         {
-            return await ExtractTarGzAsync(archivePath, destDir, request.Overwrite, request.Limits, progress, ct);
+            return await ExtractTarGzAsync(archivePath, destDir, request.Overwrite, request.Limits, request.Entries, progress, ct);
         }
 
         if (format == ArchiveFormat.Gz)
         {
-            return await ExtractGzAsync(archivePath, destDir, request.Overwrite, request.Limits, progress, ct);
+            return await ExtractGzAsync(archivePath, destDir, request.Overwrite, request.Limits, request.Entries, progress, ct);
         }
 
         var readerOptions = new ReaderOptions { LeaveStreamOpen = false };
@@ -284,6 +284,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
 
                     foreach (var e in allEntries)
                     {
+                        // With a selective-extraction filter, entries outside the filter are ignored
+                        // entirely — an unrelated encrypted entry cannot block a filtered extraction.
+                        if (!EntryFilter.IsMatch(e.Key ?? string.Empty, request.Entries))
+                            continue;
+
                         if (e.IsEncrypted)
                         {
                             throw new NotSupportedException($"The entry '{e.Key}' is password-protected. Encrypted archives are not supported.");
@@ -316,7 +321,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     totalBytes = -1;
                 }
 
-                var source = new SharpCompressExtractionSource(archive, archivePath);
+                var source = new SharpCompressExtractionSource(archive, archivePath, request.Entries);
 
                 return await SafeArchiveExtractor.ExtractAllAsync(
                     source,
@@ -429,10 +434,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         string destinationDir,
         bool overwrite,
         ExtractionLimits? limits,
+        IReadOnlyList<string>? entries,
         IProgress<DomainProgressReport>? progress,
         CancellationToken ct)
     {
-        var source = new TarGzExtractionSource(archivePath);
+        var source = new TarGzExtractionSource(archivePath, entries);
         return await SafeArchiveExtractor.ExtractAllAsync(
             source,
             destinationDir,
@@ -448,10 +454,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         string destinationDir,
         bool overwrite,
         ExtractionLimits? limits,
+        IReadOnlyList<string>? entries,
         IProgress<DomainProgressReport>? progress,
         CancellationToken ct)
     {
-        var source = new GzExtractionSource(archivePath);
+        var source = new GzExtractionSource(archivePath, entries);
         return await SafeArchiveExtractor.ExtractAllAsync(
             source,
             destinationDir,
@@ -462,7 +469,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             limits);
     }
 
-    private sealed class TarGzExtractionSource(string archivePath) : IArchiveExtractionSource
+    private sealed class TarGzExtractionSource(string archivePath, IReadOnlyList<string>? entryFilter) : IArchiveExtractionSource
     {
         public async IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync([EnumeratorCancellation] CancellationToken ct = default)
         {
@@ -470,9 +477,16 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             await using var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
             await using var tarReader = new TarReader(gzipStream, leaveOpen: false);
 
+            bool matchedAny = false;
             TarEntry? entry;
             while ((entry = await tarReader.GetNextEntryAsync(copyData: false, ct)) is not null)
             {
+                // Selective extraction: entries outside the filter are skipped entirely (the tar
+                // reader auto-skips a non-requested entry's data on the next GetNextEntryAsync call).
+                if (entryFilter is { Count: > 0 } && !EntryFilter.IsMatch(entry.Name, entryFilter))
+                    continue;
+
+                matchedAny = true;
                 bool isDir = entry.EntryType == TarEntryType.Directory || entry.Name.Replace('\\', '/').EndsWith('/');
                 UnixFileMode? unixMode = entry.Mode != 0 && entry.Mode != (UnixFileMode)(-1) ? entry.Mode : null;
                 var dataStream = entry.DataStream;
@@ -486,15 +500,28 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     OpenStreamAsync: _ => ValueTask.FromResult(dataStream ?? Stream.Null)
                 );
             }
+
+            // A selective filter that matched nothing is a clear error, not a silent zero-entry success.
+            if (entryFilter is { Count: > 0 } && !matchedAny)
+            {
+                throw new InvalidOperationException(EntryFilter.NoMatchMessage);
+            }
         }
     }
 
-    private sealed class GzExtractionSource(string archivePath) : IArchiveExtractionSource
+    private sealed class GzExtractionSource(string archivePath, IReadOnlyList<string>? entryFilter) : IArchiveExtractionSource
     {
         public async IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync([EnumeratorCancellation] CancellationToken ct = default)
         {
             var outFileName = Path.GetFileNameWithoutExtension(archivePath);
             var fileInfo = new FileInfo(archivePath);
+
+            // A .gz archive is a single decompressed file. The filter must match its entry name
+            // exactly (or via a directory prefix, which never applies to a single file).
+            if (entryFilter is { Count: > 0 } && !EntryFilter.IsMatch(outFileName, entryFilter))
+            {
+                throw new InvalidOperationException(EntryFilter.NoMatchMessage);
+            }
 
             yield return new ExtractionEntry(
                 RelativePath: outFileName,
@@ -513,7 +540,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         }
     }
 
-    private sealed class SharpCompressExtractionSource(IArchive archive, string archivePath) : IArchiveExtractionSource
+    private sealed class SharpCompressExtractionSource(IArchive archive, string archivePath, IReadOnlyList<string>? entryFilter) : IArchiveExtractionSource
     {
         public async IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync([EnumeratorCancellation] CancellationToken ct = default)
         {
@@ -541,19 +568,26 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 zipUnixModes = ParseZipEntryModes(archivePath);
             }
 
+            bool matchedAny = false;
             foreach (var entry in entries)
             {
                 ct.ThrowIfCancellationRequested();
+
+                var key = entry.Key;
+                if (string.IsNullOrWhiteSpace(key))
+                    continue;
+
+                // Selective extraction: entries outside the filter are skipped entirely, so an
+                // unrelated encrypted entry cannot block extraction of a selected subset.
+                if (entryFilter is { Count: > 0 } && !EntryFilter.IsMatch(key, entryFilter))
+                    continue;
 
                 if (entry.IsEncrypted)
                 {
                     throw new NotSupportedException($"The entry '{entry.Key}' is password-protected. Encrypted archives are not supported.");
                 }
 
-                if (string.IsNullOrWhiteSpace(entry.Key))
-                    continue;
-
-                var key = entry.Key;
+                matchedAny = true;
                 bool isDir = entry.IsDirectory || key.Replace('\\', '/').EndsWith('/');
                 DateTimeOffset? modTime = entry.LastModifiedTime.HasValue ? new DateTimeOffset(entry.LastModifiedTime.Value.ToUniversalTime()) : null;
 
@@ -601,6 +635,12 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                         }
                     }
                 );
+            }
+
+            // A selective filter that matched nothing is a clear error, not a silent zero-entry success.
+            if (entryFilter is { Count: > 0 } && !matchedAny)
+            {
+                throw new InvalidOperationException(EntryFilter.NoMatchMessage);
             }
 
             await Task.CompletedTask;

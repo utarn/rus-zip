@@ -554,6 +554,111 @@ public class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task ExecuteExtractItemAsync_PassesFileRelativePathAsEntryFilter()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+        var tempFile = Path.GetTempFileName();
+        var destDir = Path.Combine(Path.GetTempPath(), $"dest_{Guid.NewGuid()}");
+
+        try
+        {
+            fakeEngine.EntriesToReturn =
+            [
+                new ArchiveEntry("folder/file1.txt", 100, 50, null, false),
+                new ArchiveEntry("folder/file2.txt", 200, 100, null, false)
+            ];
+            await vm.OpenArchiveAsync(tempFile);
+
+            var fileItem = vm.Browser.FindItemByPath("folder/file1.txt");
+            Assert.NotNull(fileItem);
+            Assert.False(fileItem.IsDirectory);
+
+            await vm.ExecuteExtractItemAsync(fileItem, destDir);
+
+            Assert.NotNull(fakeEngine.LastExtractionRequest);
+            Assert.NotNull(fakeEngine.LastExtractionRequest.Entries);
+            Assert.Equal(new[] { "folder/file1.txt" }, fakeEngine.LastExtractionRequest.Entries);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (Directory.Exists(destDir)) Directory.Delete(destDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteExtractItemAsync_PassesFolderRelativePathAsEntryFilter()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+        var tempFile = Path.GetTempFileName();
+        var destDir = Path.Combine(Path.GetTempPath(), $"dest_{Guid.NewGuid()}");
+
+        try
+        {
+            fakeEngine.EntriesToReturn =
+            [
+                new ArchiveEntry("folder/file1.txt", 100, 50, null, false),
+                new ArchiveEntry("folder/sub/file2.txt", 200, 100, null, false)
+            ];
+            await vm.OpenArchiveAsync(tempFile);
+
+            var folderItem = vm.Browser.FindItemByPath("folder");
+            Assert.NotNull(folderItem);
+            Assert.True(folderItem.IsDirectory);
+
+            await vm.ExecuteExtractItemAsync(folderItem, destDir);
+
+            Assert.NotNull(fakeEngine.LastExtractionRequest);
+            Assert.NotNull(fakeEngine.LastExtractionRequest.Entries);
+            Assert.Equal(new[] { "folder" }, fakeEngine.LastExtractionRequest.Entries);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (Directory.Exists(destDir)) Directory.Delete(destDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteExtractItemAsync_KeepsLimitsAndOverwriteDefaults()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+        var tempFile = Path.GetTempFileName();
+        var destDir = Path.Combine(Path.GetTempPath(), $"dest_{Guid.NewGuid()}");
+
+        try
+        {
+            fakeEngine.EntriesToReturn =
+            [
+                new ArchiveEntry("docs/readme.txt", 100, 50, null, false),
+                new ArchiveEntry("docs/guide.txt", 200, 100, null, false)
+            ];
+            await vm.OpenArchiveAsync(tempFile);
+            vm.Browser.ExtractionSettings.MaxUncompressedSizeText = "2GB";
+            vm.Browser.ExtractionSettings.MaxEntryCount = 500;
+
+            var fileItem = vm.Browser.FindItemByPath("docs/readme.txt");
+            Assert.NotNull(fileItem);
+            await vm.ExecuteExtractItemAsync(fileItem, destDir);
+
+            Assert.NotNull(fakeEngine.LastExtractionRequest);
+            Assert.True(fakeEngine.LastExtractionRequest.Overwrite);
+            Assert.NotNull(fakeEngine.LastExtractionRequest.Limits);
+            Assert.Equal(2L * 1024 * 1024 * 1024, fakeEngine.LastExtractionRequest.Limits.MaxCumulativeUncompressedBytes);
+            Assert.Equal(500, fakeEngine.LastExtractionRequest.Limits.MaxEntryCount);
+            Assert.Equal(new[] { "docs/readme.txt" }, fakeEngine.LastExtractionRequest.Entries);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (Directory.Exists(destDir)) Directory.Delete(destDir, true);
+        }
+    }
+
+    [Fact]
     public async Task ExtractSelectedItemCommand_InvokesItemExtractionWorkflow()
     {
         var fakeEngine = new FakeArchiveEngine();

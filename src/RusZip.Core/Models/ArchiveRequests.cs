@@ -6,11 +6,31 @@ public sealed record ArchiveCompressionRequest(
     int CompressionLevel = 9
 );
 
+/// <summary>
+/// Request to extract an archive.
+/// </summary>
+/// <param name="ArchivePath">Path to the archive file.</param>
+/// <param name="DestinationDirectory">Directory to extract into.</param>
+/// <param name="Overwrite">Whether to overwrite existing files at the destination.</param>
+/// <param name="Limits">Extraction guardrails (see <see cref="ExtractionLimits"/>).</param>
+/// <param name="Entries">
+/// Optional selective-extraction filter: the set of relative entry paths to extract. When
+/// <see langword="null"/> or empty, all entries are extracted (existing behavior). When set, only
+/// entries matching a filter path are extracted. Matching is exact relative-path equality OR
+/// directory-prefix match: an entry is extracted when its normalized relative path equals a filter
+/// path, or begins with a filter path followed by a <c>'/'</c> (so a directory filter extracts that
+/// directory's subtree). Both the entry path and each filter path are normalized before matching:
+/// <c>'\'</c> is replaced with <c>'/'</c> and leading/trailing <c>'/'</c> are trimmed, making a
+/// trailing separator on a directory filter optional. If the filter is set but no archive entry
+/// matches, extraction fails with an <see cref="InvalidOperationException"/> (see
+/// <c>RusZip.Core.Engines.EntryFilter</c>).
+/// </param>
 public sealed record ArchiveExtractionRequest(
     string ArchivePath,
     string DestinationDirectory,
     bool Overwrite = true,
-    ExtractionLimits? Limits = null
+    ExtractionLimits? Limits = null,
+    IReadOnlyList<string>? Entries = null
 );
 
 /// <summary>

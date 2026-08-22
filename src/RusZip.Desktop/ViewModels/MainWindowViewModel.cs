@@ -264,11 +264,16 @@ public partial class MainWindowViewModel : ObservableObject
         bool success = false;
         try
         {
+            // Selective extraction (F-14 / PRD #23 story 7): pass the selected node's relative path
+            // as the entry filter. For a file node this is an exact-path match; for a folder node the
+            // directory-prefix match extracts the folder's entire subtree. Progress totals reflect
+            // only the filtered subset.
             var req = new ArchiveExtractionRequest(
                 Browser.LoadedArchivePath,
                 destinationDirectory,
                 Overwrite: true,
-                Limits: Browser.ExtractionSettings.BuildLimits());
+                Limits: Browser.ExtractionSettings.BuildLimits(),
+                Entries: [item.RelativePath]);
             await Task.Run(async () => await _engine.ExtractAsync(req, progressHandler, cts.Token), cts.Token);
             success = true;
             StatusText = FormatStatus($"Extracted {item.Name} to {destinationDirectory}");
