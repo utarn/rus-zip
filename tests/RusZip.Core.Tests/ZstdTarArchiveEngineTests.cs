@@ -700,4 +700,166 @@ public class ZstdTarArchiveEngineTests : IDisposable
         Assert.Equal("alpha", await File.ReadAllTextAsync(Path.Combine(extractDir, "a.txt")));
         Assert.Equal("beta", await File.ReadAllTextAsync(Path.Combine(extractDir, "sub", "b.txt")));
     }
+
+    #region Selective extraction (entry filter)
+
+    [Fact]
+    public async Task Extract_WithSingleFileFilter_ExtractsOnlyThatFile()
+    {
+        var sourceDir = Path.Combine(_testDir, "filter_single_src");
+        Directory.CreateDirectory(Path.Combine(sourceDir, "folder"));
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "a.txt"), "alpha");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "b.txt"), "beta");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "folder", "c.txt"), "gamma");
+
+        var archivePath = Path.Combine(_testDir, "filter_single.zrus");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, archivePath, 3));
+
+        var extractDir = Path.Combine(_testDir, "filter_single_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(archivePath, extractDir, Entries: ["b.txt"]));
+
+        Assert.Equal(1, result.FilesExtracted);
+        Assert.Equal("beta", await File.ReadAllTextAsync(Path.Combine(extractDir, "b.txt")));
+        Assert.False(File.Exists(Path.Combine(extractDir, "a.txt")));
+        Assert.False(Directory.Exists(Path.Combine(extractDir, "folder")));
+    }
+
+    [Fact]
+    public async Task Extract_WithFolderSubtreeFilter_ExtractsSubtreeOnly()
+    {
+        var sourceDir = Path.Combine(_testDir, "filter_folder_src");
+        Directory.CreateDirectory(Path.Combine(sourceDir, "sub", "deep"));
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "root.txt"), "root");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "sub", "one.txt"), "one");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "sub", "deep", "two.txt"), "two");
+
+        var archivePath = Path.Combine(_testDir, "filter_folder.zrus");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, archivePath, 3));
+
+        var extractDir = Path.Combine(_testDir, "filter_folder_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(archivePath, extractDir, Entries: ["sub"]));
+
+        Assert.Equal(2, result.FilesExtracted);
+        Assert.True(File.Exists(Path.Combine(extractDir, "sub", "one.txt")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "sub", "deep", "two.txt")));
+        Assert.False(File.Exists(Path.Combine(extractDir, "root.txt")));
+    }
+
+    [Fact]
+    public async Task Extract_WithFolderFilter_TrailingSlash_MatchesSameSubtree()
+    {
+        var sourceDir = Path.Combine(_testDir, "filter_folder_slash_src");
+        Directory.CreateDirectory(Path.Combine(sourceDir, "sub"));
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "sub", "one.txt"), "one");
+
+        var archivePath = Path.Combine(_testDir, "filter_folder_slash.zrus");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, archivePath, 3));
+
+        var extractDir = Path.Combine(_testDir, "filter_folder_slash_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(archivePath, extractDir, Entries: ["sub/"]));
+
+        Assert.Equal(1, result.FilesExtracted);
+        Assert.True(File.Exists(Path.Combine(extractDir, "sub", "one.txt")));
+    }
+
+    [Fact]
+    public async Task Extract_WithNoMatchFilter_ThrowsInvalidOperationException()
+    {
+        var sourceDir = Path.Combine(_testDir, "filter_nomatch_src");
+        Directory.CreateDirectory(sourceDir);
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "a.txt"), "alpha");
+
+        var archivePath = Path.Combine(_testDir, "filter_nomatch.zrus");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, archivePath, 3));
+
+        var extractDir = Path.Combine(_testDir, "filter_nomatch_out");
+        var req = new ArchiveExtractionRequest(archivePath, extractDir, Entries: ["nonexistent.txt"]);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _engine.ExtractAsync(req));
+        Assert.Contains("No archive entries matched", ex.Message);
+        // Nothing should have been written.
+        Assert.True(Directory.Exists(extractDir));
+        Assert.Empty(Directory.GetFileSystemEntries(extractDir));
+    }
+
+    [Fact]
+    public async Task Extract_FilterWithTraversalName_StillRefused()
+    {
+        var archivePath = Path.Combine(_testDir, $"filter_slip_{Guid.NewGuid():N}.zrus");
+        var extractDir = Path.Combine(_testDir, $"filter_slip_out_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(extractDir);
+
+        await using (var fs = new FileStream(archivePath, FileMode.CreateNew, FileAccess.Write))
+        await using (var zstdStream = new CompressionStream(fs, 3))
+        await using (var tarWriter = new TarWriter(zstdStream, TarEntryFormat.Pax, leaveOpen: false))
+        {
+            var contentBytes = Encoding.UTF8.GetBytes("malicious");
+            using var ms = new MemoryStream(contentBytes);
+            var entry = new PaxTarEntry(TarEntryType.RegularFile, "../../evil.txt")
+            {
+                DataStream = ms
+            };
+            await tarWriter.WriteEntryAsync(entry);
+        }
+
+        // The filter matches the malicious entry, but SafeArchiveExtractor must still refuse it.
+        var req = new ArchiveExtractionRequest(archivePath, extractDir, Entries: ["../../evil.txt"]);
+        var ex = await Assert.ThrowsAsync<SecurityException>(() => _engine.ExtractAsync(req));
+        Assert.Contains("Malicious path traversal detected", ex.Message);
+    }
+
+    [Fact]
+    public async Task Extract_FilterExcludingMaliciousEntry_SkipsItAndSucceeds()
+    {
+        var archivePath = Path.Combine(_testDir, $"filter_skip_slip_{Guid.NewGuid():N}.zrus");
+        var extractDir = Path.Combine(_testDir, $"filter_skip_slip_out_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(extractDir);
+
+        await using (var fs = new FileStream(archivePath, FileMode.CreateNew, FileAccess.Write))
+        await using (var zstdStream = new CompressionStream(fs, 3))
+        await using (var tarWriter = new TarWriter(zstdStream, TarEntryFormat.Pax, leaveOpen: false))
+        {
+            var good = new PaxTarEntry(TarEntryType.RegularFile, "good.txt")
+            {
+                DataStream = new MemoryStream(Encoding.UTF8.GetBytes("good"))
+            };
+            await tarWriter.WriteEntryAsync(good);
+
+            var evil = new PaxTarEntry(TarEntryType.RegularFile, "../../evil.txt")
+            {
+                DataStream = new MemoryStream(Encoding.UTF8.GetBytes("bad"))
+            };
+            await tarWriter.WriteEntryAsync(evil);
+        }
+
+        // The malicious entry is outside the filter, so it is skipped (never validated, never written).
+        var req = new ArchiveExtractionRequest(archivePath, extractDir, Entries: ["good.txt"]);
+        var result = await _engine.ExtractAsync(req);
+
+        Assert.Equal(1, result.FilesExtracted);
+        Assert.True(File.Exists(Path.Combine(extractDir, "good.txt")));
+        Assert.False(File.Exists(Path.Combine(extractDir, "evil.txt")));
+        Assert.False(File.Exists(Path.Combine(Path.GetTempPath(), "evil.txt")));
+    }
+
+    [Fact]
+    public async Task Extract_NullFilter_ExtractsAllEntries()
+    {
+        var sourceDir = Path.Combine(_testDir, "filter_null_src");
+        Directory.CreateDirectory(Path.Combine(sourceDir, "sub"));
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "a.txt"), "alpha");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "sub", "b.txt"), "beta");
+
+        var archivePath = Path.Combine(_testDir, "filter_null.zrus");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, archivePath, 3));
+
+        var extractDir = Path.Combine(_testDir, "filter_null_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(archivePath, extractDir, Entries: null));
+
+        Assert.Equal(2, result.FilesExtracted);
+        Assert.True(File.Exists(Path.Combine(extractDir, "a.txt")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "sub", "b.txt")));
+    }
+
+    #endregion
 }

@@ -228,11 +228,15 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         // Pre-scan uncompressed total size. These totals are derived from header metadata and are
         // therefore spoofable — they drive the progress bar only (labeled as estimates) and are never
         // used for enforcement (see ADR-0007). Enforcement reads actual streamed bytes/entries.
+        // With a selective-extraction filter, only the matching subset contributes to the total so the
+        // progress bar reflects exactly what will be written.
         long totalBytes = 0;
         try
         {
             var entries = await ListEntriesAsync(archivePath, ct);
-            totalBytes = entries.Where(e => !e.IsDirectory).Sum(e => e.UncompressedSize);
+            totalBytes = entries
+                .Where(e => !e.IsDirectory && EntryFilter.IsMatch(e.RelativePath, request.Entries))
+                .Sum(e => e.UncompressedSize);
         }
         catch (ArchiveIntegrityException)
         {
@@ -250,7 +254,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             totalBytes = -1;
         }
 
-        var source = new ZstdTarExtractionSource(archivePath);
+        var source = new ZstdTarExtractionSource(archivePath, request.Entries);
 
         try
         {
@@ -270,7 +274,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         }
     }
 
-    private sealed class ZstdTarExtractionSource(string archivePath) : IArchiveExtractionSource
+    private sealed class ZstdTarExtractionSource(string archivePath, IReadOnlyList<string>? entryFilter) : IArchiveExtractionSource
     {
         public async IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync([EnumeratorCancellation] CancellationToken ct = default)
         {
@@ -320,6 +324,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                         await using (tarReader)
                         {
                             string? lastEntryName = null;
+                            bool matchedAny = false;
                             while (true)
                             {
                                 TarEntry? entry;
@@ -344,6 +349,14 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                                     break;
 
                                 lastEntryName = entry.Name;
+
+                                // Selective extraction: entries outside the filter are skipped entirely.
+                                // The tar reader auto-skips a non-requested entry's data on the next
+                                // GetNextEntryAsync call, so the zstd frame is still read to the end.
+                                if (entryFilter is { Count: > 0 } && !EntryFilter.IsMatch(entry.Name, entryFilter))
+                                    continue;
+
+                                matchedAny = true;
                                 bool isDir = entry.EntryType == TarEntryType.Directory || entry.Name.Replace('\\', '/').EndsWith('/');
                                 UnixFileMode? unixMode = entry.Mode != 0 && entry.Mode != (UnixFileMode)(-1) ? entry.Mode : null;
                                 var dataStream = entry.DataStream;
@@ -362,6 +375,13 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                                     UnixMode: unixMode,
                                     OpenStreamAsync: _ => ValueTask.FromResult(dataStream ?? Stream.Null)
                                 );
+                            }
+
+                            // A selective filter that matched nothing is a clear error, not a silent
+                            // zero-entry success (the user asked for a specific path that is absent).
+                            if (entryFilter is { Count: > 0 } && !matchedAny)
+                            {
+                                throw new InvalidOperationException(EntryFilter.NoMatchMessage);
                             }
 
                             // Drain the decompression stream to EOF so the zstd frame content checksum is
