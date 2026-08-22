@@ -127,4 +127,69 @@ public class CliCommandRunnerTests : CliTestBase
         int exitCode = CliCommandRunner.EmitError("SECURITY_VIOLATION", "Dangerous path", isJson: false, exitCode: 1);
         Assert.Equal(1, exitCode);
     }
+
+    [Fact]
+    public void HandleException_JsonError_ExcludesStackTraceByDefault()
+    {
+        Exception captured;
+        try
+        {
+            throw new InvalidOperationException("boom");
+        }
+        catch (Exception ex)
+        {
+            captured = ex;
+        }
+
+        using var sw = new StringWriter();
+
+        int code = CliCommandRunner.HandleException(captured, isJson: true, writer: sw);
+
+        Assert.Equal(1, code);
+        var err = CliTestBase.ParseJson<ErrorResult>(sw.ToString());
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Null(err.Error.Details);
+        Assert.DoesNotContain("at RusZip.Cli", sw.ToString());
+    }
+
+    [Fact]
+    public void HandleException_JsonError_WithVerboseErrors_IncludesStackTrace()
+    {
+        Exception captured;
+        try
+        {
+            throw new InvalidOperationException("boom");
+        }
+        catch (Exception ex)
+        {
+            captured = ex;
+        }
+
+        using var sw = new StringWriter();
+
+        int code = CliCommandRunner.HandleException(captured, isJson: true, writer: sw, verboseErrors: true);
+
+        Assert.Equal(1, code);
+        var err = CliTestBase.ParseJson<ErrorResult>(sw.ToString());
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.NotNull(err.Error.Details);
+        Assert.Contains("at RusZip.Cli.Tests", err.Error.Details);
+    }
+
+    [Fact]
+    public void EmitError_JsonError_SanitizesControlBytesFromMessage()
+    {
+        using var sw = new StringWriter();
+
+        int code = CliCommandRunner.EmitError(
+            "EXECUTION_ERROR",
+            "Failed on \u001b[31mRED\u001b[0m\u0000nul.txt",
+            isJson: true,
+            exitCode: 1,
+            writer: sw);
+
+        Assert.Equal(1, code);
+        Assert.DoesNotContain('\u001b', sw.ToString());
+        Assert.DoesNotContain('\u0000', sw.ToString());
+    }
 }

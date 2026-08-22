@@ -177,11 +177,21 @@ public static class TestArchiveFixtures
 
     public static void CreateZipSlipArchive(string path, string maliciousEntryName = "../../evil.txt", string content = "malicious payload")
     {
+        CreateZipArchiveWithEntryName(path, maliciousEntryName, content);
+    }
+
+    /// <summary>
+    /// Builds a minimal store-method ZIP whose entry name is written byte-for-byte from the
+    /// provided string. Unlike the high-level writers, this preserves control bytes (ESC, NUL)
+    /// inside the name so output-hygiene tests can exercise the sanitizer end-to-end.
+    /// </summary>
+    public static void CreateZipArchiveWithEntryName(string path, string entryName, string content = "payload")
+    {
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
         var fileBytes = Encoding.UTF8.GetBytes(content);
-        var nameBytes = Encoding.UTF8.GetBytes(maliciousEntryName);
+        var nameBytes = Encoding.UTF8.GetBytes(entryName);
         uint crc = ComputeCrc32(fileBytes);
 
         using var ms = new MemoryStream();

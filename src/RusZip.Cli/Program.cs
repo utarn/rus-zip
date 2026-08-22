@@ -56,7 +56,8 @@ public static class Program
             config.SetExceptionHandler((ex, resolver) =>
             {
                 bool isJson = args.Any(a => a is "--json" or "-j");
-                return CliCommandRunner.HandleException(ex, isJson);
+                bool verboseErrors = args.Any(a => a == "--verbose-errors");
+                return CliCommandRunner.HandleException(ex, isJson, verboseErrors: verboseErrors);
             });
         });
 

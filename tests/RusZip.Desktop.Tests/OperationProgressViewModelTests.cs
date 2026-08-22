@@ -81,6 +81,27 @@ public class OperationProgressViewModelTests
     }
 
     [Fact]
+    public void ReportProgress_SanitizesControlBytesFromEntryName()
+    {
+        char esc = (char)0x1b;
+        var vm = new OperationProgressViewModel();
+        vm.CreateCancellationTokenSource();
+
+        var report = new ProgressReport(
+            ProcessedBytes: 100,
+            TotalBytes: 200,
+            CurrentFileName: $"evil{esc}[31m{esc}[0m\u0000.txt",
+            Percentage: 50.0
+        );
+
+        vm.ReportProgress(report);
+
+        Assert.Equal("evil[31m[0m.txt", vm.CurrentFileName);
+        Assert.DoesNotContain(esc, vm.CurrentFileName);
+        Assert.DoesNotContain('\u0000', vm.CurrentFileName);
+    }
+
+    [Fact]
     public void ReportProgress_IndeterminateTotalBytes_FormatsWithEllipsis()
     {
         var vm = new OperationProgressViewModel();

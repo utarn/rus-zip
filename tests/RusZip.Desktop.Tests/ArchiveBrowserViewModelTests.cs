@@ -696,4 +696,28 @@ public class ArchiveBrowserViewModelTests
         var limits2 = settings.BuildLimits();
         Assert.Null(limits2.MaxCumulativeUncompressedBytes);
     }
+
+    [Fact]
+    public void UpdateBreadcrumbs_SanitizesControlBytesInSegments()
+    {
+        char esc = (char)0x1b;
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new($"esc{esc}seg/file.txt", 100, 50, null, false)
+        };
+
+        browser.LoadEntries("test.zip", entries);
+
+        // Tree nodes sanitize the relative path, so navigation uses the cleaned path.
+        var item = browser.FindItemByPath("escseg/file.txt");
+        Assert.NotNull(item);
+        browser.SelectedItem = item;
+
+        Assert.Equal(3, browser.Breadcrumbs.Count);
+        Assert.Equal("Archive", browser.Breadcrumbs[0].Name);
+        Assert.Equal("escseg", browser.Breadcrumbs[1].Name);
+        Assert.Equal("file.txt", browser.Breadcrumbs[2].Name);
+        Assert.All(browser.Breadcrumbs, b => Assert.DoesNotContain(esc, b.Name));
+    }
 }

@@ -320,4 +320,26 @@ public class ArchiveItemViewModelTests
         Assert.Equal("rw-r--r--", childVm.Attributes);
         Assert.True(childVm.IsExpanded);
     }
+
+    [Fact]
+    public void FromTreeNode_SanitizesControlBytesInDisplayFields()
+    {
+        char esc = (char)0x1b;
+        char nul = (char)0x00;
+        var node = new ArchiveTreeNode
+        {
+            Name = $"ok{esc}[31mRED{esc}[0m{nul}file.txt",
+            RelativePath = $"folder/ok{esc}[31mRED{esc}[0m{nul}file.txt",
+            IsDirectory = false,
+            Attributes = $"rw-{esc}r--r--"
+        };
+
+        var vm = ArchiveItemViewModel.FromTreeNode(node);
+
+        Assert.Equal("ok[31mRED[0mfile.txt", vm.Name);
+        Assert.Equal("folder/ok[31mRED[0mfile.txt", vm.RelativePath);
+        Assert.Equal("rw-r--r--", vm.Attributes);
+        Assert.DoesNotContain(esc, vm.Name);
+        Assert.DoesNotContain(nul, vm.Name);
+    }
 }

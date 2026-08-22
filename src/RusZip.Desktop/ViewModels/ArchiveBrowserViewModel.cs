@@ -276,7 +276,7 @@ public partial class ArchiveBrowserViewModel : ObservableObject
 
             Breadcrumbs.Add(new BreadcrumbItemViewModel
             {
-                Name = segment,
+                Name = EntryNameSanitizer.Sanitize(segment),
                 FullPath = accumulated,
                 IsRoot = false,
                 IsLast = isLast,

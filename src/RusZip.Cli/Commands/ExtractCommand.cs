@@ -89,14 +89,15 @@ public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<Extract
                     .Border(TableBorder.Rounded)
                     .AddColumn("Metric")
                     .AddColumn("Value")
-                    .AddRow("Archive", Markup.Escape(result.ArchivePath))
-                    .AddRow("Destination", Markup.Escape(result.DestinationPath))
+                    .AddRow("Archive", Markup.Escape(EntryNameSanitizer.Sanitize(result.ArchivePath)))
+                    .AddRow("Destination", Markup.Escape(EntryNameSanitizer.Sanitize(result.DestinationPath)))
                     .AddRow("Files Extracted", result.ExtractedFiles.ToString("N0"))
                     .AddRow("Total Extracted Size", DataMetricsFormatter.FormatBytes(result.TotalBytes))
                     .AddRow("Time Elapsed", $"{elapsedMs} ms");
 
                 AnsiConsole.Write(new Panel(summaryTable).Header("[bold green]Extraction Summary[/]"));
-            }
+            },
+            verboseErrors: settings.VerboseErrors
         );
     }
 

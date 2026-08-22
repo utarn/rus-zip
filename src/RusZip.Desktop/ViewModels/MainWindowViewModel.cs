@@ -66,6 +66,12 @@ public partial class MainWindowViewModel : ObservableObject
     public Func<Task<string?>>? RequestExtractDestinationFolder { get; set; }
     public Func<Task<string?>>? RequestOpenArchivePicker { get; set; }
 
+    /// <summary>
+    /// Formats a status message for the one-line status bar: strips C0/C1 control bytes
+    /// (including ESC/NUL from attacker-controlled entry names) and collapses newlines.
+    /// </summary>
+    private static string FormatStatus(string message) => EntryNameSanitizer.SingleLine(message);
+
     public MainWindowViewModel(IArchiveEngine engine)
     {
         _engine = engine;
@@ -118,16 +124,16 @@ public partial class MainWindowViewModel : ObservableObject
 
         try
         {
-            StatusText = $"Opening {Path.GetFileName(archivePath)}...";
+            StatusText = FormatStatus($"Opening {Path.GetFileName(archivePath)}...");
             var entries = await _engine.ListEntriesAsync(archivePath);
             Browser.LoadEntries(archivePath, entries);
             HasOpenArchive = true;
             IsCompressDialogVisible = false;
-            StatusText = $"Loaded {entries.Count} entries from {Path.GetFileName(archivePath)}";
+            StatusText = FormatStatus($"Loaded {entries.Count} entries from {Path.GetFileName(archivePath)}");
         }
         catch (Exception ex)
         {
-            StatusText = $"Failed to open archive: {ex.Message}";
+            StatusText = FormatStatus($"Failed to open archive: {ex.Message}");
         }
     }
 
@@ -194,7 +200,7 @@ public partial class MainWindowViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            StatusText = "Compression cancelled.";
+            StatusText = FormatStatus("Compression cancelled.");
             if (File.Exists(Settings.DestinationPath))
             {
                 try { File.Delete(Settings.DestinationPath); } catch { /* Ignore */ }
@@ -202,7 +208,7 @@ public partial class MainWindowViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusText = $"Compression failed: {ex.Message}";
+            StatusText = FormatStatus($"Compression failed: {ex.Message}");
         }
         finally
         {
@@ -230,15 +236,15 @@ public partial class MainWindowViewModel : ObservableObject
                 Limits: Browser.ExtractionSettings.BuildLimits());
             await Task.Run(async () => await _engine.ExtractAsync(req, progressHandler, cts.Token), cts.Token);
             success = true;
-            StatusText = $"Extracted to {destinationDirectory}";
+            StatusText = FormatStatus($"Extracted to {destinationDirectory}");
         }
         catch (OperationCanceledException)
         {
-            StatusText = "Extraction cancelled.";
+            StatusText = FormatStatus("Extraction cancelled.");
         }
         catch (Exception ex)
         {
-            StatusText = $"Extraction failed: {ex.Message}";
+            StatusText = FormatStatus($"Extraction failed: {ex.Message}");
         }
         finally
         {
@@ -265,15 +271,15 @@ public partial class MainWindowViewModel : ObservableObject
                 Limits: Browser.ExtractionSettings.BuildLimits());
             await Task.Run(async () => await _engine.ExtractAsync(req, progressHandler, cts.Token), cts.Token);
             success = true;
-            StatusText = $"Extracted {item.Name} to {destinationDirectory}";
+            StatusText = FormatStatus($"Extracted {item.Name} to {destinationDirectory}");
         }
         catch (OperationCanceledException)
         {
-            StatusText = "Extraction cancelled.";
+            StatusText = FormatStatus("Extraction cancelled.");
         }
         catch (Exception ex)
         {
-            StatusText = $"Extraction failed: {ex.Message}";
+            StatusText = FormatStatus($"Extraction failed: {ex.Message}");
         }
         finally
         {
