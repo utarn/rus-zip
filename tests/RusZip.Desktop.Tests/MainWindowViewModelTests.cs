@@ -465,4 +465,96 @@ public class MainWindowViewModelTests
         Assert.Contains(nameof(MainWindowViewModel.ThemeIconKey), changedProperties);
         Assert.Contains(nameof(MainWindowViewModel.ThemeDisplayName), changedProperties);
     }
+
+    [Fact]
+    public async Task ExecuteExtractItemAsync_ExtractsArchiveAndUpdatesStatus()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+        var tempFile = Path.GetTempFileName();
+        var destDir = Path.Combine(Path.GetTempPath(), $"dest_{Guid.NewGuid()}");
+
+        try
+        {
+            fakeEngine.EntriesToReturn = [new ArchiveEntry("file1.txt", 100, 50, null, false)];
+            await vm.OpenArchiveAsync(tempFile);
+
+            var item = vm.Browser.FindItemByPath("file1.txt");
+            Assert.NotNull(item);
+
+            await vm.ExecuteExtractItemAsync(item, destDir);
+
+            Assert.NotNull(fakeEngine.LastExtractionRequest);
+            Assert.Equal(tempFile, fakeEngine.LastExtractionRequest.ArchivePath);
+            Assert.Equal(destDir, fakeEngine.LastExtractionRequest.DestinationDirectory);
+            Assert.Equal($"Extracted file1.txt to {destDir}", vm.StatusText);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (Directory.Exists(destDir)) Directory.Delete(destDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractSelectedItemCommand_InvokesItemExtractionWorkflow()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+        var tempFile = Path.GetTempFileName();
+        var destDir = Path.Combine(Path.GetTempPath(), $"dest_{Guid.NewGuid()}");
+
+        try
+        {
+            fakeEngine.EntriesToReturn = [new ArchiveEntry("file1.txt", 100, 50, null, false)];
+            await vm.OpenArchiveAsync(tempFile);
+
+            vm.RequestExtractDestinationFolder = () => Task.FromResult<string?>(destDir);
+
+            var item = vm.Browser.FindItemByPath("file1.txt");
+            vm.Browser.SelectedItem = item;
+
+            await vm.ExtractSelectedItemCommand.ExecuteAsync(null);
+
+            Assert.NotNull(fakeEngine.LastExtractionRequest);
+            Assert.Equal(destDir, fakeEngine.LastExtractionRequest.DestinationDirectory);
+            Assert.Equal($"Extracted file1.txt to {destDir}", vm.StatusText);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (Directory.Exists(destDir)) Directory.Delete(destDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task CopyPathCommand_OnMainWindowViewModel_DelegatesToBrowser()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+        var tempFile = Path.GetTempFileName();
+
+        try
+        {
+            fakeEngine.EntriesToReturn = [new ArchiveEntry("docs/readme.txt", 100, 50, null, false)];
+            await vm.OpenArchiveAsync(tempFile);
+
+            string? copied = null;
+            vm.Browser.CopyToClipboardService = text =>
+            {
+                copied = text;
+                return Task.CompletedTask;
+            };
+
+            var item = vm.Browser.FindItemByPath("docs/readme.txt");
+            vm.Browser.SelectedItem = item;
+
+            await vm.CopyPathCommand.ExecuteAsync(null);
+            Assert.Equal("docs/readme.txt", copied);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
 }

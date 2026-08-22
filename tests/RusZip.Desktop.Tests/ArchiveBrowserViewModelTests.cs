@@ -288,4 +288,345 @@ public class ArchiveBrowserViewModelTests
         await browser.RequestExtractAsync();
         Assert.True(wasCalled);
     }
+
+    [Fact]
+    public void Breadcrumbs_InitialState_ContainsSingleRootSegment()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        Assert.Single(browser.Breadcrumbs);
+        var root = browser.Breadcrumbs[0];
+        Assert.Equal("Archive", root.Name);
+        Assert.Equal(string.Empty, root.FullPath);
+        Assert.True(root.IsRoot);
+        Assert.True(root.IsLast);
+        Assert.Equal(Avalonia.Media.FontWeight.SemiBold, root.FontWeight);
+        Assert.NotNull(root.NavigateCommand);
+    }
+
+    [Fact]
+    public void Breadcrumbs_OnItemSelection_GeneratesHierarchicalSegments()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("src/RusZip.Desktop/App.axaml", 100, 50, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        // Initially at root
+        Assert.Single(browser.Breadcrumbs);
+        Assert.Equal("Archive", browser.Breadcrumbs[0].Name);
+
+        // Select nested file
+        var fileItem = browser.FindItemByPath("src/RusZip.Desktop/App.axaml");
+        Assert.NotNull(fileItem);
+        browser.SelectedItem = fileItem;
+
+        Assert.Equal(4, browser.Breadcrumbs.Count);
+
+        Assert.Equal("Archive", browser.Breadcrumbs[0].Name);
+        Assert.Equal(string.Empty, browser.Breadcrumbs[0].FullPath);
+        Assert.True(browser.Breadcrumbs[0].IsRoot);
+        Assert.False(browser.Breadcrumbs[0].IsLast);
+        Assert.Equal(Avalonia.Media.FontWeight.Normal, browser.Breadcrumbs[0].FontWeight);
+
+        Assert.Equal("src", browser.Breadcrumbs[1].Name);
+        Assert.Equal("src", browser.Breadcrumbs[1].FullPath);
+        Assert.False(browser.Breadcrumbs[1].IsRoot);
+        Assert.False(browser.Breadcrumbs[1].IsLast);
+        Assert.Equal(Avalonia.Media.FontWeight.Normal, browser.Breadcrumbs[1].FontWeight);
+
+        Assert.Equal("RusZip.Desktop", browser.Breadcrumbs[2].Name);
+        Assert.Equal("src/RusZip.Desktop", browser.Breadcrumbs[2].FullPath);
+        Assert.False(browser.Breadcrumbs[2].IsRoot);
+        Assert.False(browser.Breadcrumbs[2].IsLast);
+        Assert.Equal(Avalonia.Media.FontWeight.Normal, browser.Breadcrumbs[2].FontWeight);
+
+        Assert.Equal("App.axaml", browser.Breadcrumbs[3].Name);
+        Assert.Equal("src/RusZip.Desktop/App.axaml", browser.Breadcrumbs[3].FullPath);
+        Assert.False(browser.Breadcrumbs[3].IsRoot);
+        Assert.True(browser.Breadcrumbs[3].IsLast);
+        Assert.Equal(Avalonia.Media.FontWeight.SemiBold, browser.Breadcrumbs[3].FontWeight);
+    }
+
+    [Fact]
+    public void BreadcrumbNavigation_ToParentSegment_SelectsFolderAndUpdatesBreadcrumbs()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("src/RusZip.Desktop/App.axaml", 100, 50, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        var fileItem = browser.FindItemByPath("src/RusZip.Desktop/App.axaml");
+        browser.SelectedItem = fileItem;
+        Assert.Equal(4, browser.Breadcrumbs.Count);
+
+        // Click intermediate breadcrumb "src"
+        var srcBreadcrumb = browser.Breadcrumbs[1];
+        browser.NavigateToBreadcrumbCommand.Execute(srcBreadcrumb);
+
+        Assert.NotNull(browser.SelectedItem);
+        Assert.Equal("src", browser.SelectedItem.Name);
+        Assert.True(browser.SelectedItem.IsDirectory);
+
+        // Breadcrumbs now contain Archive > src
+        Assert.Equal(2, browser.Breadcrumbs.Count);
+        Assert.Equal("Archive", browser.Breadcrumbs[0].Name);
+        Assert.False(browser.Breadcrumbs[0].IsLast);
+        Assert.Equal("src", browser.Breadcrumbs[1].Name);
+        Assert.True(browser.Breadcrumbs[1].IsLast);
+    }
+
+    [Fact]
+    public void BreadcrumbNavigation_ToRoot_ClearsSelectionAndResetsBreadcrumbs()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("src/RusZip.Desktop/App.axaml", 100, 50, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        var fileItem = browser.FindItemByPath("src/RusZip.Desktop/App.axaml");
+        browser.SelectedItem = fileItem;
+
+        // Navigate to root via string ""
+        browser.NavigateToBreadcrumbCommand.Execute(string.Empty);
+        Assert.Null(browser.SelectedItem);
+        Assert.Single(browser.Breadcrumbs);
+        Assert.Equal("Archive", browser.Breadcrumbs[0].Name);
+        Assert.True(browser.Breadcrumbs[0].IsLast);
+
+        // Select again and navigate to root via "(root)"
+        browser.SelectedItem = fileItem;
+        browser.NavigateToBreadcrumbCommand.Execute("(root)");
+        Assert.Null(browser.SelectedItem);
+        Assert.Single(browser.Breadcrumbs);
+
+        // Select again and navigate to root via root breadcrumb object
+        browser.SelectedItem = fileItem;
+        browser.NavigateToBreadcrumbCommand.Execute(browser.Breadcrumbs[0]);
+        Assert.Null(browser.SelectedItem);
+        Assert.Single(browser.Breadcrumbs);
+    }
+
+    [Fact]
+    public void BreadcrumbNavigation_ToDeepPath_AutoExpandsAncestors()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("a/b/c/file.txt", 10, 5, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        var a = browser.FindItemByPath("a")!;
+        var b = browser.FindItemByPath("a/b")!;
+        var c = browser.FindItemByPath("a/b/c")!;
+
+        Assert.False(a.IsExpanded);
+        Assert.False(b.IsExpanded);
+        Assert.False(c.IsExpanded);
+
+        browser.NavigateToPath("a/b/c");
+
+        Assert.True(a.IsExpanded);
+        Assert.True(b.IsExpanded);
+        Assert.True(c.IsExpanded);
+        Assert.NotNull(browser.SelectedItem);
+        Assert.Equal("c", browser.SelectedItem.Name);
+    }
+
+    [Fact]
+    public async Task CopyPathCommand_WithSelectedItem_CopiesPathAndInvokesEvents()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("folder/subfolder/file.txt", 100, 50, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        string? copiedText = null;
+        browser.CopyToClipboardService = text =>
+        {
+            copiedText = text;
+            return Task.CompletedTask;
+        };
+
+        string? eventPath = null;
+        browser.CopyPathRequested += path =>
+        {
+            eventPath = path;
+            return Task.CompletedTask;
+        };
+
+        var item = browser.FindItemByPath("folder/subfolder/file.txt");
+        browser.SelectedItem = item;
+
+        await browser.CopyPathCommand.ExecuteAsync(null);
+
+        Assert.Equal("folder/subfolder/file.txt", copiedText);
+        Assert.Equal("folder/subfolder/file.txt", eventPath);
+    }
+
+    [Fact]
+    public async Task CopyPathCommand_WithExplicitItemParameter_CopiesParameterPath()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("file1.txt", 100, 50, null, false),
+            new("file2.txt", 100, 50, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        string? copiedText = null;
+        browser.CopyToClipboardService = text =>
+        {
+            copiedText = text;
+            return Task.CompletedTask;
+        };
+
+        var item1 = browser.FindItemByPath("file1.txt");
+        var item2 = browser.FindItemByPath("file2.txt");
+        browser.SelectedItem = item1;
+
+        // Copy item2 explicitly despite item1 being selected
+        await browser.CopyPathCommand.ExecuteAsync(item2);
+        Assert.Equal("file2.txt", copiedText);
+
+        // Copy using path string
+        await browser.CopyPathCommand.ExecuteAsync("file1.txt");
+        Assert.Equal("file1.txt", copiedText);
+    }
+
+    [Fact]
+    public async Task CopyPathCommand_WhenNothingSelected_DoesNothingGracefully()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        string? copiedText = null;
+        browser.CopyToClipboardService = text =>
+        {
+            copiedText = text;
+            return Task.CompletedTask;
+        };
+
+        await browser.CopyPathCommand.ExecuteAsync(null);
+        Assert.Null(copiedText);
+    }
+
+    [Fact]
+    public async Task CopySelectedItemPathCommand_ExecutesCopyPathForSelectedItem()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("docs/manual.pdf", 100, 50, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        string? copiedText = null;
+        browser.CopyToClipboardService = text =>
+        {
+            copiedText = text;
+            return Task.CompletedTask;
+        };
+
+        browser.SelectedItem = browser.FindItemByPath("docs/manual.pdf");
+        await browser.CopySelectedItemPathCommand.ExecuteAsync(null);
+        Assert.Equal("docs/manual.pdf", copiedText);
+    }
+
+    [Fact]
+    public async Task ExtractSelectedItemCommand_WhenItemSelected_InvokesExtractItemRequested()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("nested/entry.txt", 100, 50, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        ArchiveItemViewModel? extractedItem = null;
+        browser.ExtractItemRequested += item =>
+        {
+            extractedItem = item;
+            return Task.CompletedTask;
+        };
+
+        var target = browser.FindItemByPath("nested/entry.txt");
+        browser.SelectedItem = target;
+
+        await browser.ExtractSelectedItemCommand.ExecuteAsync(null);
+
+        Assert.NotNull(extractedItem);
+        Assert.Same(target, extractedItem);
+    }
+
+    [Fact]
+    public async Task ExtractSelectedItemCommand_WhenNoItemSelected_InvokesExtractRequested()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        bool extractAllCalled = false;
+        browser.ExtractRequested += () =>
+        {
+            extractAllCalled = true;
+            return Task.CompletedTask;
+        };
+
+        browser.SelectedItem = null;
+        await browser.ExtractSelectedItemCommand.ExecuteAsync(null);
+        Assert.True(extractAllCalled);
+    }
+
+    [Fact]
+    public async Task ExtractItemCommand_WithExplicitParameter_InvokesExtractItemRequested()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("fileA.txt", 100, 50, null, false),
+            new("fileB.txt", 100, 50, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        ArchiveItemViewModel? extractedItem = null;
+        browser.ExtractItemRequested += item =>
+        {
+            extractedItem = item;
+            return Task.CompletedTask;
+        };
+
+        var itemB = browser.FindItemByPath("fileB.txt");
+        await browser.ExtractItemCommand.ExecuteAsync(itemB);
+
+        Assert.NotNull(extractedItem);
+        Assert.Equal("fileB.txt", extractedItem.Name);
+    }
+
+    [Fact]
+    public void BreadcrumbItemViewModel_ConstructorsAndProperties_NotifyCorrectly()
+    {
+        var item = new BreadcrumbItemViewModel("test", "folder/test", isLast: false, isRoot: false);
+        Assert.Equal("test", item.Name);
+        Assert.Equal("folder/test", item.FullPath);
+        Assert.False(item.IsLast);
+        Assert.False(item.IsRoot);
+        Assert.Equal(Avalonia.Media.FontWeight.Normal, item.FontWeight);
+
+        var changed = new List<string>();
+        item.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName != null) changed.Add(e.PropertyName);
+        };
+
+        item.IsLast = true;
+        Assert.True(item.IsLast);
+        Assert.Equal(Avalonia.Media.FontWeight.SemiBold, item.FontWeight);
+        Assert.Contains(nameof(BreadcrumbItemViewModel.IsLast), changed);
+        Assert.Contains(nameof(BreadcrumbItemViewModel.FontWeight), changed);
+    }
 }

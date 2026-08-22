@@ -83,6 +83,7 @@ public partial class MainWindowViewModel : ObservableObject
         _progress = new OperationProgressViewModel();
 
         _browser.ExtractRequested += OnBrowserExtractRequestedAsync;
+        _browser.ExtractItemRequested += OnBrowserExtractItemRequestedAsync;
     }
 
     private async Task OnBrowserExtractRequestedAsync()
@@ -97,12 +98,25 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    private async Task OnBrowserExtractItemRequestedAsync(ArchiveItemViewModel item)
+    {
+        if (RequestExtractDestinationFolder != null)
+        {
+            var destination = await RequestExtractDestinationFolder.Invoke();
+            if (!string.IsNullOrEmpty(destination))
+            {
+                await ExecuteExtractItemAsync(item, destination);
+            }
+        }
+    }
+
     [RelayCommand]
     public void CloseArchive()
     {
         HasOpenArchive = false;
         Browser = new ArchiveBrowserViewModel();
         Browser.ExtractRequested += OnBrowserExtractRequestedAsync;
+        Browser.ExtractItemRequested += OnBrowserExtractItemRequestedAsync;
         StatusText = "Ready";
     }
 
@@ -216,6 +230,56 @@ public partial class MainWindowViewModel : ObservableObject
         {
             await Progress.FinishOperationAsync(success, StatusText);
         }
+    }
+
+    public async Task ExecuteExtractItemAsync(ArchiveItemViewModel item, string destinationDirectory)
+    {
+        if (!HasOpenArchive || string.IsNullOrEmpty(Browser.LoadedArchivePath))
+            return;
+
+        var cts = Progress.CreateCancellationTokenSource();
+        Progress.OperationTitle = $"Extracting {item.Name}...";
+        var progressHandler = new Progress<ProgressReport>(Progress.ReportProgress);
+
+        bool success = false;
+        try
+        {
+            var req = new ArchiveExtractionRequest(Browser.LoadedArchivePath, destinationDirectory, Overwrite: true);
+            await Task.Run(async () => await _engine.ExtractAsync(req, progressHandler, cts.Token), cts.Token);
+            success = true;
+            StatusText = $"Extracted {item.Name} to {destinationDirectory}";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Extraction cancelled.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Extraction failed: {ex.Message}";
+        }
+        finally
+        {
+            await Progress.FinishOperationAsync(success, StatusText);
+        }
+    }
+
+    [RelayCommand]
+    public async Task ExtractSelectedItemAsync()
+    {
+        if (Browser.SelectedItem != null)
+        {
+            await Browser.ExtractSelectedItemCommand.ExecuteAsync(null);
+        }
+        else if (HasOpenArchive)
+        {
+            await Browser.RequestExtractCommand.ExecuteAsync(null);
+        }
+    }
+
+    [RelayCommand]
+    public async Task CopyPathAsync(object? parameter = null)
+    {
+        await Browser.CopyPathCommand.ExecuteAsync(parameter);
     }
 
     public async Task HandleDroppedPathsAsync(IReadOnlyList<string> paths)

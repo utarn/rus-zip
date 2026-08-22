@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Models.TreeDataGrid;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
@@ -22,13 +24,24 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     [ObservableProperty] private string _filterText = string.Empty;
     [ObservableProperty] private ArchiveItemViewModel? _selectedItem;
 
+    public ObservableCollection<BreadcrumbItemViewModel> Breadcrumbs { get; } = [];
+
     public event Func<Task>? ExtractRequested;
+    public event Func<ArchiveItemViewModel, Task>? ExtractItemRequested;
+    public event Func<string, Task>? CopyPathRequested;
+
+    public Func<string, Task>? CopyToClipboardService { get; set; }
 
     public string FormattedTotalUncompressedSize => ArchiveItemViewModel.FormatBytes(TotalUncompressedBytes);
     public string FormattedTotalCompressedSize => TotalCompressedBytes.HasValue ? ArchiveItemViewModel.FormatBytes(TotalCompressedBytes.Value) : "-";
     public string FormattedTotalRatio => (TotalUncompressedBytes == 0 || !TotalCompressedBytes.HasValue)
         ? "-"
         : $"{((double)TotalCompressedBytes.Value / TotalUncompressedBytes * 100):0.0}%";
+
+    public ArchiveBrowserViewModel()
+    {
+        UpdateBreadcrumbs(null);
+    }
 
     public void LoadEntries(string archivePath, IReadOnlyList<ArchiveEntry> entries)
     {
@@ -45,12 +58,23 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         OnPropertyChanged(nameof(FormattedTotalRatio));
 
         FilterText = string.Empty;
+        SelectedItem = null;
         RebuildGridSource();
+        UpdateBreadcrumbs(null);
     }
 
     partial void OnFilterTextChanged(string value)
     {
         RebuildGridSource();
+    }
+
+    partial void OnSelectedItemChanged(ArchiveItemViewModel? value)
+    {
+        UpdateBreadcrumbs(value);
+        ExtractSelectedItemCommand.NotifyCanExecuteChanged();
+        ExtractItemCommand.NotifyCanExecuteChanged();
+        CopyPathCommand.NotifyCanExecuteChanged();
+        CopySelectedItemPathCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -77,6 +101,198 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         if (ExtractRequested != null)
         {
             await ExtractRequested.Invoke();
+        }
+    }
+
+    [RelayCommand]
+    public async Task ExtractSelectedItemAsync()
+    {
+        if (SelectedItem != null && ExtractItemRequested != null)
+        {
+            await ExtractItemRequested.Invoke(SelectedItem);
+        }
+        else if (SelectedItem == null && ExtractRequested != null)
+        {
+            await ExtractRequested.Invoke();
+        }
+    }
+
+    [RelayCommand]
+    public async Task ExtractItemAsync(ArchiveItemViewModel? item = null)
+    {
+        var target = item ?? SelectedItem;
+        if (target != null && ExtractItemRequested != null)
+        {
+            await ExtractItemRequested.Invoke(target);
+        }
+        else if (target == null && ExtractRequested != null)
+        {
+            await ExtractRequested.Invoke();
+        }
+    }
+
+    [RelayCommand]
+    public async Task CopyPathAsync(object? parameter = null)
+    {
+        var target = parameter switch
+        {
+            ArchiveItemViewModel item => item,
+            string str => FindItemByPath(str),
+            _ => SelectedItem
+        };
+
+        if (target == null || string.IsNullOrWhiteSpace(target.RelativePath))
+            return;
+
+        var path = target.RelativePath;
+        if (CopyToClipboardService != null)
+        {
+            await CopyToClipboardService(path);
+        }
+        else
+        {
+            await CopyToClipboardDefaultAsync(path);
+        }
+
+        if (CopyPathRequested != null)
+        {
+            await CopyPathRequested.Invoke(path);
+        }
+    }
+
+    [RelayCommand]
+    public async Task CopySelectedItemPathAsync()
+    {
+        await CopyPathAsync(SelectedItem);
+    }
+
+    public static async Task CopyToClipboardDefaultAsync(string text)
+    {
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop &&
+            desktop.MainWindow?.Clipboard != null)
+        {
+            await desktop.MainWindow.Clipboard.SetTextAsync(text);
+        }
+    }
+
+    [RelayCommand]
+    public void NavigateToBreadcrumb(object? parameter)
+    {
+        string? path = parameter switch
+        {
+            BreadcrumbItemViewModel b => b.FullPath,
+            string s => s,
+            _ => null
+        };
+
+        NavigateToPath(path);
+    }
+
+    public void NavigateToPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path == "/" || path == "(root)" || path.Equals("archive", StringComparison.OrdinalIgnoreCase))
+        {
+            SelectedItem = null;
+            if (GridSource?.RowSelection != null)
+            {
+                GridSource.RowSelection.Clear();
+            }
+            UpdateBreadcrumbs(null);
+            return;
+        }
+
+        var normalized = path.Replace('\\', '/').Trim('/');
+        ExpandAncestorsForPath(normalized);
+
+        var target = FindItemByPath(normalized);
+        if (target != null)
+        {
+            if (target.IsDirectory)
+            {
+                target.IsExpanded = true;
+            }
+            SelectedItem = target;
+            UpdateBreadcrumbs(target);
+        }
+    }
+
+    public void UpdateBreadcrumbs(ArchiveItemViewModel? selectedItem)
+    {
+        Breadcrumbs.Clear();
+
+        var rootItem = new BreadcrumbItemViewModel
+        {
+            Name = "Archive",
+            FullPath = string.Empty,
+            IsRoot = true,
+            IsLast = (selectedItem == null || string.IsNullOrWhiteSpace(selectedItem.RelativePath)),
+            NavigateCommand = NavigateToBreadcrumbCommand
+        };
+        Breadcrumbs.Add(rootItem);
+
+        if (selectedItem == null || string.IsNullOrWhiteSpace(selectedItem.RelativePath))
+        {
+            return;
+        }
+
+        var normalized = selectedItem.RelativePath.Replace('\\', '/').Trim('/');
+        var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string accumulated = string.Empty;
+
+        for (int i = 0; i < segments.Length; i++)
+        {
+            var segment = segments[i];
+            accumulated = string.IsNullOrEmpty(accumulated) ? segment : $"{accumulated}/{segment}";
+            bool isLast = (i == segments.Length - 1);
+
+            Breadcrumbs.Add(new BreadcrumbItemViewModel
+            {
+                Name = segment,
+                FullPath = accumulated,
+                IsRoot = false,
+                IsLast = isLast,
+                NavigateCommand = NavigateToBreadcrumbCommand
+            });
+        }
+    }
+
+    public ArchiveItemViewModel? FindItemByPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        var normalized = path.Replace('\\', '/').Trim('/');
+        if (normalized == "(root)" || normalized.Equals("archive", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        return FindItemByPathRecursive(RootItems, normalized);
+    }
+
+    private static ArchiveItemViewModel? FindItemByPathRecursive(IEnumerable<ArchiveItemViewModel> items, string path)
+    {
+        foreach (var item in items)
+        {
+            var itemNormalized = item.RelativePath.Replace('\\', '/').Trim('/');
+            if (string.Equals(itemNormalized, path, StringComparison.OrdinalIgnoreCase))
+                return item;
+
+            var found = FindItemByPathRecursive(item.Children, path);
+            if (found != null)
+                return found;
+        }
+        return null;
+    }
+
+    private void ExpandAncestorsForPath(string path)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string current = string.Empty;
+        for (int i = 0; i < segments.Length - 1; i++)
+        {
+            current = string.IsNullOrEmpty(current) ? segments[i] : $"{current}/{segments[i]}";
+            var ancestor = FindItemByPath(current);
+            if (ancestor != null && ancestor.IsDirectory)
+            {
+                ancestor.IsExpanded = true;
+            }
         }
     }
 

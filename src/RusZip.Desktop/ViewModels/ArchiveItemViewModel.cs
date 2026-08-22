@@ -69,10 +69,10 @@ public partial class ArchiveItemViewModel : ObservableObject
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
         return ext switch
         {
-            ".zrus" or ".zip" or ".tar" or ".gz" or ".tgz" or ".7z" or ".rar" or ".bz2" or ".xz" => "📦",
-            ".cs" or ".rs" or ".py" or ".js" or ".ts" or ".json" or ".xml" or ".yaml" or ".yml" or ".toml" or ".html" or ".css" or ".sh" or ".bash" => "📝",
-            ".png" or ".jpg" or ".jpeg" or ".svg" or ".webp" or ".gif" or ".bmp" or ".ico" => "🖼️",
-            ".pdf" or ".doc" or ".docx" or ".txt" or ".md" or ".rtf" or ".csv" or ".xlsx" => "📄",
+            ".zrus" or ".zip" or ".tar" or ".gz" or ".tgz" or ".7z" or ".rar" or ".bz2" or ".xz" or ".cab" or ".iso" or ".7zip" or ".tbz2" or ".txz" => "📦",
+            ".cs" or ".rs" or ".py" or ".js" or ".ts" or ".jsx" or ".tsx" or ".vue" or ".svelte" or ".json" or ".xml" or ".yaml" or ".yml" or ".toml" or ".html" or ".css" or ".scss" or ".sass" or ".less" or ".sh" or ".bash" or ".zsh" or ".cpp" or ".c" or ".cc" or ".cxx" or ".h" or ".hpp" or ".hh" or ".go" or ".java" or ".kt" or ".kts" or ".swift" or ".php" or ".rb" or ".lua" or ".m" or ".mm" or ".scala" or ".sql" or ".ps1" or ".bat" or ".cmd" => "📝",
+            ".png" or ".jpg" or ".jpeg" or ".svg" or ".webp" or ".gif" or ".bmp" or ".ico" or ".tiff" or ".tif" or ".heic" or ".avif" => "🖼️",
+            ".pdf" or ".doc" or ".docx" or ".txt" or ".md" or ".rtf" or ".log" or ".csv" or ".odt" or ".xlsx" or ".xls" or ".pptx" or ".ppt" => "📄",
             ".exe" or ".dll" or ".so" or ".dylib" or ".bin" => "⚙️",
             ".mp3" or ".wav" or ".flac" or ".ogg" or ".mp4" or ".mkv" or ".avi" or ".mov" => "🎬",
             _ => "📄"
@@ -85,10 +85,21 @@ public partial class ArchiveItemViewModel : ObservableObject
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
         return ext switch
         {
-            ".cs" or ".rs" or ".py" or ".js" or ".ts" or ".json" or ".xml" or ".yaml" or ".yml" or ".toml" or ".html" or ".css" or ".sh" or ".bash" or ".cpp" or ".h" or ".hpp" or ".c" => "Icon.FileCode",
-            ".txt" or ".md" or ".pdf" or ".doc" or ".docx" or ".rtf" or ".log" or ".csv" or ".xlsx" => "Icon.FileDoc",
-            ".png" or ".jpg" or ".jpeg" or ".svg" or ".webp" or ".gif" or ".bmp" or ".ico" => "Icon.FileImage",
-            ".zrus" or ".zip" or ".tar" or ".gz" or ".tgz" or ".7z" or ".rar" or ".bz2" or ".xz" => "Icon.FileArchive",
+            ".cs" or ".rs" or ".py" or ".js" or ".ts" or ".jsx" or ".tsx" or ".vue" or ".svelte" or
+            ".json" or ".xml" or ".yaml" or ".yml" or ".toml" or ".html" or ".css" or ".scss" or ".sass" or ".less" or
+            ".sh" or ".bash" or ".zsh" or ".cpp" or ".c" or ".cc" or ".cxx" or ".h" or ".hpp" or ".hh" or
+            ".go" or ".java" or ".kt" or ".kts" or ".swift" or ".php" or ".rb" or ".lua" or ".m" or ".mm" or
+            ".scala" or ".sql" or ".ps1" or ".bat" or ".cmd" => "Icon.FileCode",
+
+            ".txt" or ".md" or ".pdf" or ".doc" or ".docx" or ".rtf" or ".log" or ".csv" or ".odt" or
+            ".xlsx" or ".xls" or ".pptx" or ".ppt" => "Icon.FileDoc",
+
+            ".png" or ".jpg" or ".jpeg" or ".svg" or ".webp" or ".gif" or ".bmp" or ".ico" or
+            ".tiff" or ".tif" or ".heic" or ".avif" => "Icon.FileImage",
+
+            ".zrus" or ".zip" or ".tar" or ".gz" or ".tgz" or ".7z" or ".rar" or ".bz2" or ".xz" or
+            ".cab" or ".iso" or ".7zip" or ".tbz2" or ".txz" => "Icon.FileArchive",
+
             _ => "Icon.FileGeneric"
         };
     }
