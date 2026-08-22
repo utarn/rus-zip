@@ -1,8 +1,6 @@
-using System.Security;
 using Microsoft.Extensions.DependencyInjection;
 using RusZip.Cli.Commands;
 using RusZip.Cli.Infrastructure;
-using RusZip.Cli.Models;
 using RusZip.Core.Abstractions;
 using RusZip.Core.Engines;
 using Spectre.Console;
@@ -58,85 +56,7 @@ public static class Program
             config.SetExceptionHandler((ex, resolver) =>
             {
                 bool isJson = args.Any(a => a is "--json" or "-j");
-
-                if (ex is CommandParseException)
-                {
-                    if (isJson)
-                    {
-                        CliJsonSerializer.EmitError("ARGUMENT_ERROR", ex.Message);
-                    }
-                    else
-                    {
-                        AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
-                    }
-                    return 2;
-                }
-
-                var actual = ex is CommandRuntimeException runtimeEx && runtimeEx.InnerException != null
-                    ? runtimeEx.InnerException
-                    : ex;
-
-                if (actual is FileNotFoundException or DirectoryNotFoundException)
-                {
-                    if (isJson)
-                    {
-                        CliJsonSerializer.EmitError("SOURCE_NOT_FOUND", actual.Message);
-                    }
-                    else
-                    {
-                        AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(actual.Message)}");
-                    }
-                    return 2;
-                }
-
-                if (actual is SecurityException sec)
-                {
-                    if (isJson)
-                    {
-                        CliJsonSerializer.EmitError("SECURITY_VIOLATION", sec.Message);
-                    }
-                    else
-                    {
-                        AnsiConsole.MarkupLine($"[red]Security Violation:[/] {Markup.Escape(sec.Message)}");
-                    }
-                    return 1;
-                }
-
-                if (actual is NotSupportedException nse)
-                {
-                    if (isJson)
-                    {
-                        CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", nse.Message);
-                    }
-                    else
-                    {
-                        AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(nse.Message)}");
-                    }
-                    return 2;
-                }
-
-                if (actual is CommandAppException appEx)
-                {
-                    if (isJson)
-                    {
-                        CliJsonSerializer.EmitError("ARGUMENT_ERROR", appEx.Message);
-                    }
-                    else
-                    {
-                        AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(appEx.Message)}");
-                    }
-                    return 2;
-                }
-
-                if (isJson)
-                {
-                    CliJsonSerializer.EmitError("EXECUTION_ERROR", actual.Message, actual.StackTrace);
-                }
-                else
-                {
-                    AnsiConsole.WriteException(actual);
-                }
-                return 1;
+                return CliCommandRunner.HandleException(ex, isJson);
             });
         });
 

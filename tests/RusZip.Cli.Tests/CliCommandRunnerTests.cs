@@ -1,0 +1,130 @@
+using System.Security;
+using RusZip.Cli.Infrastructure;
+using RusZip.Cli.Models;
+using Spectre.Console.Cli;
+using Xunit;
+
+namespace RusZip.Cli.Tests;
+
+public class CliCommandRunnerTests : CliTestBase
+{
+    private record SampleResult(string Status, int Count);
+
+    [Fact]
+    public async Task RunCli_CompressHelp_ReturnsZero()
+    {
+        var (exitCode, stdout) = await RunCliAsync("compress", "--help");
+        Assert.Equal(0, exitCode);
+        Assert.Contains("USAGE", stdout);
+    }
+
+    [Theory]
+    [InlineData(typeof(FileNotFoundException), 2, "SOURCE_NOT_FOUND")]
+    [InlineData(typeof(DirectoryNotFoundException), 2, "SOURCE_NOT_FOUND")]
+    [InlineData(typeof(NotSupportedException), 2, "UNSUPPORTED_FORMAT")]
+    [InlineData(typeof(ArgumentException), 2, "ARGUMENT_ERROR")]
+    [InlineData(typeof(SecurityException), 1, "SECURITY_VIOLATION")]
+    [InlineData(typeof(InvalidOperationException), 1, "EXECUTION_ERROR")]
+    public void HandleException_MapsExceptionTypesToExpectedExitCodes(Type exType, int expectedExitCode, string expectedErrorCode)
+    {
+        var ex = (Exception)Activator.CreateInstance(exType, "Test error message")!;
+        using var sw = new StringWriter();
+
+        int code = CliCommandRunner.HandleException(ex, isJson: true, writer: sw);
+
+        Assert.Equal(expectedExitCode, code);
+        Assert.Contains(expectedErrorCode, sw.ToString());
+    }
+
+    [Fact]
+    public void HandleException_UnwrapsCommandRuntimeException()
+    {
+        var ctors = typeof(CommandRuntimeException).GetConstructors(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+        var ctor = ctors.FirstOrDefault(c => c.GetParameters().Any(p => typeof(Exception).IsAssignableFrom(p.ParameterType))) ?? ctors.First();
+        var inner = new FileNotFoundException("Missing file");
+        var dummyArgs = ctor.GetParameters().Select(p =>
+            typeof(Exception).IsAssignableFrom(p.ParameterType) ? (object)inner :
+            p.ParameterType == typeof(string) ? (object)"Runtime wrapper" : null
+        ).ToArray();
+        var ex = (Exception)ctor.Invoke(dummyArgs);
+        using var sw = new StringWriter();
+
+        int code = CliCommandRunner.HandleException(ex, isJson: true, writer: sw);
+
+        Assert.Equal(2, code);
+        Assert.Contains("SOURCE_NOT_FOUND", sw.ToString());
+    }
+
+    [Fact]
+    public async Task RunAsync_DirectInvocation_EmitsJsonToWriter()
+    {
+        using var sw = new StringWriter();
+
+        int exitCode = await CliCommandRunner.RunAsync(
+            "Test Op",
+            isJson: true,
+            operation: async (progress, ct) =>
+            {
+                await Task.Yield();
+                return new SampleResult("ok", 42);
+            },
+            outputWriter: sw
+        );
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("status", sw.ToString());
+        Assert.Contains("42", sw.ToString());
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenExceptionThrown_TranslatesAndEmitsError()
+    {
+        using var sw = new StringWriter();
+
+        int exitCode = await CliCommandRunner.RunAsync<SampleResult>(
+            "Failing Op",
+            isJson: true,
+            operation: (progress, ct) => throw new FileNotFoundException("Target not found"),
+            outputWriter: sw
+        );
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("SOURCE_NOT_FOUND", sw.ToString());
+        Assert.Contains("Target not found", sw.ToString());
+    }
+
+    [Fact]
+    public async Task RunAsync_ConsoleMode_InvokesRenderConsoleSummary()
+    {
+        bool summaryRendered = false;
+        long capturedElapsedMs = -1;
+
+        int exitCode = await CliCommandRunner.RunAsync(
+            "Console Op",
+            isJson: false,
+            operation: async (progress, ct) =>
+            {
+                await Task.Delay(10, ct);
+                return new SampleResult("done", 100);
+            },
+            renderConsoleSummary: (result, elapsedMs) =>
+            {
+                summaryRendered = true;
+                capturedElapsedMs = elapsedMs;
+                Assert.Equal("done", result.Status);
+                Assert.Equal(100, result.Count);
+            }
+        );
+
+        Assert.Equal(0, exitCode);
+        Assert.True(summaryRendered);
+        Assert.True(capturedElapsedMs >= 0);
+    }
+
+    [Fact]
+    public void EmitError_SecurityViolation_InHumanMode_Returns1()
+    {
+        int exitCode = CliCommandRunner.EmitError("SECURITY_VIOLATION", "Dangerous path", isJson: false, exitCode: 1);
+        Assert.Equal(1, exitCode);
+    }
+}

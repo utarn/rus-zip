@@ -13,11 +13,11 @@ public static class CliJsonSerializer
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    public static void Emit<T>(T value) =>
-        Console.Out.WriteLine(JsonSerializer.Serialize(value, Options));
+    public static void Emit<T>(T value, TextWriter? writer = null) =>
+        (writer ?? Console.Out).WriteLine(JsonSerializer.Serialize(value, Options));
 
-    public static void EmitError(string code, string message, string? details = null) =>
-        Console.Out.WriteLine(JsonSerializer.Serialize(new ErrorResult(false, new ErrorDetail(code, message, details)), Options));
+    public static void EmitError(string code, string message, string? details = null, TextWriter? writer = null) =>
+        (writer ?? Console.Out).WriteLine(JsonSerializer.Serialize(new ErrorResult(false, new ErrorDetail(code, message, details)), Options));
 }
 
 public sealed record CompressResult(

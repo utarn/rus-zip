@@ -1,6 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
-using System.Security;
 using RusZip.Cli.Commands.Settings;
 using RusZip.Cli.Infrastructure;
 using RusZip.Cli.Models;
@@ -33,112 +31,63 @@ public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<Extract
 
     public override async Task<int> ExecuteAsync(CommandContext context, ExtractSettings settings)
     {
-        if (string.IsNullOrWhiteSpace(settings.ArchivePath))
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("ARGUMENT_ERROR", "Archive path cannot be empty.");
-            else
-                AnsiConsole.MarkupLine("[red]Error:[/] Archive path cannot be empty.");
-            return 2;
-        }
-
-        var archivePath = Path.GetFullPath(settings.ArchivePath);
-        if (!File.Exists(archivePath))
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("ARCHIVE_NOT_FOUND", $"Archive file '{settings.ArchivePath}' was not found.");
-            else
-                AnsiConsole.MarkupLine($"[red]Error:[/] Archive file '{Markup.Escape(settings.ArchivePath)}' not found.");
-            return 2;
-        }
-
-        ArchiveFormatDescriptor formatDescriptor;
-        try
-        {
-            formatDescriptor = ArchiveFormatRegistry.Detect(archivePath);
-            if (!formatDescriptor.CanDecompress)
+        return await CliCommandRunner.RunAsync(
+            "Extracting",
+            settings.Json,
+            async (progress, ct) =>
             {
-                var errorMsg = $"Extraction of archive format '{formatDescriptor.Format}' is not supported.";
-                if (settings.Json)
-                    CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", errorMsg);
-                else
-                    AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(errorMsg)}");
-                return 2;
-            }
-        }
-        catch (NotSupportedException ex)
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", ex.Message);
-            else
-                AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
-            return 2;
-        }
+                if (string.IsNullOrWhiteSpace(settings.ArchivePath))
+                {
+                    throw new ArgumentException("Archive path cannot be empty.");
+                }
 
-        var destination = settings.DestinationPath != null
-            ? Path.GetFullPath(settings.DestinationPath)
-            : Directory.GetCurrentDirectory();
+                var archivePath = Path.GetFullPath(settings.ArchivePath);
+                if (!File.Exists(archivePath))
+                {
+                    throw new FileNotFoundException($"Archive file '{settings.ArchivePath}' was not found.", archivePath);
+                }
 
-        var request = new ArchiveExtractionRequest(archivePath, destination, settings.Overwrite);
-        var sw = Stopwatch.StartNew();
+                var formatDescriptor = ArchiveFormatRegistry.Detect(archivePath);
+                if (!formatDescriptor.CanDecompress)
+                {
+                    throw new NotSupportedException($"Extraction of archive format '{formatDescriptor.Format}' is not supported.");
+                }
 
-        try
-        {
-            await CliProgressBridge.ExecuteWithProgressAsync(
-                "Extracting",
-                settings.Json,
-                async (prog, ct) => await _engine.ExtractAsync(request, prog, ct)
-            );
+                var destination = settings.DestinationPath != null
+                    ? Path.GetFullPath(settings.DestinationPath)
+                    : Directory.GetCurrentDirectory();
 
-            sw.Stop();
+                var request = new ArchiveExtractionRequest(archivePath, destination, settings.Overwrite);
 
-            var entries = await _engine.ListEntriesAsync(archivePath);
-            int fileCount = entries.Count(e => !e.IsDirectory);
-            long totalBytes = entries.Where(e => !e.IsDirectory).Sum(e => e.UncompressedSize);
+                await _engine.ExtractAsync(request, progress, ct);
 
-            if (settings.Json)
-            {
-                CliJsonSerializer.Emit(new ExtractResult(
+                var entries = await _engine.ListEntriesAsync(archivePath);
+                int fileCount = entries.Count(e => !e.IsDirectory);
+                long totalBytes = entries.Where(e => !e.IsDirectory).Sum(e => e.UncompressedSize);
+
+                return new ExtractResult(
                     Success: true,
                     ArchivePath: archivePath,
                     DestinationPath: destination,
                     ExtractedFiles: fileCount,
                     TotalBytes: totalBytes,
-                    ElapsedMilliseconds: sw.ElapsedMilliseconds
-                ));
-            }
-            else
+                    ElapsedMilliseconds: 0
+                );
+            },
+            renderConsoleSummary: (result, elapsedMs) =>
             {
                 var summaryTable = new Table()
                     .Border(TableBorder.Rounded)
                     .AddColumn("Metric")
                     .AddColumn("Value")
-                    .AddRow("Archive", Markup.Escape(archivePath))
-                    .AddRow("Destination", Markup.Escape(destination))
-                    .AddRow("Files Extracted", fileCount.ToString("N0"))
-                    .AddRow("Total Extracted Size", DataMetricsFormatter.FormatBytes(totalBytes))
-                    .AddRow("Time Elapsed", $"{sw.ElapsedMilliseconds} ms");
+                    .AddRow("Archive", Markup.Escape(result.ArchivePath))
+                    .AddRow("Destination", Markup.Escape(result.DestinationPath))
+                    .AddRow("Files Extracted", result.ExtractedFiles.ToString("N0"))
+                    .AddRow("Total Extracted Size", DataMetricsFormatter.FormatBytes(result.TotalBytes))
+                    .AddRow("Time Elapsed", $"{elapsedMs} ms");
 
                 AnsiConsole.Write(new Panel(summaryTable).Header("[bold green]Extraction Summary[/]"));
             }
-
-            return 0;
-        }
-        catch (SecurityException secEx)
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("SECURITY_VIOLATION", secEx.Message, secEx.StackTrace);
-            else
-                AnsiConsole.MarkupLine($"[red]Security Violation:[/] {Markup.Escape(secEx.Message)}");
-            return 1;
-        }
-        catch (Exception ex)
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("EXTRACT_FAILED", ex.Message, ex.StackTrace);
-            else
-                AnsiConsole.WriteException(ex);
-            return 1;
-        }
+        );
     }
 }

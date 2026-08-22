@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using RusZip.Cli.Commands.Settings;
 using RusZip.Cli.Infrastructure;
 using RusZip.Cli.Models;
@@ -35,107 +34,66 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
 
     public override async Task<int> ExecuteAsync(CommandContext context, CompressSettings settings)
     {
-        if (string.IsNullOrWhiteSpace(settings.SourcePath))
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("ARGUMENT_ERROR", "Source path cannot be empty.");
-            else
-                AnsiConsole.MarkupLine("[red]Error:[/] Source path cannot be empty.");
-            return 2;
-        }
-
-        var source = Path.GetFullPath(settings.SourcePath);
-        if (!File.Exists(source) && !Directory.Exists(source))
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("SOURCE_NOT_FOUND", $"Source path '{settings.SourcePath}' does not exist.");
-            else
-                AnsiConsole.MarkupLine($"[red]Error:[/] Source path '{Markup.Escape(settings.SourcePath)}' does not exist.");
-            return 2;
-        }
-
-        if (!string.IsNullOrWhiteSpace(settings.Profile))
-        {
-            var normalizedProfile = settings.Profile.Trim().ToLowerInvariant();
-            if (normalizedProfile is not ("fast" or "balanced" or "high" or "ultra"))
+        return await CliCommandRunner.RunAsync(
+            "Compressing",
+            settings.Json,
+            async (progress, ct) =>
             {
-                if (settings.Json)
-                    CliJsonSerializer.EmitError("ARGUMENT_ERROR", $"Invalid compression profile '{settings.Profile}'. Valid profiles: fast, balanced, high, ultra.");
-                else
-                    AnsiConsole.MarkupLine($"[red]Error:[/] Invalid compression profile '{Markup.Escape(settings.Profile)}'. Valid profiles: fast, balanced, high, ultra.");
-                return 2;
-            }
-        }
+                if (string.IsNullOrWhiteSpace(settings.SourcePath))
+                {
+                    throw new ArgumentException("Source path cannot be empty.");
+                }
 
-        if (settings.Level.HasValue)
-        {
-            if (settings.Level.Value < CompressionProfiles.MinLevel || settings.Level.Value > CompressionProfiles.MaxLevel)
-            {
-                if (settings.Json)
-                    CliJsonSerializer.EmitError("ARGUMENT_ERROR", $"Compression level must be between {CompressionProfiles.MinLevel} and {CompressionProfiles.MaxLevel}.");
-                else
-                    AnsiConsole.MarkupLine($"[red]Error:[/] Compression level must be between {CompressionProfiles.MinLevel} and {CompressionProfiles.MaxLevel}.");
-                return 2;
-            }
-        }
+                var source = Path.GetFullPath(settings.SourcePath);
+                if (!File.Exists(source) && !Directory.Exists(source))
+                {
+                    throw new FileNotFoundException($"Source path '{settings.SourcePath}' does not exist.", source);
+                }
 
-        var destination = settings.DestinationPath ?? (source + ".zrus");
-        destination = Path.GetFullPath(destination);
+                if (!string.IsNullOrWhiteSpace(settings.Profile))
+                {
+                    var normalizedProfile = settings.Profile.Trim().ToLowerInvariant();
+                    if (normalizedProfile is not ("fast" or "balanced" or "high" or "ultra"))
+                    {
+                        throw new ArgumentException($"Invalid compression profile '{settings.Profile}'. Valid profiles: fast, balanced, high, ultra.");
+                    }
+                }
 
-        ArchiveFormatDescriptor formatDescriptor;
-        try
-        {
-            formatDescriptor = ArchiveFormatRegistry.Detect(destination);
-            if (!formatDescriptor.CanCompress)
-            {
-                var supportedCreationFormats = string.Join(", ", ArchiveFormatRegistry.CompressibleFormats.Select(f => f.PrimaryExtension));
-                var errorMsg = $"Creation of archive format '{formatDescriptor.Format}' is not supported. Supported creation formats: {supportedCreationFormats}";
-                if (settings.Json)
-                    CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", errorMsg);
-                else
-                    AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(errorMsg)}");
-                return 2;
-            }
-        }
-        catch (NotSupportedException ex)
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", ex.Message);
-            else
-                AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
-            return 2;
-        }
+                if (settings.Level.HasValue)
+                {
+                    if (settings.Level.Value < CompressionProfiles.MinLevel || settings.Level.Value > CompressionProfiles.MaxLevel)
+                    {
+                        throw new ArgumentException($"Compression level must be between {CompressionProfiles.MinLevel} and {CompressionProfiles.MaxLevel}.");
+                    }
+                }
 
-        var compressionLevel = CompressionProfiles.ResolveLevel(settings.Profile, settings.Level);
-        var request = new ArchiveCompressionRequest(source, destination, compressionLevel);
+                var destination = settings.DestinationPath ?? (source + ".zrus");
+                destination = Path.GetFullPath(destination);
 
-        var sw = Stopwatch.StartNew();
+                var formatDescriptor = ArchiveFormatRegistry.Detect(destination);
+                if (!formatDescriptor.CanCompress)
+                {
+                    var supportedCreationFormats = string.Join(", ", ArchiveFormatRegistry.CompressibleFormats.Select(f => f.PrimaryExtension));
+                    throw new NotSupportedException($"Creation of archive format '{formatDescriptor.Format}' is not supported. Supported creation formats: {supportedCreationFormats}");
+                }
 
-        try
-        {
-            await CliProgressBridge.ExecuteWithProgressAsync(
-                "Compressing",
-                settings.Json,
-                async (prog, ct) => await _engine.CompressAsync(request, prog, ct)
-            );
+                var compressionLevel = CompressionProfiles.ResolveLevel(settings.Profile, settings.Level);
+                var request = new ArchiveCompressionRequest(source, destination, compressionLevel);
 
-            sw.Stop();
+                await _engine.CompressAsync(request, progress, ct);
 
-            var destInfo = new FileInfo(destination);
-            long uncompressedSize = Directory.Exists(source)
-                ? Directory.GetFiles(source, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length)
-                : new FileInfo(source).Length;
-            int fileCount = Directory.Exists(source)
-                ? Directory.GetFiles(source, "*", SearchOption.AllDirectories).Length
-                : 1;
+                var destInfo = new FileInfo(destination);
+                long uncompressedSize = Directory.Exists(source)
+                    ? Directory.GetFiles(source, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length)
+                    : new FileInfo(source).Length;
+                int fileCount = Directory.Exists(source)
+                    ? Directory.GetFiles(source, "*", SearchOption.AllDirectories).Length
+                    : 1;
 
-            double ratio = uncompressedSize > 0 ? (double)destInfo.Length / uncompressedSize : 1.0;
+                double ratio = uncompressedSize > 0 ? (double)destInfo.Length / uncompressedSize : 1.0;
+                string formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
 
-            string formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
-
-            if (settings.Json)
-            {
-                CliJsonSerializer.Emit(new CompressResult(
+                return new CompressResult(
                     Success: true,
                     SourcePath: source,
                     ArchivePath: destination,
@@ -144,34 +102,24 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     UncompressedBytes: uncompressedSize,
                     CompressedBytes: destInfo.Length,
                     CompressionRatio: Math.Round(ratio, 4),
-                    ElapsedMilliseconds: sw.ElapsedMilliseconds
-                ));
-            }
-            else
+                    ElapsedMilliseconds: 0
+                );
+            },
+            renderConsoleSummary: (result, elapsedMs) =>
             {
                 var summaryTable = new Table()
                     .Border(TableBorder.Rounded)
                     .AddColumn("Metric")
                     .AddColumn("Value")
-                    .AddRow("Archive Path", Markup.Escape(destination))
-                    .AddRow("Total Files", fileCount.ToString("N0"))
-                    .AddRow("Uncompressed Size", DataMetricsFormatter.FormatBytes(uncompressedSize))
-                    .AddRow("Compressed Size", DataMetricsFormatter.FormatBytes(destInfo.Length))
-                    .AddRow("Ratio", $"{ratio * 100:N1}%")
-                    .AddRow("Time Elapsed", $"{sw.ElapsedMilliseconds} ms");
+                    .AddRow("Archive Path", Markup.Escape(result.ArchivePath))
+                    .AddRow("Total Files", result.TotalFiles.ToString("N0"))
+                    .AddRow("Uncompressed Size", DataMetricsFormatter.FormatBytes(result.UncompressedBytes))
+                    .AddRow("Compressed Size", DataMetricsFormatter.FormatBytes(result.CompressedBytes))
+                    .AddRow("Ratio", $"{result.CompressionRatio * 100:N1}%")
+                    .AddRow("Time Elapsed", $"{elapsedMs} ms");
 
                 AnsiConsole.Write(new Panel(summaryTable).Header("[bold green]Compression Summary[/]"));
             }
-
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("COMPRESS_FAILED", ex.Message, ex.StackTrace);
-            else
-                AnsiConsole.WriteException(ex);
-            return 1;
-        }
+        );
     }
 }
