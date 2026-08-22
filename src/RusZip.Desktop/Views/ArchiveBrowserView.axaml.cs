@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using Avalonia;
 using Avalonia.Controls;
 using RusZip.Desktop.ViewModels;
 
@@ -11,6 +13,14 @@ public partial class ArchiveBrowserView : UserControl
     /// fall back to the selected row.
     /// </summary>
     private ArchiveItemViewModel? _contextTarget;
+
+    /// <summary>
+    /// Columns whose <see cref="DataGridColumn.SortDirectionProperty"/> changes are forwarded to
+    /// the ViewModel. ProDataGrid syncs each column's SortDirection from its sorting model before
+    /// applying the sort, so this forwarding keeps the direction-aware column comparers in sync.
+    /// Re-wired on every DataContext change so earlier VMs are not mutated.
+    /// </summary>
+    private readonly HashSet<DataGridColumn> _sortDirectionObservedColumns = new();
 
     public ArchiveBrowserView()
     {
@@ -80,9 +90,16 @@ public partial class ArchiveBrowserView : UserControl
     }
 
     /// <summary>
-    /// Assigns the ViewModel's column sort comparers to the ProDataGrid columns.
-    /// <see cref="DataGridColumn.CustomSortComparer"/> is a plain CLR property, so it cannot
-    /// be bound from XAML; the comparers are the same instances the ViewModel exposes.
+    /// Assigns the ViewModel's column sort comparers to the ProDataGrid columns and wires the
+    /// active sort direction into them.
+    /// <see cref="DataGridColumn.CustomSortComparer"/> is a plain CLR property, so it cannot be
+    /// bound from XAML; the comparers are the same instances the ViewModel exposes.
+    /// ProDataGrid negates the column comparer for descending sorts, so the comparers are
+    /// direction-aware. The grid syncs each column's <see cref="DataGridColumn.SortDirection"/>
+    /// before applying the sort; these subscriptions forward that direction to the comparers so
+    /// directories stay grouped above files in both sort directions. This is the minimal
+    /// code-behind hook required because neither the comparer assignment nor the direction
+    /// wiring can be expressed declaratively in XAML.
     /// </summary>
     private void ApplyColumnSortComparers()
     {
@@ -90,6 +107,12 @@ public partial class ArchiveBrowserView : UserControl
         {
             return;
         }
+
+        foreach (var column in _sortDirectionObservedColumns)
+        {
+            column.PropertyChanged -= OnArchiveGridColumnPropertyChanged;
+        }
+        _sortDirectionObservedColumns.Clear();
 
         foreach (var column in ArchiveGrid.Columns)
         {
@@ -114,6 +137,24 @@ public partial class ArchiveBrowserView : UserControl
                     column.CustomSortComparer = vm.AttributesColumnSortComparer;
                     break;
             }
+
+            // The grid sets the column's SortDirection before invoking the comparer (see
+            // DataGrid.SyncColumnSortDirectionsFromModel), so forwarding it here guarantees the
+            // comparer sees the current direction at comparison time.
+            column.PropertyChanged += OnArchiveGridColumnPropertyChanged;
+            _sortDirectionObservedColumns.Add(column);
+        }
+    }
+
+    /// <summary>
+    /// Forwards a column's <see cref="DataGridColumn.SortDirectionProperty"/> change into the
+    /// ViewModel, which updates the direction-aware comparers.
+    /// </summary>
+    private void OnArchiveGridColumnPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == DataGridColumn.SortDirectionProperty && DataContext is ArchiveBrowserViewModel vm)
+        {
+            vm.SetColumnSortDirection((ListSortDirection?)e.NewValue);
         }
     }
 }

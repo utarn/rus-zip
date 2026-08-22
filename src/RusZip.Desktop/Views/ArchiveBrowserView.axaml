@@ -200,9 +200,15 @@
         </Border>
 
         <!-- Virtualized ProDataGrid (hierarchical) with Context Menu.
-             The column CustomSortComparer instances are plain CLR properties and cannot be
-             bound in XAML, so they are assigned from the view code-behind (same comparers
-             the ViewModel exposes). -->
+             The Name column is a DataGridHierarchicalColumn (renders the hierarchy expander and
+             indent; its cell template unwraps HierarchicalNode.Item via Binding="Item"). The
+             remaining columns are template columns whose templates also unwrap Item, because the
+             grid exposes the row DataContext as the wrapping HierarchicalNode. Columns disable
+             compiled bindings (x:CompileBindings=False) since the DataContext is the node wrapper
+             at the template root. The column CustomSortComparer instances are plain CLR properties
+             that cannot be bound in XAML, so the view code-behind assigns them and forwards each
+             column's SortDirection to the direction-aware comparers (directories stay grouped
+             above files in both ascending and descending sorts). -->
         <DataGrid x:Name="ArchiveGrid"
                   Grid.Row="4"
                   HierarchicalRowsEnabled="True"
@@ -232,29 +238,33 @@
                 </ContextMenu>
             </DataGrid.ContextMenu>
             <DataGrid.Columns>
-                <DataGridTemplateColumn Header="Name"
-                                        Width="*"
-                                        CanUserSort="True"
-                                        CanUserResize="True"
-                                        SortMemberPath="Name">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:ArchiveItemViewModel">
+                <DataGridHierarchicalColumn Header="Name"
+                                            Width="*"
+                                            CanUserSort="True"
+                                            CanUserResize="True"
+                                            SortMemberPath="Name"
+                                            x:CompileBindings="False"
+                                            Binding="{Binding Item}">
+                    <DataGridHierarchicalColumn.CellTemplate>
+                        <DataTemplate>
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <PathIcon Data="{Binding IconGeometry}" Width="16" Height="16" VerticalAlignment="Center" />
                                 <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
                             </StackPanel>
                         </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
+                    </DataGridHierarchicalColumn.CellTemplate>
+                </DataGridHierarchicalColumn>
 
                 <DataGridTemplateColumn Header="Size"
                                         Width="110"
                                         CanUserSort="True"
                                         CanUserResize="True"
-                                        SortMemberPath="UncompressedSize">
+                                        SortMemberPath="UncompressedSize"
+                                        x:CompileBindings="False">
                     <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:ArchiveItemViewModel">
-                            <TextBlock Text="{Binding FormattedUncompressedSize}"
+                        <DataTemplate>
+                            <TextBlock DataContext="{Binding Item}"
+                                       Text="{Binding FormattedUncompressedSize}"
                                        TextAlignment="Right"
                                        VerticalAlignment="Center"
                                        Margin="0,0,8,0" />
@@ -266,10 +276,12 @@
                                         Width="110"
                                         CanUserSort="True"
                                         CanUserResize="True"
-                                        SortMemberPath="CompressedSize">
+                                        SortMemberPath="CompressedSize"
+                                        x:CompileBindings="False">
                     <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:ArchiveItemViewModel">
-                            <TextBlock Text="{Binding FormattedCompressedSize}"
+                        <DataTemplate>
+                            <TextBlock DataContext="{Binding Item}"
+                                       Text="{Binding FormattedCompressedSize}"
                                        TextAlignment="Right"
                                        VerticalAlignment="Center"
                                        Margin="0,0,8,0" />
@@ -281,10 +293,12 @@
                                         Width="80"
                                         CanUserSort="True"
                                         CanUserResize="True"
-                                        SortMemberPath="RatioValue">
+                                        SortMemberPath="RatioValue"
+                                        x:CompileBindings="False">
                     <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:ArchiveItemViewModel">
-                            <TextBlock Text="{Binding FormattedRatio}"
+                        <DataTemplate>
+                            <TextBlock DataContext="{Binding Item}"
+                                       Text="{Binding FormattedRatio}"
                                        TextAlignment="Right"
                                        VerticalAlignment="Center"
                                        Margin="0,0,8,0" />
@@ -296,10 +310,12 @@
                                         Width="140"
                                         CanUserSort="True"
                                         CanUserResize="True"
-                                        SortMemberPath="LastModified">
+                                        SortMemberPath="LastModified"
+                                        x:CompileBindings="False">
                     <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:ArchiveItemViewModel">
-                            <TextBlock Text="{Binding FormattedLastModified}"
+                        <DataTemplate>
+                            <TextBlock DataContext="{Binding Item}"
+                                       Text="{Binding FormattedLastModified}"
                                        VerticalAlignment="Center" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
@@ -309,10 +325,12 @@
                                         Width="90"
                                         CanUserSort="True"
                                         CanUserResize="True"
-                                        SortMemberPath="Attributes">
+                                        SortMemberPath="Attributes"
+                                        x:CompileBindings="False">
                     <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:ArchiveItemViewModel">
-                            <TextBlock Text="{Binding Attributes}"
+                        <DataTemplate>
+                            <TextBlock DataContext="{Binding Item}"
+                                       Text="{Binding Attributes}"
                                        VerticalAlignment="Center" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
