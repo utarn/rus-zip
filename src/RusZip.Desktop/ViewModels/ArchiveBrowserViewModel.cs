@@ -308,17 +308,8 @@ public partial class ArchiveBrowserViewModel : ObservableObject
 
     private void RebuildGridSource()
     {
-        IReadOnlyList<ArchiveEntry> entriesToDisplay = _allEntries;
         bool isFiltered = !string.IsNullOrWhiteSpace(FilterText);
-
-        if (isFiltered)
-        {
-            entriesToDisplay = _allEntries
-                .Where(e => e.RelativePath.Contains(FilterText, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-        }
-
-        RootItems = BuildTree(entriesToDisplay, autoExpand: isFiltered);
+        RootItems = BuildTree(_allEntries, FilterText, autoExpand: isFiltered);
         GridSource = CreateGridSource(RootItems);
     }
 
@@ -536,72 +527,24 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         return source;
     }
 
-    public static ObservableCollection<ArchiveItemViewModel> BuildTree(IReadOnlyList<ArchiveEntry> entries, bool autoExpand = false)
+    public static ObservableCollection<ArchiveItemViewModel> BuildTree(
+        IEnumerable<ArchiveEntry> entries,
+        bool autoExpand = false)
     {
-        var rootNodes = new ObservableCollection<ArchiveItemViewModel>();
-        var lookup = new Dictionary<string, ArchiveItemViewModel>(StringComparer.OrdinalIgnoreCase);
+        return BuildTree(entries, filterText: null, autoExpand: autoExpand);
+    }
 
-        foreach (var entry in entries.OrderBy(e => e.RelativePath.Replace('\\', '/')))
+    public static ObservableCollection<ArchiveItemViewModel> BuildTree(
+        IEnumerable<ArchiveEntry> entries,
+        string? filterText,
+        bool autoExpand = false)
+    {
+        var treeNodes = ArchiveHierarchy.BuildTree(entries, filterText);
+        var result = new ObservableCollection<ArchiveItemViewModel>();
+        foreach (var node in treeNodes)
         {
-            var normalizedPath = entry.RelativePath.Replace('\\', '/').Trim('/');
-            if (string.IsNullOrEmpty(normalizedPath)) continue;
-
-            var segments = normalizedPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            string currentPath = string.Empty;
-            ArchiveItemViewModel? parent = null;
-
-            for (int i = 0; i < segments.Length; i++)
-            {
-                var segment = segments[i];
-                currentPath = string.IsNullOrEmpty(currentPath) ? segment : $"{currentPath}/{segment}";
-                bool isLeaf = (i == segments.Length - 1) && !entry.IsDirectory;
-
-                if (!lookup.TryGetValue(currentPath, out var node))
-                {
-                    node = new ArchiveItemViewModel
-                    {
-                        Name = segment,
-                        RelativePath = currentPath,
-                        ItemType = isLeaf ? ArchiveItemType.File : ArchiveItemType.Directory,
-                        UncompressedSize = isLeaf ? entry.UncompressedSize : 0,
-                        CompressedSize = isLeaf ? entry.CompressedSize : 0,
-                        LastModified = entry.LastModified,
-                        Attributes = isLeaf ? entry.Attributes : string.Empty,
-                        IsExpanded = autoExpand
-                    };
-
-                    lookup[currentPath] = node;
-
-                    if (parent == null)
-                        rootNodes.Add(node);
-                    else
-                        parent.Children.Add(node);
-                }
-                else
-                {
-                    if (isLeaf)
-                    {
-                        node.ItemType = ArchiveItemType.File;
-                        node.UncompressedSize = entry.UncompressedSize;
-                        node.CompressedSize = entry.CompressedSize;
-                        node.LastModified = entry.LastModified;
-                        node.Attributes = entry.Attributes;
-                    }
-                }
-
-                if (!isLeaf && node != null)
-                {
-                    node.UncompressedSize += entry.UncompressedSize;
-                    if (entry.CompressedSize.HasValue)
-                    {
-                        node.CompressedSize = (node.CompressedSize ?? 0) + entry.CompressedSize.Value;
-                    }
-                }
-
-                parent = node;
-            }
+            result.Add(ArchiveItemViewModel.FromTreeNode(node, autoExpand));
         }
-
-        return rootNodes;
+        return result;
     }
 }

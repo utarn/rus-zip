@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using RusZip.Core.Models;
 using RusZip.Desktop.ViewModels;
 
 namespace RusZip.Desktop.Tests;
@@ -267,5 +268,56 @@ public class ArchiveItemViewModelTests
 
         var geom = fileItem.IconGeometry;
         Assert.Null(geom);
+    }
+
+    [Fact]
+    public void FromTreeNode_MapsDirectoryAndChildren_Correctly()
+    {
+        var date = new DateTimeOffset(2026, 8, 22, 12, 0, 0, TimeSpan.Zero);
+        var rootNode = new ArchiveTreeNode
+        {
+            Name = "src",
+            RelativePath = "src",
+            IsDirectory = true,
+            UncompressedSize = 1500,
+            CompressedSize = 750,
+            LastModified = date,
+            Attributes = "rwxr-xr-x"
+        };
+        var childNode = new ArchiveTreeNode
+        {
+            Name = "main.cs",
+            RelativePath = "src/main.cs",
+            IsDirectory = false,
+            UncompressedSize = 1500,
+            CompressedSize = 750,
+            LastModified = date,
+            Attributes = "rw-r--r--"
+        };
+        rootNode.Children.Add(childNode);
+
+        var vm = ArchiveItemViewModel.FromTreeNode(rootNode, autoExpand: true);
+
+        Assert.Equal("src", vm.Name);
+        Assert.Equal("src", vm.RelativePath);
+        Assert.True(vm.IsDirectory);
+        Assert.Equal(ArchiveItemType.Directory, vm.ItemType);
+        Assert.Equal(1500, vm.UncompressedSize);
+        Assert.Equal(750, vm.CompressedSize);
+        Assert.Equal(date, vm.LastModified);
+        Assert.Equal("rwxr-xr-x", vm.Attributes);
+        Assert.True(vm.IsExpanded);
+        Assert.Single(vm.Children);
+
+        var childVm = vm.Children[0];
+        Assert.Equal("main.cs", childVm.Name);
+        Assert.Equal("src/main.cs", childVm.RelativePath);
+        Assert.False(childVm.IsDirectory);
+        Assert.Equal(ArchiveItemType.File, childVm.ItemType);
+        Assert.Equal(1500, childVm.UncompressedSize);
+        Assert.Equal(750, childVm.CompressedSize);
+        Assert.Equal(date, childVm.LastModified);
+        Assert.Equal("rw-r--r--", childVm.Attributes);
+        Assert.True(childVm.IsExpanded);
     }
 }
