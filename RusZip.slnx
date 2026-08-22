@@ -5,6 +5,7 @@
     <Project Path="src/RusZip.Desktop/RusZip.Desktop.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/RusZip.Cli.Tests/RusZip.Cli.Tests.csproj" />
     <Project Path="tests/RusZip.Core.Tests/RusZip.Core.Tests.csproj" />
   </Folder>
 </Solution>

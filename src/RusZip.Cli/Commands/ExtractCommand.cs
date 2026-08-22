@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Security;
 using RusZip.Cli.Commands.Settings;
 using RusZip.Cli.Infrastructure;
 using RusZip.Cli.Models;
@@ -20,7 +21,7 @@ public sealed class ExtractSettings : JsonCommandSettings
     [Description("Directory to extract contents into (defaults to current directory).")]
     public string? DestinationPath { get; init; }
 
-    [CommandOption("--overwrite")]
+    [CommandOption("-f|--force|--overwrite")]
     [Description("Overwrite existing files at destination.")]
     [DefaultValue(true)]
     public bool Overwrite { get; init; } = true;
@@ -32,6 +33,15 @@ public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<Extract
 
     public override async Task<int> ExecuteAsync(CommandContext context, ExtractSettings settings)
     {
+        if (string.IsNullOrWhiteSpace(settings.ArchivePath))
+        {
+            if (settings.Json)
+                CliJsonSerializer.EmitError("ARGUMENT_ERROR", "Archive path cannot be empty.");
+            else
+                AnsiConsole.MarkupLine("[red]Error:[/] Archive path cannot be empty.");
+            return 2;
+        }
+
         var archivePath = Path.GetFullPath(settings.ArchivePath);
         if (!File.Exists(archivePath))
         {
@@ -39,6 +49,19 @@ public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<Extract
                 CliJsonSerializer.EmitError("ARCHIVE_NOT_FOUND", $"Archive file '{settings.ArchivePath}' was not found.");
             else
                 AnsiConsole.MarkupLine($"[red]Error:[/] Archive file '{Markup.Escape(settings.ArchivePath)}' not found.");
+            return 2;
+        }
+
+        try
+        {
+            ArchiveFormatDetector.DetectFromPath(archivePath);
+        }
+        catch (NotSupportedException ex)
+        {
+            if (settings.Json)
+                CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", ex.Message);
+            else
+                AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
             return 2;
         }
 
@@ -90,6 +113,14 @@ public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<Extract
             }
 
             return 0;
+        }
+        catch (SecurityException secEx)
+        {
+            if (settings.Json)
+                CliJsonSerializer.EmitError("SECURITY_VIOLATION", secEx.Message, secEx.StackTrace);
+            else
+                AnsiConsole.MarkupLine($"[red]Security Violation:[/] {Markup.Escape(secEx.Message)}");
+            return 1;
         }
         catch (Exception ex)
         {

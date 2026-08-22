@@ -9,7 +9,8 @@ public static class CliJsonSerializer
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
     public static void Emit<T>(T value) =>
@@ -57,5 +58,5 @@ public sealed record ListResult(
     IReadOnlyList<ListEntryItem> Entries
 );
 
-public sealed record ErrorDetail(string Code, string Message, string? Details);
+public sealed record ErrorDetail(string Code, string Message, string? Details = null);
 public sealed record ErrorResult(bool Success, ErrorDetail Error);

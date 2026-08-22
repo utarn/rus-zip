@@ -24,6 +24,8 @@ public static class CliProgressBridge
                 new TaskDescriptionColumn(),
                 new ProgressBarColumn(),
                 new PercentageColumn(),
+                new DownloadedColumn(),
+                new TransferSpeedColumn(),
                 new RemainingTimeColumn(),
                 new SpinnerColumn())
             .StartAsync(async ctx =>
@@ -37,39 +39,37 @@ public static class CliProgressBridge
                         task.IsIndeterminate = true;
                         if (!string.IsNullOrEmpty(report.CurrentFileName))
                         {
-                            task.Description = $"[cyan]{Markup.Escape(title)}:[/] [dim]{Markup.Escape(report.CurrentFileName)}[/]";
+                            task.Description = $"[cyan]{Markup.Escape(title)}:[/] [dim]{Markup.Escape(Path.GetFileName(report.CurrentFileName))}[/]";
                         }
                     }
                     else
                     {
                         task.IsIndeterminate = false;
-                        task.MaxValue = 100;
-                        task.Value = Math.Clamp(report.Percentage, 0, 100);
-
-                        var processedFormatted = FormatBytes(report.ProcessedBytes);
-                        var totalFormatted = FormatBytes(report.TotalBytes);
+                        task.MaxValue = report.TotalBytes;
+                        task.Value = Math.Clamp(report.ProcessedBytes, 0, report.TotalBytes);
 
                         var filePart = !string.IsNullOrEmpty(report.CurrentFileName)
                             ? $" [dim]({Markup.Escape(Path.GetFileName(report.CurrentFileName))})[/]"
                             : string.Empty;
 
-                        task.Description = $"[cyan]{Markup.Escape(title)}:[/] {processedFormatted} / {totalFormatted}{filePart}";
+                        task.Description = $"[cyan]{Markup.Escape(title)}:[/]{filePart}";
                     }
                 });
 
                 await operation(progress, ct);
 
-                task.Value = 100;
+                task.Value = task.MaxValue;
                 task.Description = $"[green]✔ {Markup.Escape(title)} complete[/]";
             });
     }
 
     public static string FormatBytes(long bytes)
     {
+        if (bytes <= 0) return "0 B";
         string[] suffixes = ["B", "KB", "MB", "GB", "TB"];
         int counter = 0;
         decimal number = bytes;
-        while (Math.Round(number / 1024) >= 1)
+        while (Math.Round(number / 1024) >= 1 && counter < suffixes.Length - 1)
         {
             number /= 1024;
             counter++;

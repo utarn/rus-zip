@@ -35,6 +35,15 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
 
     public override async Task<int> ExecuteAsync(CommandContext context, CompressSettings settings)
     {
+        if (string.IsNullOrWhiteSpace(settings.SourcePath))
+        {
+            if (settings.Json)
+                CliJsonSerializer.EmitError("ARGUMENT_ERROR", "Source path cannot be empty.");
+            else
+                AnsiConsole.MarkupLine("[red]Error:[/] Source path cannot be empty.");
+            return 2;
+        }
+
         var source = Path.GetFullPath(settings.SourcePath);
         if (!File.Exists(source) && !Directory.Exists(source))
         {
@@ -45,8 +54,54 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
             return 2;
         }
 
+        if (!string.IsNullOrWhiteSpace(settings.Profile))
+        {
+            var normalizedProfile = settings.Profile.Trim().ToLowerInvariant();
+            if (normalizedProfile is not ("fast" or "balanced" or "high" or "ultra"))
+            {
+                if (settings.Json)
+                    CliJsonSerializer.EmitError("ARGUMENT_ERROR", $"Invalid compression profile '{settings.Profile}'. Valid profiles: fast, balanced, high, ultra.");
+                else
+                    AnsiConsole.MarkupLine($"[red]Error:[/] Invalid compression profile '{Markup.Escape(settings.Profile)}'. Valid profiles: fast, balanced, high, ultra.");
+                return 2;
+            }
+        }
+
+        if (settings.Level.HasValue)
+        {
+            if (settings.Level.Value < CompressionProfiles.MinLevel || settings.Level.Value > CompressionProfiles.MaxLevel)
+            {
+                if (settings.Json)
+                    CliJsonSerializer.EmitError("ARGUMENT_ERROR", $"Compression level must be between {CompressionProfiles.MinLevel} and {CompressionProfiles.MaxLevel}.");
+                else
+                    AnsiConsole.MarkupLine($"[red]Error:[/] Compression level must be between {CompressionProfiles.MinLevel} and {CompressionProfiles.MaxLevel}.");
+                return 2;
+            }
+        }
+
         var destination = settings.DestinationPath ?? (source + ".zrus");
         destination = Path.GetFullPath(destination);
+
+        try
+        {
+            var format = ArchiveFormatDetector.DetectFromPath(destination);
+            if (format is not (ArchiveFormat.Zrus or ArchiveFormat.Zip))
+            {
+                if (settings.Json)
+                    CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", $"Creation of archive format '{format}' is not supported. Supported creation formats: .zrus, .zip");
+                else
+                    AnsiConsole.MarkupLine($"[red]Error:[/] Creation of archive format '{format}' is not supported. Supported creation formats: .zrus, .zip");
+                return 2;
+            }
+        }
+        catch (NotSupportedException ex)
+        {
+            if (settings.Json)
+                CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", ex.Message);
+            else
+                AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
+            return 2;
+        }
 
         var compressionLevel = CompressionProfiles.ResolveLevel(settings.Profile, settings.Level);
         var request = new ArchiveCompressionRequest(source, destination, compressionLevel);
@@ -73,13 +128,17 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
 
             double ratio = uncompressedSize > 0 ? (double)destInfo.Length / uncompressedSize : 1.0;
 
+            string formatStr = destination.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
+                ? "tar.gz"
+                : Path.GetExtension(destination).TrimStart('.').ToLowerInvariant();
+
             if (settings.Json)
             {
                 CliJsonSerializer.Emit(new CompressResult(
                     Success: true,
                     SourcePath: source,
                     ArchivePath: destination,
-                    Format: Path.GetExtension(destination).TrimStart('.').ToLowerInvariant(),
+                    Format: formatStr,
                     TotalFiles: fileCount,
                     UncompressedBytes: uncompressedSize,
                     CompressedBytes: destInfo.Length,
