@@ -64,6 +64,8 @@ public sealed class ThroughputTracker
     private readonly double _alpha;
     private double _smoothedSpeed;
     private long _lastProcessedBytes;
+    private double _lastTimestampSeconds;
+    private bool _hasSample;
 
     public ThroughputTracker(double smoothingFactor = 0.3)
     {
@@ -75,6 +77,8 @@ public sealed class ThroughputTracker
         _stopwatch.Restart();
         _smoothedSpeed = 0;
         _lastProcessedBytes = 0;
+        _lastTimestampSeconds = 0;
+        _hasSample = false;
     }
 
     public void Reset()
@@ -82,8 +86,18 @@ public sealed class ThroughputTracker
         _stopwatch.Reset();
         _smoothedSpeed = 0;
         _lastProcessedBytes = 0;
+        _lastTimestampSeconds = 0;
+        _hasSample = false;
     }
 
+    /// <summary>
+    /// Records a progress sample. Speed is measured as the delta since the previous
+    /// <see cref="Update"/> call (<c>deltaBytes / deltaSeconds</c>) and EMA-smoothed, so the
+    /// estimate reflects the current transfer rate rather than the cumulative average since
+    /// <see cref="Start"/>. The first real sample seeds the smoothed speed directly.
+    /// </summary>
+    /// <param name="processedBytes">Cumulative bytes processed so far in the transfer.</param>
+    /// <param name="totalBytes">Total bytes expected, used for ETA extrapolation only.</param>
     public void Update(long processedBytes, long totalBytes)
     {
         if (!_stopwatch.IsRunning)
@@ -91,26 +105,58 @@ public sealed class ThroughputTracker
             _stopwatch.Start();
         }
 
-        _lastProcessedBytes = processedBytes;
-        double elapsedSeconds = _stopwatch.Elapsed.TotalSeconds;
+        double currentTimestamp = _stopwatch.Elapsed.TotalSeconds;
 
-        if (elapsedSeconds > 0.1 && processedBytes > 0)
+        // Guard against a non-monotonic byte counter (e.g. a source reset mid-transfer).
+        if (processedBytes < _lastProcessedBytes)
         {
-            double currentInstantSpeed = processedBytes / elapsedSeconds;
-            _smoothedSpeed = _smoothedSpeed == 0
-                ? currentInstantSpeed
-                : (_smoothedSpeed * (1.0 - _alpha)) + (currentInstantSpeed * _alpha);
+            _lastProcessedBytes = processedBytes;
+            _lastTimestampSeconds = currentTimestamp;
+            return;
         }
+
+        long deltaBytes = processedBytes - _lastProcessedBytes;
+        double deltaSeconds = currentTimestamp - _lastTimestampSeconds;
+
+        _lastProcessedBytes = processedBytes;
+        _lastTimestampSeconds = currentTimestamp;
+
+        // Zero-delta / zero-elapsed guard: a duplicate progress report (no new bytes, or two
+        // samples in the same instant) must not collapse the smoothed speed to zero. Keep the
+        // existing estimate and just refresh the baseline so the next real delta is clean.
+        // The first sample also requires a minimum elapsed interval so a sub-millisecond early
+        // report cannot seed an absurd spike.
+        if (deltaBytes <= 0 || deltaSeconds <= 0 || (!_hasSample && deltaSeconds < 0.1))
+        {
+            return;
+        }
+
+        double currentInstantSpeed = deltaBytes / deltaSeconds;
+
+        _smoothedSpeed = !_hasSample
+            ? currentInstantSpeed
+            : (_smoothedSpeed * (1.0 - _alpha)) + (currentInstantSpeed * _alpha);
+        _hasSample = true;
     }
 
     public double SmoothedSpeedBytesPerSec => _smoothedSpeed;
 
+    /// <summary>
+    /// Extrapolates the remaining time from the remaining bytes and the smoothed speed.
+    /// Returns <see langword="null"/> only when the total is unknown (indeterminate) or no
+    /// speed sample has been recorded yet — never merely because the transfer is slow. A
+    /// completed transfer returns <see cref="TimeSpan.Zero"/>.
+    /// </summary>
     public TimeSpan? EstimatedTimeRemaining(long totalBytes)
     {
-        if (_smoothedSpeed <= 1024 || totalBytes <= _lastProcessedBytes || totalBytes <= 0)
-        {
-            return _lastProcessedBytes >= totalBytes && totalBytes > 0 ? TimeSpan.Zero : null;
-        }
+        if (totalBytes <= 0)
+            return null;
+
+        if (totalBytes <= _lastProcessedBytes)
+            return TimeSpan.Zero;
+
+        if (_smoothedSpeed <= 0)
+            return null;
 
         long remainingBytes = totalBytes - _lastProcessedBytes;
         double secondsLeft = remainingBytes / _smoothedSpeed;

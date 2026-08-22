@@ -38,6 +38,14 @@ public static class SafeArchiveExtractor
     /// overwritten pre-existing file cannot be restored and is not deleted), and a file that is locked or
     /// in use may survive cleanup.
     /// </para>
+    /// <para>
+    /// Path-collision semantics: a file entry whose destination path already exists as a directory, or a
+    /// directory entry whose destination path already exists as a file, aborts with an
+    /// <see cref="IOException"/> naming the archive entry and the conflicting path. This is a hard error —
+    /// the conflicting file entry is never silently skipped — and, like other I/O failures (e.g.
+    /// <c>overwrite: false</c> with an existing file), does not trigger partial-cleanup of previously
+    /// extracted paths.
+    /// </para>
     /// </remarks>
     public static async Task<ExtractionResult> ExtractAllAsync(
         IArchiveExtractionSource source,
@@ -98,15 +106,35 @@ public static class SafeArchiveExtractor
                 // Refuse to write through a symlinked/reparse-point path component under destDir.
                 EnsureNoSymlinkedPathComponents(destDir, targetPath);
 
-                // 2. Directory handling
-                if (entry.IsDirectory || entryName.EndsWith('/') || Directory.Exists(targetPath))
+                // 2. Directory handling. An entry that IS a directory (or uses a trailing '/')
+                //    is normal; a FILE entry whose target already exists as a directory is a
+                //    collision (F-21) and must fail loudly instead of being silently skipped.
+                bool entryIsDirectory = entry.IsDirectory || entryName.EndsWith('/');
+
+                if (entryIsDirectory)
                 {
+                    // Directory-vs-existing-file collision: a directory entry cannot replace an
+                    // existing file at the same path.
+                    if (File.Exists(targetPath))
+                    {
+                        throw new IOException(
+                            $"Cannot extract directory entry '{entryName}': destination path already exists as a file: '{targetPath}'");
+                    }
+
                     EnsureDirectoryExists(targetPath, createdPaths);
                     if (entry.ModificationTime.HasValue || entry.UnixMode.HasValue)
                     {
                         extractedDirectories.Add((targetPath, entry.ModificationTime, entry.UnixMode));
                     }
                     continue;
+                }
+
+                // File-vs-existing-directory collision: a file entry must not be silently skipped
+                // when the destination path is already a directory.
+                if (Directory.Exists(targetPath))
+                {
+                    throw new IOException(
+                        $"Cannot extract file entry '{entryName}': destination path already exists as a directory: '{targetPath}'");
                 }
 
                 // 3. Parent directory creation

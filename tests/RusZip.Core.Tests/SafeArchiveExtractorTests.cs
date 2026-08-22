@@ -416,4 +416,50 @@ public class SafeArchiveExtractorTests : IDisposable
         Assert.Equal(2, result.FilesExtracted);
         Assert.Equal(3, result.EntriesProcessed);
     }
+
+    [Fact]
+    public async Task ExtractAllAsync_FileEntryCollidingWithExistingDirectory_ThrowsIOException()
+    {
+        var targetDir = Path.Combine(_testDir, "collision_file_vs_dir");
+        Directory.CreateDirectory(Path.Combine(targetDir, "folder")); // pre-existing directory
+
+        var entries = new List<ExtractionEntry>
+        {
+            new("folder", false, 4, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("data"u8.ToArray())))
+        };
+
+        var source = new FakeExtractionSource(entries);
+
+        var ex = await Assert.ThrowsAsync<IOException>(() =>
+            SafeArchiveExtractor.ExtractAllAsync(source, targetDir, overwrite: true, totalBytes: 4, null));
+
+        Assert.Contains("folder", ex.Message);
+        Assert.Contains("already exists as a directory", ex.Message, StringComparison.OrdinalIgnoreCase);
+        // The colliding file must not have been written through the directory.
+        Assert.False(File.Exists(Path.Combine(targetDir, "folder")) || Directory.GetFiles(Path.Combine(targetDir, "folder")).Length > 0);
+    }
+
+    [Fact]
+    public async Task ExtractAllAsync_DirectoryEntryCollidingWithExistingFile_ThrowsIOException()
+    {
+        var targetDir = Path.Combine(_testDir, "collision_dir_vs_file");
+        Directory.CreateDirectory(targetDir);
+        await File.WriteAllTextAsync(Path.Combine(targetDir, "folder"), "existing");
+
+        var entries = new List<ExtractionEntry>
+        {
+            new("folder", true, 0, null, null, _ => ValueTask.FromResult<Stream>(Stream.Null))
+        };
+
+        var source = new FakeExtractionSource(entries);
+
+        var ex = await Assert.ThrowsAsync<IOException>(() =>
+            SafeArchiveExtractor.ExtractAllAsync(source, targetDir, overwrite: true, totalBytes: 0, null));
+
+        Assert.Contains("folder", ex.Message);
+        Assert.Contains("already exists as a file", ex.Message, StringComparison.OrdinalIgnoreCase);
+        // The pre-existing file must remain untouched.
+        Assert.True(File.Exists(Path.Combine(targetDir, "folder")));
+        Assert.Equal("existing", await File.ReadAllTextAsync(Path.Combine(targetDir, "folder")));
+    }
 }

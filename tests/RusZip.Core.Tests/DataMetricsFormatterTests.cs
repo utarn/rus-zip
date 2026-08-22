@@ -133,4 +133,67 @@ public class DataMetricsFormatterTests
         Assert.Equal("0 B/s", tracker.FormatSpeed());
         Assert.Equal("0 B / ...", tracker.FormatProgress(0));
     }
+
+    [Fact]
+    public async Task ThroughputTracker_RespondsToMidTransferRateChange_MovesTowardNewRate()
+    {
+        var tracker = new ThroughputTracker(smoothingFactor: 0.5);
+        tracker.Start();
+
+        // First sample: 2 MB after ~200 ms ≈ 10 MB/s (seeds the smoothed speed).
+        await Task.Delay(200);
+        tracker.Update(2_000_000L, 10_000_000L);
+        double fastSpeed = tracker.SmoothedSpeedBytesPerSec;
+        Assert.True(fastSpeed > 5_000_000, $"expected a fast first sample, got {fastSpeed}");
+
+        // Second sample adds only 200 KB after ~200 ms ≈ 1 MB/s. The EMA must move down
+        // toward the new (slower) rate but stay above it (has not fully converged).
+        await Task.Delay(200);
+        tracker.Update(2_200_000L, 10_000_000L);
+        double slowSpeed = tracker.SmoothedSpeedBytesPerSec;
+
+        Assert.True(slowSpeed < fastSpeed, $"EMA should move down after a slowdown ({slowSpeed} >= {fastSpeed})");
+        Assert.True(slowSpeed > 1_000_000, $"EMA should still sit above the new rate, got {slowSpeed}");
+    }
+
+    [Fact]
+    public async Task ThroughputTracker_SubKilobyteSpeed_ReturnsEtaInsteadOfBlank()
+    {
+        var tracker = new ThroughputTracker(smoothingFactor: 0.5);
+        tracker.Start();
+
+        // ~100 bytes over >=200 ms stays below the old 1 KB/s dead-zone.
+        await Task.Delay(200);
+        tracker.Update(100L, 1_000_000L);
+
+        Assert.True(tracker.SmoothedSpeedBytesPerSec > 0);
+        Assert.True(tracker.SmoothedSpeedBytesPerSec < 1024,
+            $"expected sub-1KB/s smoothed speed, got {tracker.SmoothedSpeedBytesPerSec}");
+
+        var eta = tracker.EstimatedTimeRemaining(1_000_000L);
+        Assert.NotNull(eta);
+        Assert.True(eta.Value.TotalSeconds > 0);
+        Assert.NotEqual("--:--", tracker.FormatEta(1_000_000L));
+    }
+
+    [Fact]
+    public async Task ThroughputTracker_ZeroDeltaUpdate_PreservesSmoothedSpeed()
+    {
+        var tracker = new ThroughputTracker(smoothingFactor: 0.5);
+        tracker.Start();
+
+        await Task.Delay(200);
+        tracker.Update(1_000_000L, 10_000_000L);
+        double speedBefore = tracker.SmoothedSpeedBytesPerSec;
+        Assert.True(speedBefore > 0);
+
+        // A duplicate progress report with no new bytes must not collapse the estimate to zero.
+        tracker.Update(1_000_000L, 10_000_000L);
+        Assert.Equal(speedBefore, tracker.SmoothedSpeedBytesPerSec);
+
+        // A subsequent real delta still updates the estimate from the refreshed baseline.
+        await Task.Delay(200);
+        tracker.Update(1_200_000L, 10_000_000L);
+        Assert.NotEqual(speedBefore, tracker.SmoothedSpeedBytesPerSec);
+    }
 }
