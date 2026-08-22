@@ -154,4 +154,92 @@ public class ArchiveItemViewModelTests
         Assert.Contains(nameof(ArchiveItemViewModel.Attributes), changedProps);
         Assert.Contains(nameof(ArchiveItemViewModel.IsExpanded), changedProps);
     }
+
+    [Theory]
+    [InlineData("test.cs", "Icon.FileCode")]
+    [InlineData("test.rs", "Icon.FileCode")]
+    [InlineData("test.py", "Icon.FileCode")]
+    [InlineData("test.js", "Icon.FileCode")]
+    [InlineData("test.ts", "Icon.FileCode")]
+    [InlineData("test.json", "Icon.FileCode")]
+    [InlineData("test.xml", "Icon.FileCode")]
+    [InlineData("test.yaml", "Icon.FileCode")]
+    [InlineData("test.yml", "Icon.FileCode")]
+    [InlineData("test.toml", "Icon.FileCode")]
+    [InlineData("test.html", "Icon.FileCode")]
+    [InlineData("test.css", "Icon.FileCode")]
+    [InlineData("test.sh", "Icon.FileCode")]
+    [InlineData("test.cpp", "Icon.FileCode")]
+    [InlineData("test.h", "Icon.FileCode")]
+    [InlineData("test.txt", "Icon.FileDoc")]
+    [InlineData("test.md", "Icon.FileDoc")]
+    [InlineData("test.pdf", "Icon.FileDoc")]
+    [InlineData("test.doc", "Icon.FileDoc")]
+    [InlineData("test.docx", "Icon.FileDoc")]
+    [InlineData("test.rtf", "Icon.FileDoc")]
+    [InlineData("test.log", "Icon.FileDoc")]
+    [InlineData("test.csv", "Icon.FileDoc")]
+    [InlineData("test.png", "Icon.FileImage")]
+    [InlineData("test.jpg", "Icon.FileImage")]
+    [InlineData("test.jpeg", "Icon.FileImage")]
+    [InlineData("test.svg", "Icon.FileImage")]
+    [InlineData("test.webp", "Icon.FileImage")]
+    [InlineData("test.ico", "Icon.FileImage")]
+    [InlineData("test.gif", "Icon.FileImage")]
+    [InlineData("test.bmp", "Icon.FileImage")]
+    [InlineData("test.zrus", "Icon.FileArchive")]
+    [InlineData("test.zip", "Icon.FileArchive")]
+    [InlineData("test.tar", "Icon.FileArchive")]
+    [InlineData("test.gz", "Icon.FileArchive")]
+    [InlineData("test.tgz", "Icon.FileArchive")]
+    [InlineData("test.7z", "Icon.FileArchive")]
+    [InlineData("test.rar", "Icon.FileArchive")]
+    [InlineData("test.bz2", "Icon.FileArchive")]
+    [InlineData("test.xz", "Icon.FileArchive")]
+    [InlineData("test.exe", "Icon.FileGeneric")]
+    [InlineData("test.bin", "Icon.FileGeneric")]
+    [InlineData("unknown_file", "Icon.FileGeneric")]
+    public void GetIconKey_ReturnsExpectedResourceKey(string filename, string expectedKey)
+    {
+        var key = ArchiveItemViewModel.GetIconKey(filename, isDirectory: false);
+        Assert.Equal(expectedKey, key);
+    }
+
+    [Fact]
+    public void GetIconKey_ForDirectory_ReturnsFolderKey()
+    {
+        var key = ArchiveItemViewModel.GetIconKey("some_folder", isDirectory: true);
+        Assert.Equal("Icon.Folder", key);
+    }
+
+    [Fact]
+    public void IconKey_OnViewModel_ReturnsMatchingKey()
+    {
+        var dirItem = new ArchiveItemViewModel
+        {
+            Name = "DirectoryName",
+            ItemType = ArchiveItemType.Directory
+        };
+        Assert.Equal("Icon.Folder", dirItem.IconKey);
+
+        var fileItem = new ArchiveItemViewModel
+        {
+            Name = "App.cs",
+            ItemType = ArchiveItemType.File
+        };
+        Assert.Equal("Icon.FileCode", fileItem.IconKey);
+    }
+
+    [Fact]
+    public void IconGeometry_WhenApplicationCurrentNull_ReturnsNullGracefully()
+    {
+        var fileItem = new ArchiveItemViewModel
+        {
+            Name = "document.pdf",
+            ItemType = ArchiveItemType.File
+        };
+
+        var geom = fileItem.IconGeometry;
+        Assert.Null(geom);
+    }
 }

@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using Avalonia;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace RusZip.Desktop.ViewModels;
@@ -34,6 +36,20 @@ public partial class ArchiveItemViewModel : ObservableObject
 
     public string IconDisplay => IsDirectory ? "📁" : GetFileIcon(Name);
 
+    public string IconKey => IsDirectory ? "Icon.Folder" : GetIconKey(Name);
+
+    public StreamGeometry? IconGeometry
+    {
+        get
+        {
+            if (Application.Current != null && Application.Current.TryGetResource(IconKey, null, out var res) && res is StreamGeometry geom)
+            {
+                return geom;
+            }
+            return null;
+        }
+    }
+
     public static string FormatBytes(long bytes)
     {
         if (bytes <= 0) return "0 B";
@@ -60,6 +76,20 @@ public partial class ArchiveItemViewModel : ObservableObject
             ".exe" or ".dll" or ".so" or ".dylib" or ".bin" => "⚙️",
             ".mp3" or ".wav" or ".flac" or ".ogg" or ".mp4" or ".mkv" or ".avi" or ".mov" => "🎬",
             _ => "📄"
+        };
+    }
+
+    public static string GetIconKey(string fileName, bool isDirectory = false)
+    {
+        if (isDirectory) return "Icon.Folder";
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".cs" or ".rs" or ".py" or ".js" or ".ts" or ".json" or ".xml" or ".yaml" or ".yml" or ".toml" or ".html" or ".css" or ".sh" or ".bash" or ".cpp" or ".h" or ".hpp" or ".c" => "Icon.FileCode",
+            ".txt" or ".md" or ".pdf" or ".doc" or ".docx" or ".rtf" or ".log" or ".csv" or ".xlsx" => "Icon.FileDoc",
+            ".png" or ".jpg" or ".jpeg" or ".svg" or ".webp" or ".gif" or ".bmp" or ".ico" => "Icon.FileImage",
+            ".zrus" or ".zip" or ".tar" or ".gz" or ".tgz" or ".7z" or ".rar" or ".bz2" or ".xz" => "Icon.FileArchive",
+            _ => "Icon.FileGeneric"
         };
     }
 }

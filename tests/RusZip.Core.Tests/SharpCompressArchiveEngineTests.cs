@@ -26,6 +26,11 @@ public class SharpCompressArchiveEngineTests : IDisposable
         }
     }
 
+    private sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
+    }
+
     #region Zip Compression & Extraction Tests
 
     [Fact]
@@ -45,7 +50,7 @@ public class SharpCompressArchiveEngineTests : IDisposable
         var extractDir = Path.Combine(_testDir, "zip_extracted");
 
         var progressReports = new List<ProgressReport>();
-        var progress = new Progress<ProgressReport>(progressReports.Add);
+        var progress = new SynchronousProgress<ProgressReport>(progressReports.Add);
 
         // Act - Compress
         await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9), progress);
@@ -196,12 +201,12 @@ public class SharpCompressArchiveEngineTests : IDisposable
         // Act - Compress
         await _engine.CompressAsync(
             new ArchiveCompressionRequest(sourceDir, zipPath, 9),
-            new Progress<ProgressReport>(compressProgress.Add));
+            new SynchronousProgress<ProgressReport>(compressProgress.Add));
 
         // Act - Extract
         await _engine.ExtractAsync(
             new ArchiveExtractionRequest(zipPath, extractDir),
-            new Progress<ProgressReport>(extractProgress.Add));
+            new SynchronousProgress<ProgressReport>(extractProgress.Add));
 
         // Assert
         var extractedFile = Path.Combine(extractDir, "large.bin");
@@ -425,7 +430,7 @@ public class SharpCompressArchiveEngineTests : IDisposable
 
         await _engine.ExtractAsync(
             new ArchiveExtractionRequest(tarGzPath, extractDir),
-            new Progress<ProgressReport>(progressReports.Add));
+            new SynchronousProgress<ProgressReport>(progressReports.Add));
 
         Assert.Equal("File 1 contents", await File.ReadAllTextAsync(Path.Combine(extractDir, "file1.txt")));
         Assert.Equal("Nested file 2 contents", await File.ReadAllTextAsync(Path.Combine(extractDir, "nested", "file2.txt")));
@@ -528,7 +533,7 @@ public class SharpCompressArchiveEngineTests : IDisposable
         var progressReports = new List<ProgressReport>();
         await _engine.ExtractAsync(
             new ArchiveExtractionRequest(sevenZipPath, extractDir),
-            new Progress<ProgressReport>(progressReports.Add));
+            new SynchronousProgress<ProgressReport>(progressReports.Add));
 
         var extracted = Path.Combine(extractDir, "sample.txt");
         Assert.True(File.Exists(extracted));
