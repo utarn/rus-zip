@@ -13,6 +13,21 @@ The default archive format of `rus-zip`. Combines a Tar container structure (pre
 ### Core Engine
 The headless library (`RusZip.Core`) providing unified archive abstraction, stream compression, decompression, entry inspection, and progress reporting without UI or CLI dependencies.
 
+### Archive Format Registry
+The domain registry in `RusZip.Core` (`ArchiveFormatRegistry` and `ArchiveFormatDescriptor`) providing the canonical definitions of all archive formats, extension aliases (`.tar.gz`, `.tgz`), bidirectional capabilities (`CanCompress`, `CanDecompress`), compression level ranges, and MIME types.
+
+### Safe Archive Extractor
+The centralized stream-consumer extraction module in `RusZip.Core` (`SafeArchiveExtractor` and `IArchiveExtractionSource`) enforcing path traversal defenses, buffer-pooled streaming, progress reporting, and two-pass bottom-up directory timestamp and POSIX mode restoration.
+
+### Data Metrics Formatter & Throughput Tracker
+Core modules (`DataMetricsFormatter` and `ThroughputTracker`) that standardize byte size formatting (`KB`, `MB`, `GB`), compression ratio calculation, exponential moving average (EMA) speed smoothing, and dynamic ETA estimation across CLI and Desktop.
+
+### Archive Hierarchy
+The headless tree projection module in `RusZip.Core` (`ArchiveHierarchy` and `ArchiveTreeNode`) that converts flat `ArchiveEntry` lists into recursive directory/file trees with automated size rollups, without UI framework dependencies.
+
+### CLI Command Runner
+The infrastructure seam in `RusZip.Cli` (`CliCommandRunner`) that standardizes execution lifecycles, stopwatch timing, progress bridge management, dual JSON/console output, and unified exception-to-exit-code translation.
+
 ### Supported Formats
 The archive formats handled by the engine:
 - **Bi-directional (Compress & Decompress)**: `.zrus` (Tar+Zstd), `.zip`.

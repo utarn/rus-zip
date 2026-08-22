@@ -1,137 +1,82 @@
-# rus-zip: Architecture Specification & System Blueprint
+# RusZip 2.0 Architectural Deepening Specification
 
-## 1. System Overview
-`rus-zip` is a modern, cross-platform archive management suite written in C# targeting **.NET 10**. It provides:
-1. **Core Archive Engine (`RusZip.Core`)**: A headless, high-performance streaming archive library.
-2. **AI-Friendly CLI (`RusZip.Cli`)**: A command-line utility with rich ANSI help, copy-pasteable usage examples, automatic zero-argument help display, and `--json` machine-readable output.
-3. **Desktop Application (`RusZip.Desktop`)**: A cross-platform GUI built with **Avalonia 11 UI**, featuring virtualized archive inspection (`TreeDataGrid`), real-time progress/cancellation modal overlay, compression level slider with dynamic profile badges, and drag-and-drop file routing.
+This specification documents the deepened architecture and modular seams designed to eliminate code duplication, centralize domain invariants, and cleanly separate domain models from UI and CLI presentation adapters.
 
 ---
 
-## 2. Supported Format Matrix
+## 1. Executive Summary & Design Principles
 
-| Format | Extension | Container / Compression | Operations Supported | Engine |
-| :--- | :--- | :--- | :--- | :--- |
-| **.zrus** | `.zrus` | POSIX/PAX Tar + Zstandard (`zstd`) | **Compress & Decompress** | `ZstdTarArchiveEngine` |
-| **Zip** | `.zip` | Standard Zip / Zip64 | **Compress & Decompress** | `SharpCompressArchiveEngine` |
-| **RAR** | `.rar` | RAR4 & RAR5 | **Decompress Only** | `SharpCompressArchiveEngine` |
-| **7-Zip** | `.7z` | 7z Container (LZMA/LZMA2) | **Decompress Only** | `SharpCompressArchiveEngine` |
-| **GZip** | `.gz` | GZip compressed stream | **Decompress Only** | `SharpCompressArchiveEngine` |
-| **Tar.Gz** | `.tar.gz`, `.tgz` | GZip stream + Tar container | **Decompress Only** | `SharpCompressArchiveEngine` |
+Following the deep module philosophy (`/codebase-design`):
+- **Deep Modules**: Modules provide powerful functionality behind small, simple interfaces, hiding significant internal complexity.
+- **Locality**: Every domain rule (format validation, Zip-Slip path sanitization, throughput EMA smoothing, tree hierarchy rollups) lives in exactly one place in `RusZip.Core`.
+- **Leverage**: Small core interfaces provide high multiplier value to CLI commands, GUI view models, and future extensions (e.g. web APIs, shell extensions).
 
 ---
 
-## 3. Compression Levels & Named Profiles (.zrus)
+## 2. Deep Module Specifications
 
-Zstandard compression spans integer levels **1 through 22**:
+### 2.1 Safe Archive Extraction Pipeline (`SafeArchiveExtractor`)
+- **Location**: `RusZip.Core/Engines/SafeArchiveExtractor.cs`
+- **Purpose**: Consolidates 4 scattered extraction loops into a single stream-consumer pipeline.
+- **Interfaces & Types**:
+  - `ExtractionEntry(string RelativePath, bool IsDirectory, long UncompressedSize, DateTimeOffset? ModificationTime, UnixFileMode? UnixMode, Func<CancellationToken, ValueTask<Stream>> OpenStreamAsync)`
+  - `IArchiveExtractionSource { IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync(CancellationToken ct); }`
+  - `SafeArchiveExtractor.ExtractAllAsync(IArchiveExtractionSource source, string destinationDirectory, bool overwrite, long totalBytes, IProgress<ProgressReport>? progress, CancellationToken ct)`
+- **Invariants**:
+  - **Path Traversal (Zip-Slip)**: Verifies destination root prefix before opening any file stream; throws `SecurityException` upon malicious path detection.
+  - **Buffer Pooling**: Rents 80 KB (`ArrayPool<byte>.Shared`) buffers for zero-allocation stream copying.
+  - **Metadata Restoration**: Two-pass model restores file timestamps immediately and directory timestamps/POSIX modes in bottom-up (reverse depth) order.
 
-| Profile | Level | Use Case & Performance Characteristics |
-| :--- | :--- | :--- |
-| **Fast** | `3` | High throughput, minimal CPU usage. Optimal for fast local backups. |
-| **Balanced** (Default) | `9` | Recommended default balance between compression ratio and speed. |
-| **High** | `15` | Higher compression ratio for network distribution and archiving. |
-| **Ultra** | `22` | Maximum compression ratio. High CPU and memory utilization. |
+### 2.2 Format Capability Model (`ArchiveFormatRegistry`)
+- **Location**: `RusZip.Core/Models/ArchiveFormatRegistry.cs`
+- **Purpose**: Single source of truth for format detection, bidirectional capabilities, extension aliases, and compression profile limits.
+- **Interfaces & Types**:
+  - `ArchiveFormatDescriptor(ArchiveFormat Format, string DisplayName, string PrimaryExtension, IReadOnlyList<string> Extensions, bool CanCompress, bool CanDecompress, int MinCompressionLevel, int MaxCompressionLevel, int DefaultCompressionLevel, string MimeType, string CategoryDescription)`
+  - `ArchiveFormatRegistry.Detect(string pathOrExtension)`
+  - `ArchiveFormatRegistry.TryDetect(string? path, out ArchiveFormatDescriptor? descriptor)`
+  - `ArchiveFormatRegistry.IsSupportedArchive(string? path)`
+  - `ArchiveFormatRegistry.CompressibleFormats`, `DecompressibleFormats`, `SupportedExtensions`
+- **Leverage**:
+  - Replaces hardcoded extension arrays and format switch statements in `MainWindowViewModel`, `CompressionSettingsViewModel`, and `CompressCommand`.
 
----
+### 2.3 Data Metrics & Throughput Tracking (`DataMetricsFormatter` & `ThroughputTracker`)
+- **Location**: `RusZip.Core/Models/DataMetricsFormatter.cs`
+- **Purpose**: Centralizes byte formatting, compression ratios, and stateful speed smoothing/ETA calculation.
+- **Interfaces & Types**:
+  - `DataMetricsFormatter`: Pure static functions (`FormatBytes`, `FormatThroughput`, `FormatEta`, `FormatRatio`, `FormatProgress`).
+  - `ThroughputTracker`: Stateful tracker managing `Stopwatch`, alpha-smoothed EMA speed calculation, dynamic ETA estimation, and progress strings.
+- **Leverage**:
+  - Deletes 3 duplicate `FormatBytes` implementations.
+  - Strips stopwatch and math logic out of `OperationProgressViewModel` and `CliProgressBridge`.
 
-## 4. Solution Architecture
+### 2.4 Headless Archive Tree Projection (`ArchiveHierarchy`)
+- **Location**: `RusZip.Core/Models/ArchiveHierarchy.cs`
+- **Purpose**: Converts flat archive entry lists into recursive hierarchical trees with automatic size rollups without UI dependencies.
+- **Interfaces & Types**:
+  - `ArchiveTreeNode(string Name, string RelativePath, bool IsDirectory, long UncompressedSize, long? CompressedSize, DateTimeOffset? LastModified, string Attributes, List<ArchiveTreeNode> Children)`
+  - `ArchiveHierarchy.BuildTree(IEnumerable<ArchiveEntry> entries, string? filterText = null)`
+- **Leverage**:
+  - Removes 70 lines of path tokenization from `ArchiveBrowserViewModel`.
+  - Enables CLI tree view (`rus-zip list --tree`) and headless testing.
 
-```
-rus-zip/
-├── RusZip.slnx
-├── CONTEXT.md
-├── docs/
-│   ├── adr/
-│   │   ├── 0001-zrus-format-specification.md
-│   │   ├── 0002-four-project-solution-architecture.md
-│   │   └── 0003-unified-archive-engine-abstraction.md
-│   └── RUSZIP_ARCHITECTURE_SPEC.md
-├── src/
-│   ├── RusZip.Core/                 # Headless Archive Abstraction & Compression Pipelines
-│   │   ├── Abstractions/
-│   │   │   └── IArchiveEngine.cs
-│   │   ├── Engines/
-│   │   │   ├── ZstdTarArchiveEngine.cs
-│   │   │   ├── SharpCompressArchiveEngine.cs
-│   │   │   └── UnifiedArchiveEngine.cs
-│   │   └── Models/
-│   │       ├── ArchiveEntry.cs
-│   │       ├── ArchiveFormat.cs
-│   │       ├── ArchiveRequests.cs
-│   │       └── ProgressReport.cs
-│   ├── RusZip.Cli/                  # Spectre.Console CLI Executable
-│   │   ├── Commands/
-│   │   │   ├── CompressCommand.cs
-│   │   │   ├── ExtractCommand.cs
-│   │   │   └── ListCommand.cs
-│   │   ├── Infrastructure/
-│   │   │   ├── AiHelpProvider.cs
-│   │   │   ├── CliProgressBridge.cs
-│   │   │   └── TypeRegistrar.cs
-│   │   ├── Models/
-│   │   │   └── CliResultModels.cs
-│   │   └── Program.cs
-│   └── RusZip.Desktop/              # Avalonia 11 Desktop Application
-│       ├── ViewModels/
-│       │   ├── ArchiveBrowserViewModel.cs
-│       │   ├── ArchiveItemViewModel.cs
-│       │   ├── CompressionSettingsViewModel.cs
-│       │   ├── MainWindowViewModel.cs
-│       │   └── OperationProgressViewModel.cs
-│       ├── Views/
-│       │   ├── ArchiveBrowserView.axaml (.cs)
-│       │   ├── CompressionSettingsView.axaml (.cs)
-│       │   ├── MainWindow.axaml (.cs)
-│       │   └── ProgressOverlay.axaml (.cs)
-│       ├── App.axaml (.cs)
-│       └── Program.cs
-└── tests/
-    └── RusZip.Core.Tests/           # xUnit Test Suite
-        ├── SharpCompressArchiveEngineTests.cs
-        ├── UnifiedArchiveEngineTests.cs
-        └── ZstdTarArchiveEngineTests.cs
-```
+### 2.5 CLI Command Execution Pipeline (`CliCommandRunner`)
+- **Location**: `RusZip.Cli/Infrastructure/CliCommandRunner.cs`
+- **Purpose**: Collapses command lifecycle management, timing, progress bridge dispatch, and exception-to-exit-code translation.
+- **Interfaces & Types**:
+  - `CliCommandRunner.RunAsync<TResult>(string title, bool isJson, Func<IProgress<ProgressReport>?, CancellationToken, Task<TResult>> operation, Action<TResult, long>? renderConsoleSummary, CancellationToken ct, TextWriter? writer)`
+  - `CliCommandRunner.HandleException(Exception ex, bool isJson, TextWriter? writer)`
+  - `CliCommandRunner.EmitError(string code, string message, bool isJson, int exitCode, string? stackTrace, TextWriter? writer)`
+- **Leverage**:
+  - Standardizes exit codes: `SOURCE_NOT_FOUND` (2), `ARGUMENT_ERROR` (2), `UNSUPPORTED_FORMAT` (2), `SECURITY_VIOLATION` (1), `EXECUTION_ERROR` (1).
+  - Turns `CompressCommand`, `ExtractCommand`, and `ListCommand` into declarative parameter mappers.
 
 ---
 
-## 5. CLI AI-Agent Specification
+## 3. Prototype Branch Assets
 
-### Commands
-- **Compress**: `rus-zip compress <SOURCE> [DESTINATION] [-l <1-22>] [-p <fast|balanced|high|ultra>] [--json]`
-- **Extract**: `rus-zip extract <ARCHIVE> [-o <DESTINATION>] [--overwrite] [--json]`
-- **List**: `rus-zip list <ARCHIVE> [--json]`
-- **Help**: `rus-zip` or `rus-zip --help`
-
-### Exit Codes
-- `0`: Success
-- `1`: Engine / Extraction / Compression error
-- `2`: Invalid arguments / Source path not found
-
-### JSON Output Schemas
-When run with `--json`, `stdout` emits valid JSON:
-
-#### Success Response
-```json
-{
-  "success": true,
-  "sourcePath": "/path/to/source",
-  "archivePath": "/path/to/output.zrus",
-  "format": "zrus",
-  "totalFiles": 12,
-  "uncompressedBytes": 1048576,
-  "compressedBytes": 349525,
-  "compressionRatio": 0.3333,
-  "elapsedMilliseconds": 128
-}
-```
-
-#### Error Response
-```json
-{
-  "success": false,
-  "error": {
-    "code": "SOURCE_NOT_FOUND",
-    "message": "Source path '/path/to/nonexistent' does not exist."
-  }
-}
-```
+All 5 modules have been verified with complete unit test suites on the following throwaway prototype branches:
+- `prototype/safe-archive-extractor` (`6be00e2`)
+- `prototype/archive-format-registry` (`155678f`)
+- `prototype/data-metrics-formatter` (`84e685f`)
+- `prototype/archive-hierarchy` (`d29f6f0`)
+- `prototype/cli-command-runner` (`6f7ae57`)
