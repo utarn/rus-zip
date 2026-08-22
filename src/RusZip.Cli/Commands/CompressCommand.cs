@@ -155,8 +155,8 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     .AddColumn("Value")
                     .AddRow("Archive Path", Markup.Escape(destination))
                     .AddRow("Total Files", fileCount.ToString("N0"))
-                    .AddRow("Uncompressed Size", CliProgressBridge.FormatBytes(uncompressedSize))
-                    .AddRow("Compressed Size", CliProgressBridge.FormatBytes(destInfo.Length))
+                    .AddRow("Uncompressed Size", DataMetricsFormatter.FormatBytes(uncompressedSize))
+                    .AddRow("Compressed Size", DataMetricsFormatter.FormatBytes(destInfo.Length))
                     .AddRow("Ratio", $"{ratio * 100:N1}%")
                     .AddRow("Time Elapsed", $"{sw.ElapsedMilliseconds} ms");
 

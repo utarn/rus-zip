@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Avalonia;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
+using RusZip.Core.Models;
 
 namespace RusZip.Desktop.ViewModels;
 
@@ -26,11 +27,9 @@ public partial class ArchiveItemViewModel : ObservableObject
     public bool HasChildren => Children.Count > 0;
     public bool IsDirectory => ItemType == ArchiveItemType.Directory;
 
-    public string FormattedUncompressedSize => IsDirectory ? "-" : FormatBytes(UncompressedSize);
-    public string FormattedCompressedSize => (IsDirectory || !CompressedSize.HasValue) ? "-" : FormatBytes(CompressedSize.Value);
-    public string FormattedRatio => (IsDirectory || UncompressedSize == 0 || !CompressedSize.HasValue)
-        ? "-"
-        : $"{((double)CompressedSize.Value / UncompressedSize * 100):0.0}%";
+    public string FormattedUncompressedSize => IsDirectory ? "-" : DataMetricsFormatter.FormatBytes(UncompressedSize);
+    public string FormattedCompressedSize => (IsDirectory || !CompressedSize.HasValue) ? "-" : DataMetricsFormatter.FormatBytes(CompressedSize.Value);
+    public string FormattedRatio => IsDirectory ? "-" : DataMetricsFormatter.FormatRatio(CompressedSize, UncompressedSize);
 
     public string FormattedLastModified => LastModified.HasValue ? LastModified.Value.ToString("yyyy-MM-dd HH:mm") : "-";
 
@@ -48,20 +47,6 @@ public partial class ArchiveItemViewModel : ObservableObject
             }
             return null;
         }
-    }
-
-    public static string FormatBytes(long bytes)
-    {
-        if (bytes <= 0) return "0 B";
-        string[] suffixes = ["B", "KB", "MB", "GB", "TB", "PB"];
-        int counter = 0;
-        decimal number = bytes;
-        while (Math.Round(number / 1024, 2) >= 1 && counter < suffixes.Length - 1)
-        {
-            number /= 1024;
-            counter++;
-        }
-        return $"{number:0.##} {suffixes[counter]}";
     }
 
     public static string GetFileIcon(string fileName)

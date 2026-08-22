@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RusZip.Core.Models;
@@ -7,9 +6,8 @@ namespace RusZip.Desktop.ViewModels;
 
 public partial class OperationProgressViewModel : ObservableObject
 {
+    private readonly ThroughputTracker _throughputTracker = new();
     private CancellationTokenSource? _cts;
-    private Stopwatch? _stopwatch;
-    private double _smoothedSpeedBytesPerSec;
 
     [ObservableProperty] private bool _isOperationRunning;
     [ObservableProperty] private string _operationTitle = "Processing Archive...";
@@ -39,8 +37,7 @@ public partial class OperationProgressViewModel : ObservableObject
     {
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
-        _stopwatch = Stopwatch.StartNew();
-        _smoothedSpeedBytesPerSec = 0;
+        _throughputTracker.Start();
         IsOperationRunning = true;
         ProgressPercentage = 0;
         StatusMessage = "Starting...";
@@ -66,74 +63,28 @@ public partial class OperationProgressViewModel : ObservableObject
         CurrentFileName = report.CurrentFileName ?? string.Empty;
         ProgressPercentage = report.Percentage;
         IsIndeterminate = report.IsIndeterminate;
-        BytesProgressFormatted = $"{FormatBytes(report.ProcessedBytes)} / {(report.TotalBytes > 0 ? FormatBytes(report.TotalBytes) : "...")}";
 
-        if (_stopwatch != null && _stopwatch.ElapsedMilliseconds > 100 && report.ProcessedBytes > 0)
+        _throughputTracker.Update(report.ProcessedBytes, report.TotalBytes);
+        BytesProgressFormatted = _throughputTracker.FormatProgress(report.TotalBytes);
+
+        if (_throughputTracker.SmoothedSpeedBytesPerSec > 0)
         {
-            double elapsedSeconds = _stopwatch.Elapsed.TotalSeconds;
-            double instantSpeed = report.ProcessedBytes / elapsedSeconds;
-            _smoothedSpeedBytesPerSec = _smoothedSpeedBytesPerSec == 0
-                ? instantSpeed
-                : (_smoothedSpeedBytesPerSec * 0.7) + (instantSpeed * 0.3);
-
-            SpeedFormatted = FormatSpeed(_smoothedSpeedBytesPerSec);
-
-            if (_smoothedSpeedBytesPerSec > 1024 && report.TotalBytes > report.ProcessedBytes)
-            {
-                long remainingBytes = report.TotalBytes - report.ProcessedBytes;
-                double secondsLeft = remainingBytes / _smoothedSpeedBytesPerSec;
-                EtaFormatted = FormatEta(secondsLeft);
-            }
-            else if (report.TotalBytes > 0 && report.ProcessedBytes >= report.TotalBytes)
-            {
-                EtaFormatted = "00:00";
-            }
-            else
-            {
-                EtaFormatted = "--:--";
-            }
+            SpeedFormatted = _throughputTracker.FormatSpeed();
+            EtaFormatted = _throughputTracker.FormatEta(report.TotalBytes);
         }
-    }
-
-    public static string FormatSpeed(double bytesPerSec)
-    {
-        if (bytesPerSec <= 0) return "0 B/s";
-        return $"{FormatBytes((long)bytesPerSec)}/s";
-    }
-
-    public static string FormatEta(TimeSpan eta)
-    {
-        if (eta.TotalSeconds <= 0) return "00:00";
-        return eta.Hours > 0 ? eta.ToString(@"hh\:mm\:ss") : eta.ToString(@"mm\:ss");
-    }
-
-    public static string FormatEta(double seconds)
-    {
-        if (seconds <= 0) return "00:00";
-        return FormatEta(TimeSpan.FromSeconds(Math.Min(seconds, 86400)));
+        else if (report.TotalBytes > 0 && report.ProcessedBytes >= report.TotalBytes)
+        {
+            EtaFormatted = "00:00";
+        }
     }
 
     public async Task FinishOperationAsync(bool success, string? message = null)
     {
-        _stopwatch?.Stop();
+        _throughputTracker.Reset();
         StatusMessage = message ?? (success ? "Completed successfully." : "Operation cancelled or failed.");
         await Task.Delay(400);
         IsOperationRunning = false;
         _cts?.Dispose();
         _cts = null;
-    }
-
-    public static string FormatBytes(long bytes)
-    {
-        if (bytes <= 0) return "0 B";
-        string[] suffixes = ["B", "KB", "MB", "GB", "TB"];
-        int counter = 0;
-        decimal number = bytes;
-        while (Math.Round(number / 1024) >= 1 && counter < suffixes.Length - 1)
-        {
-            number /= 1024;
-            counter++;
-        }
-        return $"{number:0.##} {suffixes[counter]}";
     }
 }

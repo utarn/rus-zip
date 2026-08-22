@@ -6,21 +6,6 @@ namespace RusZip.Desktop.Tests;
 public class ArchiveItemViewModelTests
 {
     [Theory]
-    [InlineData(-10, "0 B")]
-    [InlineData(0, "0 B")]
-    [InlineData(512, "512 B")]
-    [InlineData(1024, "1 KB")]
-    [InlineData(1536, "1.5 KB")]
-    [InlineData(1048576, "1 MB")]
-    [InlineData(1073741824, "1 GB")]
-    [InlineData(1099511627776, "1 TB")]
-    public void FormatBytes_FormatsCorrectly(long bytes, string expected)
-    {
-        var formatted = ArchiveItemViewModel.FormatBytes(bytes);
-        Assert.Equal(expected, formatted);
-    }
-
-    [Theory]
     [InlineData("archive.zrus", "📦")]
     [InlineData("archive.zip", "📦")]
     [InlineData("archive.rar", "📦")]
@@ -78,7 +63,7 @@ public class ArchiveItemViewModelTests
 
         Assert.False(fileItem.IsDirectory);
         Assert.Equal("📄", fileItem.IconDisplay);
-        Assert.Equal("1.95 KB", fileItem.FormattedUncompressedSize);
+        Assert.Equal("2.0 KB", fileItem.FormattedUncompressedSize);
         Assert.Equal("1000 B", fileItem.FormattedCompressedSize);
         Assert.Equal("50.0%", fileItem.FormattedRatio);
         Assert.Equal("2026-08-22 10:30", fileItem.FormattedLastModified);
@@ -96,7 +81,7 @@ public class ArchiveItemViewModelTests
             LastModified = null
         };
 
-        Assert.Equal("1 KB", fileItem.FormattedUncompressedSize);
+        Assert.Equal("1.0 KB", fileItem.FormattedUncompressedSize);
         Assert.Equal("-", fileItem.FormattedCompressedSize);
         Assert.Equal("-", fileItem.FormattedRatio);
         Assert.Equal("-", fileItem.FormattedLastModified);

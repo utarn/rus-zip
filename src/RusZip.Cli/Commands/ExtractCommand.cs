@@ -116,7 +116,7 @@ public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<Extract
                     .AddRow("Archive", Markup.Escape(archivePath))
                     .AddRow("Destination", Markup.Escape(destination))
                     .AddRow("Files Extracted", fileCount.ToString("N0"))
-                    .AddRow("Total Extracted Size", CliProgressBridge.FormatBytes(totalBytes))
+                    .AddRow("Total Extracted Size", DataMetricsFormatter.FormatBytes(totalBytes))
                     .AddRow("Time Elapsed", $"{sw.ElapsedMilliseconds} ms");
 
                 AnsiConsole.Write(new Panel(summaryTable).Header("[bold green]Extraction Summary[/]"));
