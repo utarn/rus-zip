@@ -27,8 +27,8 @@ public class ArchiveBrowserViewModelTests
         Assert.Equal(4, browser.TotalEntries);
         Assert.Equal(3800, browser.TotalUncompressedBytes);
         Assert.Equal(1600, browser.TotalCompressedBytes);
-        Assert.Equal("3.71 KB", browser.FormattedTotalUncompressedSize);
-        Assert.Equal("1.56 KB", browser.FormattedTotalCompressedSize);
+        Assert.Equal("3.7 KB", browser.FormattedTotalUncompressedSize);
+        Assert.Equal("1.6 KB", browser.FormattedTotalCompressedSize);
         Assert.Equal("42.1%", browser.FormattedTotalRatio);
 
         Assert.Equal(2, browser.RootItems.Count);

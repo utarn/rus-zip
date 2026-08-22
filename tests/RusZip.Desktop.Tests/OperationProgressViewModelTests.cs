@@ -1,5 +1,6 @@
 using RusZip.Core.Models;
 using RusZip.Desktop.ViewModels;
+using Xunit;
 
 namespace RusZip.Desktop.Tests;
 
@@ -76,7 +77,7 @@ public class OperationProgressViewModelTests
         Assert.Equal("video.mp4", vm.CurrentFileName);
         Assert.Equal(50.0, vm.ProgressPercentage);
         Assert.False(vm.IsIndeterminate);
-        Assert.Equal("5 MB / 10 MB", vm.BytesProgressFormatted);
+        Assert.Equal("5.0 MB / 10.0 MB", vm.BytesProgressFormatted);
     }
 
     [Fact]
@@ -99,7 +100,7 @@ public class OperationProgressViewModelTests
 
         Assert.Equal("archive.tar", vm.CurrentFileName);
         Assert.True(vm.IsIndeterminate);
-        Assert.Equal("1 MB / ...", vm.BytesProgressFormatted);
+        Assert.Equal("1.0 MB / ...", vm.BytesProgressFormatted);
     }
 
     [Fact]
@@ -154,58 +155,6 @@ public class OperationProgressViewModelTests
         Assert.Equal("00:00", vm.EtaFormatted);
         Assert.Equal("00:00", vm.FormattedEta);
         Assert.Equal("00:00", vm.TimeRemaining);
-    }
-
-    [Theory]
-    [InlineData(0, "0 B/s")]
-    [InlineData(-10, "0 B/s")]
-    [InlineData(1024, "1 KB/s")]
-    [InlineData(10485760, "10 MB/s")]
-    [InlineData(1073741824, "1 GB/s")]
-    public void FormatSpeed_FormatsCorrectly(double bytesPerSec, string expected)
-    {
-        var formatted = OperationProgressViewModel.FormatSpeed(bytesPerSec);
-        Assert.Equal(expected, formatted);
-    }
-
-    [Theory]
-    [InlineData(0, "00:00")]
-    [InlineData(-5, "00:00")]
-    [InlineData(45, "00:45")]
-    [InlineData(90, "01:30")]
-    [InlineData(3665, "01:01:05")]
-    public void FormatEta_FromTimeSpan_FormatsCorrectly(int totalSeconds, string expected)
-    {
-        var timeSpan = TimeSpan.FromSeconds(totalSeconds);
-        var formatted = OperationProgressViewModel.FormatEta(timeSpan);
-        Assert.Equal(expected, formatted);
-    }
-
-    [Theory]
-    [InlineData(0, "00:00")]
-    [InlineData(-10, "00:00")]
-    [InlineData(12, "00:12")]
-    [InlineData(75, "01:15")]
-    [InlineData(3600, "01:00:00")]
-    public void FormatEta_FromSecondsDouble_FormatsCorrectly(double seconds, string expected)
-    {
-        var formatted = OperationProgressViewModel.FormatEta(seconds);
-        Assert.Equal(expected, formatted);
-    }
-
-    [Theory]
-    [InlineData(0, "0 B")]
-    [InlineData(-100, "0 B")]
-    [InlineData(512, "512 B")]
-    [InlineData(1024, "1 KB")]
-    [InlineData(1536, "1.5 KB")]
-    [InlineData(1048576, "1 MB")]
-    [InlineData(1073741824, "1 GB")]
-    [InlineData(1099511627776, "1 TB")]
-    public void FormatBytes_FormatsCorrectly(long bytes, string expected)
-    {
-        var formatted = OperationProgressViewModel.FormatBytes(bytes);
-        Assert.Equal(expected, formatted);
     }
 
     [Fact]

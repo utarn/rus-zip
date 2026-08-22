@@ -7,21 +7,6 @@ namespace RusZip.Cli.Tests;
 
 public sealed class ProgressBridgeAndModelTests
 {
-    [Theory]
-    [InlineData(0, "0 B")]
-    [InlineData(-100, "0 B")]
-    [InlineData(512, "512.0 B")]
-    [InlineData(1024, "1.0 KB")]
-    [InlineData(1536, "1.5 KB")]
-    [InlineData(1048576, "1.0 MB")]
-    [InlineData(1073741824, "1.0 GB")]
-    [InlineData(1099511627776, "1.0 TB")]
-    public void FormatBytes_FormatsSizesCorrectly(long bytes, string expected)
-    {
-        var result = CliProgressBridge.FormatBytes(bytes);
-        Assert.Equal(expected, result);
-    }
-
     [Fact]
     public void ErrorResult_SerializesToExpectedCamelCaseJson_WithoutNullFields()
     {

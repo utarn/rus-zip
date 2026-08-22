@@ -32,11 +32,9 @@ public partial class ArchiveBrowserViewModel : ObservableObject
 
     public Func<string, Task>? CopyToClipboardService { get; set; }
 
-    public string FormattedTotalUncompressedSize => ArchiveItemViewModel.FormatBytes(TotalUncompressedBytes);
-    public string FormattedTotalCompressedSize => TotalCompressedBytes.HasValue ? ArchiveItemViewModel.FormatBytes(TotalCompressedBytes.Value) : "-";
-    public string FormattedTotalRatio => (TotalUncompressedBytes == 0 || !TotalCompressedBytes.HasValue)
-        ? "-"
-        : $"{((double)TotalCompressedBytes.Value / TotalUncompressedBytes * 100):0.0}%";
+    public string FormattedTotalUncompressedSize => DataMetricsFormatter.FormatBytes(TotalUncompressedBytes);
+    public string FormattedTotalCompressedSize => TotalCompressedBytes.HasValue ? DataMetricsFormatter.FormatBytes(TotalCompressedBytes.Value) : "-";
+    public string FormattedTotalRatio => DataMetricsFormatter.FormatRatio(TotalCompressedBytes, TotalUncompressedBytes);
 
     public ArchiveBrowserViewModel()
     {

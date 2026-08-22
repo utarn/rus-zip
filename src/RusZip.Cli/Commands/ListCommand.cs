@@ -94,14 +94,14 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
                 foreach (var entry in entries)
                 {
                     string icon = entry.IsDirectory ? "[yellow]📁[/]" : "[blue]📄[/]";
-                    string size = entry.IsDirectory ? "-" : CliProgressBridge.FormatBytes(entry.UncompressedSize);
+                    string size = entry.IsDirectory ? "-" : DataMetricsFormatter.FormatBytes(entry.UncompressedSize);
                     string modified = entry.LastModified?.ToString("yyyy-MM-dd HH:mm:ss") ?? "-";
 
                     table.AddRow($"{icon} {Markup.Escape(entry.RelativePath)}", size, modified);
                 }
 
                 AnsiConsole.Write(table);
-                AnsiConsole.MarkupLine($"\n[dim]Total: {entries.Count:N0} entries ({CliProgressBridge.FormatBytes(entries.Sum(e => e.UncompressedSize))})[/]");
+                AnsiConsole.MarkupLine($"\n[dim]Total: {entries.Count:N0} entries ({DataMetricsFormatter.FormatBytes(entries.Sum(e => e.UncompressedSize))})[/]");
             }
 
             return 0;
