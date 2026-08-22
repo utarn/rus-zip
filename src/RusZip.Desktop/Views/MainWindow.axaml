@@ -28,6 +28,11 @@
                         Click="OnExtractAllClicked"
                         IsEnabled="{Binding HasOpenArchive}"
                         Padding="14,8" />
+
+                <Button Content="✕ Close"
+                        Command="{Binding CloseArchiveCommand}"
+                        IsEnabled="{Binding HasOpenArchive}"
+                        Padding="14,8" />
             </StackPanel>
         </Border>
 

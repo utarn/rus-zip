@@ -11,8 +11,18 @@ public partial class MainWindowViewModel : ObservableObject
 
     private static readonly HashSet<string> SupportedArchiveExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".zrus", ".zip", ".tar", ".gz", ".tgz", ".7z", ".rar"
+        ".zrus", ".zip", ".tar", ".gz", ".tgz", ".7z", ".rar", ".tar.gz"
     };
+
+    public static IReadOnlyCollection<string> SupportedExtensions => SupportedArchiveExtensions;
+
+    public static bool IsSupportedArchive(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (path.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)) return true;
+        var ext = Path.GetExtension(path);
+        return !string.IsNullOrEmpty(ext) && SupportedArchiveExtensions.Contains(ext);
+    }
 
     [ObservableProperty] private ArchiveBrowserViewModel _browser;
     [ObservableProperty] private CompressionSettingsViewModel _settings;
@@ -21,12 +31,37 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _isCompressDialogVisible;
     [ObservableProperty] private string _statusText = "Ready";
 
+    public Func<Task<string?>>? RequestExtractDestinationFolder { get; set; }
+
     public MainWindowViewModel(IArchiveEngine engine)
     {
         _engine = engine;
         _browser = new ArchiveBrowserViewModel();
         _settings = new CompressionSettingsViewModel();
         _progress = new OperationProgressViewModel();
+
+        _browser.ExtractRequested += OnBrowserExtractRequestedAsync;
+    }
+
+    private async Task OnBrowserExtractRequestedAsync()
+    {
+        if (RequestExtractDestinationFolder != null)
+        {
+            var destination = await RequestExtractDestinationFolder.Invoke();
+            if (!string.IsNullOrEmpty(destination))
+            {
+                await ExecuteExtractAllAsync(destination);
+            }
+        }
+    }
+
+    [RelayCommand]
+    public void CloseArchive()
+    {
+        HasOpenArchive = false;
+        Browser = new ArchiveBrowserViewModel();
+        Browser.ExtractRequested += OnBrowserExtractRequestedAsync;
+        StatusText = "Ready";
     }
 
     [RelayCommand]
@@ -139,12 +174,13 @@ public partial class MainWindowViewModel : ObservableObject
 
     public async Task HandleDroppedPathsAsync(IReadOnlyList<string> paths)
     {
-        if (paths.Count == 1 && File.Exists(paths[0]) &&
-            SupportedArchiveExtensions.Contains(Path.GetExtension(paths[0])))
+        if (paths.Count == 0) return;
+
+        if (paths.Count == 1 && File.Exists(paths[0]) && IsSupportedArchive(paths[0]))
         {
             await OpenArchiveAsync(paths[0]);
         }
-        else if (paths.Count > 0)
+        else
         {
             ShowCompressDialog(paths[0]);
         }

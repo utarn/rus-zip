@@ -5,16 +5,76 @@
              x:DataType="vm:ArchiveBrowserViewModel">
 
     <Grid RowDefinitions="Auto,*">
-        <!-- Status / Details Bar -->
-        <Border Grid.Row="0" Padding="12,8" Background="{DynamicResource CardBackgroundFillColorSecondary}" BorderBrush="{DynamicResource SurfaceStrokeColorDefault}" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="*,Auto">
-                <StackPanel Orientation="Horizontal" Spacing="8">
+        <!-- Archive Details and Action Toolbar -->
+        <Border Grid.Row="0"
+                Padding="12,8"
+                Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                <!-- Top Row: Archive Path + Summary Info -->
+                <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="📦" FontSize="16" VerticalAlignment="Center" />
                     <TextBlock Text="Archive:" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <TextBlock Text="{Binding LoadedArchivePath}" Foreground="{DynamicResource TextFillColorSecondary}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding LoadedArchivePath}"
+                               Foreground="{DynamicResource TextFillColorSecondary}"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               MaxWidth="450" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16">
-                    <TextBlock Text="{Binding TotalEntries, StringFormat='{}Items: {0:N0}'}" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource TextFillColorTertiary}" />
+                <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding TotalEntries, StringFormat='{}Items: {0:N0}'}"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorTertiary}" />
+                    <TextBlock Text="{Binding FormattedTotalUncompressedSize, StringFormat='{}Size: {0}'}"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorTertiary}" />
+                    <TextBlock Text="{Binding FormattedTotalCompressedSize, StringFormat='{}Compressed: {0}'}"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorTertiary}" />
+                    <TextBlock Text="{Binding FormattedTotalRatio, StringFormat='{}Ratio: {0}'}"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorTertiary}" />
+                </StackPanel>
+
+                <!-- Bottom Row: Filter Box + Action Buttons -->
+                <Grid Grid.Row="1" Grid.Column="0" ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
+                    <TextBox Grid.Column="0"
+                             Width="260"
+                             Watermark="🔍 Filter contents..."
+                             Text="{Binding FilterText, Mode=TwoWay}"
+                             VerticalAlignment="Center">
+                        <TextBox.InnerRightContent>
+                            <Button Content="✕"
+                                    Command="{Binding ClearFilterCommand}"
+                                    IsVisible="{Binding FilterText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                    Padding="4,2"
+                                    Margin="0,0,2,0"
+                                    Background="Transparent"
+                                    BorderThickness="0" />
+                        </TextBox.InnerRightContent>
+                    </TextBox>
+                </Grid>
+
+                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Content="⊞ Expand All"
+                            Command="{Binding ExpandAllCommand}"
+                            Padding="10,5"
+                            FontSize="12" />
+                    <Button Content="⊟ Collapse All"
+                            Command="{Binding CollapseAllCommand}"
+                            Padding="10,5"
+                            FontSize="12" />
+                    <Button Content="📥 Extract All"
+                            Command="{Binding RequestExtractCommand}"
+                            Classes="accent"
+                            Padding="12,5"
+                            FontSize="12" />
                 </StackPanel>
             </Grid>
         </Border>
@@ -23,6 +83,7 @@
         <TreeDataGrid Grid.Row="1"
                       Source="{Binding GridSource}"
                       CanUserResizeColumns="True"
+                      CanUserSortColumns="True"
                       ShowColumnHeaders="True" />
     </Grid>
 </UserControl>
