@@ -128,7 +128,7 @@ rus-zip extract archive.zip -o ./out --no-overwrite
 
 The rus-zip Desktop application is built with Avalonia UI and includes:
 
-- **Archive browser** — browse archive contents in a hierarchical tree with size rollups, breadcrumbs, and context menus; extract individual items or the full archive.
+- **Archive browser** — browse archive contents in a hierarchical ProDataGrid with size rollups, breadcrumbs, and context menus; extract individual items or the full archive.
 - **Compression wizard** — pick a source, destination format (`.zrus` or `.zip`), compression profile, and level.
 - **Themes** — switch between `System`, `Dark`, and `Light` themes from the main window.
 

@@ -193,13 +193,21 @@
             </StackPanel>
         </Border>
 
-        <!-- Virtualized TreeDataGrid with Context Menu -->
-        <TreeDataGrid Grid.Row="4"
-                      Source="{Binding GridSource}"
-                      CanUserResizeColumns="True"
-                      CanUserSortColumns="True"
-                      ShowColumnHeaders="True">
-            <TreeDataGrid.ContextMenu>
+        <!-- Virtualized ProDataGrid (hierarchical) with Context Menu.
+             The column CustomSortComparer instances are plain CLR properties and cannot be
+             bound in XAML, so they are assigned from the view code-behind (same comparers
+             the ViewModel exposes). -->
+        <DataGrid x:Name="ArchiveGrid"
+                  Grid.Row="4"
+                  HierarchicalRowsEnabled="True"
+                  HierarchicalModel="{Binding GridSource}"
+                  CanUserResizeColumns="True"
+                  CanUserSortColumns="True"
+                  HeadersVisibility="Column"
+                  SelectionMode="Single"
+                  SelectionUnit="FullRow"
+                  SelectedItem="{Binding SelectedItem}">
+            <DataGrid.ContextMenu>
                 <ContextMenu>
                     <MenuItem Header="Extract Selected..."
                               Command="{Binding ExtractSelectedItemCommand}">
@@ -214,7 +222,94 @@
                         </MenuItem.Icon>
                     </MenuItem>
                 </ContextMenu>
-            </TreeDataGrid.ContextMenu>
-        </TreeDataGrid>
+            </DataGrid.ContextMenu>
+            <DataGrid.Columns>
+                <DataGridTemplateColumn Header="Name"
+                                        Width="*"
+                                        CanUserSort="True"
+                                        CanUserResize="True"
+                                        SortMemberPath="Name">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:ArchiveItemViewModel">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Data="{Binding IconGeometry}" Width="16" Height="16" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Size"
+                                        Width="110"
+                                        CanUserSort="True"
+                                        CanUserResize="True"
+                                        SortMemberPath="UncompressedSize">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:ArchiveItemViewModel">
+                            <TextBlock Text="{Binding FormattedUncompressedSize}"
+                                       TextAlignment="Right"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Compressed"
+                                        Width="110"
+                                        CanUserSort="True"
+                                        CanUserResize="True"
+                                        SortMemberPath="CompressedSize">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:ArchiveItemViewModel">
+                            <TextBlock Text="{Binding FormattedCompressedSize}"
+                                       TextAlignment="Right"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Ratio"
+                                        Width="80"
+                                        CanUserSort="True"
+                                        CanUserResize="True"
+                                        SortMemberPath="FormattedRatio">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:ArchiveItemViewModel">
+                            <TextBlock Text="{Binding FormattedRatio}"
+                                       TextAlignment="Right"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Modified"
+                                        Width="140"
+                                        CanUserSort="True"
+                                        CanUserResize="True"
+                                        SortMemberPath="LastModified">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:ArchiveItemViewModel">
+                            <TextBlock Text="{Binding FormattedLastModified}"
+                                       VerticalAlignment="Center" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Attributes"
+                                        Width="90"
+                                        CanUserSort="True"
+                                        CanUserResize="True"
+                                        SortMemberPath="Attributes">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:ArchiveItemViewModel">
+                            <TextBlock Text="{Binding Attributes}"
+                                       VerticalAlignment="Center" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
     </Grid>
 </UserControl>

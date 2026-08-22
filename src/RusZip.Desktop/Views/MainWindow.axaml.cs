@@ -112,7 +112,7 @@ public partial class MainWindow : Window
 
     private void OnDragEnter(object? sender, DragEventArgs e)
     {
-        if (DataContext is MainWindowViewModel vm && e.Data.Contains(DataFormats.Files))
+        if (DataContext is MainWindowViewModel vm && e.DataTransfer.Contains(DataFormat.File))
         {
             vm.IsDragOver = true;
         }
@@ -128,7 +128,7 @@ public partial class MainWindow : Window
 
     private void OnDragOver(object? sender, DragEventArgs e)
     {
-        if (e.Data.Contains(DataFormats.Files))
+        if (e.DataTransfer.Contains(DataFormat.File))
         {
             e.DragEffects = DragDropEffects.Copy;
             if (DataContext is MainWindowViewModel vm)
@@ -151,7 +151,7 @@ public partial class MainWindow : Window
         if (DataContext is not MainWindowViewModel vm) return;
         vm.IsDragOver = false;
 
-        var items = e.Data.GetFiles();
+        var items = e.DataTransfer.TryGetFiles();
         if (items == null) return;
 
         var paths = new List<string>();
