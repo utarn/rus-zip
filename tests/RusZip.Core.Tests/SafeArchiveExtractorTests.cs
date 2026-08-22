@@ -206,4 +206,101 @@ public class SafeArchiveExtractorTests : IDisposable
         Assert.False(reports.Last().IsIndeterminate);
         Assert.Equal(100.0, reports.Last().Percentage);
     }
+
+    [Theory]
+    [InlineData(".. ")]
+    [InlineData(".. .")]
+    [InlineData("file.")]
+    [InlineData("file ")]
+    [InlineData("folder./file")]
+    [InlineData("folder/file.")]
+    public async Task ExtractAllAsync_PathComponentEndingInDotOrSpace_ThrowsSecurityException(string maliciousPath)
+    {
+        var targetDir = Path.Combine(_testDir, "trailing_out");
+        var entries = new List<ExtractionEntry>
+        {
+            new(maliciousPath, false, 4, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("evil"u8.ToArray())))
+        };
+
+        var source = new FakeExtractionSource(entries);
+
+        var ex = await Assert.ThrowsAsync<SecurityException>(() =>
+            SafeArchiveExtractor.ExtractAllAsync(source, targetDir, overwrite: true, totalBytes: 4, null));
+
+        Assert.Contains("Malicious entry detected", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("path traversal", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExtractAllAsync_SymlinkedParent_ThrowsSecurityException_AndDoesNotWriteOutside()
+    {
+        var targetDir = Path.Combine(_testDir, "symlink_out");
+        Directory.CreateDirectory(targetDir);
+        var outsideDir = Path.Combine(_testDir, "symlink_outside");
+        Directory.CreateDirectory(outsideDir);
+
+        var linkPath = Path.Combine(targetDir, "evil");
+        try
+        {
+            File.CreateSymbolicLink(linkPath, outsideDir);
+        }
+        catch (Exception) when (OperatingSystem.IsWindows())
+        {
+            return; // Windows may require elevated privileges / Developer Mode to create symlinks.
+        }
+
+        var entries = new List<ExtractionEntry>
+        {
+            new("evil/escaped.txt", false, 4, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("evil"u8.ToArray())))
+        };
+
+        var source = new FakeExtractionSource(entries);
+
+        var ex = await Assert.ThrowsAsync<SecurityException>(() =>
+            SafeArchiveExtractor.ExtractAllAsync(source, targetDir, overwrite: true, totalBytes: 4, null));
+
+        Assert.Contains("symlinked", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(Path.Combine(outsideDir, "escaped.txt")));
+    }
+
+    [Fact]
+    public async Task ExtractAllAsync_SecurityExceptionAbort_RemovesPartiallyCreatedFiles()
+    {
+        var targetDir = Path.Combine(_testDir, "cleanup_out");
+        var entries = new List<ExtractionEntry>
+        {
+            new("good.txt", false, 1, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("g"u8.ToArray()))),
+            new("../evil.txt", false, 4, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("evil"u8.ToArray())))
+        };
+
+        var source = new FakeExtractionSource(entries);
+
+        var ex = await Assert.ThrowsAsync<SecurityException>(() =>
+            SafeArchiveExtractor.ExtractAllAsync(source, targetDir, overwrite: true, totalBytes: 5, null));
+
+        Assert.Contains("path traversal", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(Path.Combine(targetDir, "good.txt")));
+        Assert.Empty(Directory.GetFiles(targetDir));
+    }
+
+    [Fact]
+    public async Task ExtractAllAsync_SecurityExceptionAbort_RemovesPartiallyCreatedDirectories()
+    {
+        var targetDir = Path.Combine(_testDir, "cleanup_dirs_out");
+        var entries = new List<ExtractionEntry>
+        {
+            new("folder", true, 0, null, null, _ => ValueTask.FromResult<Stream>(Stream.Null)),
+            new("folder/nested", true, 0, null, null, _ => ValueTask.FromResult<Stream>(Stream.Null)),
+            new("folder/nested/data.txt", false, 1, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("d"u8.ToArray()))),
+            new("file.", false, 4, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("evil"u8.ToArray())))
+        };
+
+        var source = new FakeExtractionSource(entries);
+
+        await Assert.ThrowsAsync<SecurityException>(() =>
+            SafeArchiveExtractor.ExtractAllAsync(source, targetDir, overwrite: true, totalBytes: 5, null));
+
+        Assert.False(Directory.Exists(Path.Combine(targetDir, "folder")));
+        Assert.False(File.Exists(Path.Combine(targetDir, "folder", "nested", "data.txt")));
+    }
 }
