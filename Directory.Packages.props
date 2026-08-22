@@ -1,0 +1,42 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Avalonia 12 UI stack (aligned with ProDataGrid 12.1.0.4, which requires Avalonia >= 12.1.0) -->
+    <PackageVersion Include="Avalonia" Version="12.1.1" />
+    <PackageVersion Include="Avalonia.Desktop" Version="12.1.1" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.1.1" />
+    <PackageVersion Include="Avalonia.Headless.XUnit" Version="12.1.1" />
+
+    <!-- Pro* 12.1.0.4 line. ProCharts.Avalonia is not referenced yet (a later issue wires it into
+         the progress overlay), but its central version is fixed now so the whole Pro* line is pinned. -->
+    <PackageVersion Include="ProDataGrid" Version="12.1.0.4" />
+    <PackageVersion Include="ProCharts.Avalonia" Version="12.1.0.4" />
+
+    <!-- Transitive pin: resolves GHSA-xrw6-gwf8-vvr9 (CVE-2026-39959) for Tmds.DBus.Protocol.
+         Advisory (osv.dev/GHSA-xrw6-gwf8-vvr9) patched ranges: < 0.21.3 and >= 0.22.0 < 0.92.0 are
+         VULNERABLE; 0.21.3 (backport) and >= 0.92.0 (mainline) are FIXED. Under Avalonia 12.1.1 the
+         transitive floor (Avalonia.FreeDesktop 12.1.1 -> Tmds.DBus.Protocol 0.94.1) moved past the
+         old 0.21.3 pin, so the direct pin is raised to 0.94.1 — the lowest version that BOTH
+         satisfies the resolved graph AND clears the advisory. See GHSA-xrw6-gwf8-vvr9. -->
+    <PackageVersion Include="Tmds.DBus.Protocol" Version="0.94.1" />
+
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+
+    <!-- Core / CLI -->
+    <PackageVersion Include="ZstdSharp.Port" Version="0.8.8" />
+    <PackageVersion Include="SharpCompress" Version="0.50.4" />
+    <PackageVersion Include="Spectre.Console.Cli" Version="0.49.1" />
+
+    <!-- Test runners (xunit v3 across all test projects; Avalonia.Headless.XUnit 12.x is built
+         against xunit v3 via xunit.v3.extensibility.core). -->
+    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+  </ItemGroup>
+</Project>

@@ -61,7 +61,7 @@ Following the deep module philosophy (`/codebase-design`):
   - Enables headless testing of tree operations. A CLI tree view (`rus-zip list --tree`) is
     future work (per PRD #31) and no such flag ships today.
   - **Desktop grid control**: `ArchiveBrowserViewModel` presents the projected tree through
-    ProDataGrid 11.3.x (`Avalonia.Controls.DataGrid` with hierarchical rows) in the Desktop
+    ProDataGrid 12.1.0.4 (`Avalonia.Controls.DataGrid` with hierarchical rows) in the Desktop
     browser. ProDataGrid is the MIT-licensed continuation of `Avalonia.Controls.TreeDataGrid`
     by its original author; the TreeDataGrid 11.2+ line moved behind a commercial Avalonia Pro
     license (`AvaloniaUI.Licensing` build gate), so the browser adopted ProDataGrid (issue #51).

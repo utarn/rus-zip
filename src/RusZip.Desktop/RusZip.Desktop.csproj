@@ -11,22 +11,23 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.3.20" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.20" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.20" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.20" />
-    <!-- ProDataGrid 11.3.x is the MIT-licensed continuation of Avalonia.Controls.TreeDataGrid
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Fonts.Inter" />
+    <!-- ProDataGrid is the MIT-licensed continuation of Avalonia.Controls.TreeDataGrid
          (same original author, wieslawsoltes). The TreeDataGrid 11.2+ line went commercial
          (Avalonia Pro license, AvaloniaUI.Licensing build gate), so this is the drop-in
          replacement for the archive browser. See issue #51 / docs. -->
-    <PackageReference Include="ProDataGrid" Version="11.3.11" />
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <PackageReference Include="ProDataGrid" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <!-- Transitive pin: resolves GHSA-xrw6-gwf8-vvr9 (CVE-2026-39959) for Tmds.DBus.Protocol,
-         pulled in transitively via Avalonia.Desktop -> Avalonia.FreeDesktop (0.20.0).
-         Advisory patched in 0.21.3 (backport) and >= 0.92.0; 0.21.3 is the lowest patched version.
+         pulled in transitively via Avalonia.Desktop -> Avalonia.FreeDesktop (12.1.1 -> 0.94.1).
+         Advisory patched in 0.21.3 (backport) and >= 0.92.0 (mainline); 0.94.1 is the lowest
+         version that satisfies the resolved graph AND clears the advisory.
          https://github.com/advisories/GHSA-xrw6-gwf8-vvr9 -->
-    <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
+    <PackageReference Include="Tmds.DBus.Protocol" />
   </ItemGroup>
 
   <ItemGroup>

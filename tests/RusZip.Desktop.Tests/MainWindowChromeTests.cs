@@ -59,7 +59,7 @@ public class MainWindowChromeTests
 
         Assert.Equal("True", root.Attribute("ExtendClientAreaToDecorationsHint")?.Value);
         Assert.Equal("46", root.Attribute("ExtendClientAreaTitleBarHeightHint")?.Value);
-        Assert.Equal("PreferSystemChrome", root.Attribute("ExtendClientAreaChromeHints")?.Value);
+        Assert.Equal("Full", root.Attribute("WindowDecorations")?.Value);
         Assert.Equal("Mica, AcrylicBlur, Blur", root.Attribute("TransparencyLevelHint")?.Value);
         Assert.Equal("Transparent", root.Attribute("Background")?.Value);
     }
@@ -130,7 +130,7 @@ public class MainWindowChromeTests
 
         Assert.True(window.ExtendClientAreaToDecorationsHint);
         Assert.Equal(46, window.ExtendClientAreaTitleBarHeightHint);
-        Assert.Equal(ExtendClientAreaChromeHints.PreferSystemChrome, window.ExtendClientAreaChromeHints);
+        Assert.Equal(WindowDecorations.Full, window.WindowDecorations);
     }
 
     [AvaloniaFact]
