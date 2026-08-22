@@ -201,4 +201,97 @@ public class ArchiveHierarchyTests
         Assert.Equal(400, leaf.CompressedSize);
         Assert.False(leaf.IsDirectory);
     }
+
+    [Fact]
+    public void BuildTree_DuplicateLeafPaths_CountedOnceInRollups()
+    {
+        var entries = new List<ArchiveEntry>
+        {
+            new("docs/manual.pdf", 400, 200, null, false),
+            new("docs/readme.txt", 100, 50, null, false),
+            new("docs/readme.txt", 500, 250, null, false) // duplicate path, larger size
+        };
+
+        var roots = ArchiveHierarchy.BuildTree(entries);
+
+        Assert.Single(roots);
+        var docs = roots[0];
+        Assert.True(docs.IsDirectory);
+
+        var manual = docs.Children.Single(c => c.Name == "manual.pdf");
+        var readme = docs.Children.Single(c => c.Name == "readme.txt");
+
+        // First-wins dedupe: the leaf keeps the first occurrence's data.
+        Assert.Equal(400, manual.UncompressedSize);
+        Assert.Equal(200, manual.CompressedSize);
+        Assert.Equal(0, manual.DuplicateCount);
+
+        Assert.Equal(100, readme.UncompressedSize);
+        Assert.Equal(50, readme.CompressedSize);
+        Assert.Equal(1, readme.DuplicateCount);
+
+        // Directory rollup counts each distinct path exactly once: 400 + 100, not 400 + 100 + 500.
+        Assert.Equal(500, docs.UncompressedSize);
+        Assert.Equal(250, docs.CompressedSize);
+
+        // Rollup invariant: a directory's size == sum of its displayed children.
+        Assert.Equal(manual.UncompressedSize + readme.UncompressedSize, docs.UncompressedSize);
+    }
+
+    [Fact]
+    public void BuildTree_DuplicateDirectoryEntries_DoNotDoubleCountSize()
+    {
+        var entries = new List<ArchiveEntry>
+        {
+            new("folder", 0, 0, null, true),
+            new("folder", 0, 0, null, true), // duplicate directory entry
+            new("folder/file.txt", 250, 100, null, false)
+        };
+
+        var roots = ArchiveHierarchy.BuildTree(entries);
+
+        Assert.Single(roots);
+        var folder = roots[0];
+        Assert.True(folder.IsDirectory);
+        Assert.Equal(250, folder.UncompressedSize);
+        Assert.Equal(100, folder.CompressedSize);
+        Assert.Equal(250, folder.Children.Sum(c => c.UncompressedSize));
+    }
+
+    [Fact]
+    public void BuildTree_RollupInvariant_EveryDirectorySizeEqualsSumOfDisplayedChildren()
+    {
+        var entries = new List<ArchiveEntry>
+        {
+            new("src", 0, 0, null, true),
+            new("src/Models", 0, 0, null, true),
+            new("src/Models/User.cs", 200, 80, null, false),
+            new("src/Models/Order.cs", 300, 120, null, false),
+            new("src/Controllers", 0, 0, null, true),
+            new("src/Controllers/HomeController.cs", 500, 200, null, false),
+            new("src/Program.cs", 100, 40, null, false),
+            new("README.md", 50, 20, null, false)
+        };
+
+        var roots = ArchiveHierarchy.BuildTree(entries);
+
+        AssertRollupInvariant(roots);
+    }
+
+    private static void AssertRollupInvariant(IEnumerable<ArchiveTreeNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.IsDirectory)
+            {
+                Assert.Equal(
+                    node.Children.Sum(c => c.UncompressedSize),
+                    node.UncompressedSize);
+                Assert.Equal(
+                    node.Children.Sum(c => c.CompressedSize ?? 0),
+                    node.CompressedSize ?? 0);
+            }
+            AssertRollupInvariant(node.Children);
+        }
+    }
 }

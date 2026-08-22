@@ -11,6 +11,14 @@ public sealed class ArchiveTreeNode
     public string Attributes { get; set; } = string.Empty;
     public List<ArchiveTreeNode> Children { get; } = [];
     public bool HasChildren => Children.Count > 0;
+
+    /// <summary>
+    /// Number of additional archive entries (after the first) that resolved to this same
+    /// relative path. Non-zero only when the archive contains duplicate entry paths; such
+    /// duplicates are counted once in ancestor rollups (first-wins) so that a directory's
+    /// size always equals the sum of its displayed children.
+    /// </summary>
+    public int DuplicateCount { get; set; }
 }
 
 public static class ArchiveHierarchy
@@ -36,6 +44,11 @@ public static class ArchiveHierarchy
             var segments = normalizedPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
             string currentPath = string.Empty;
             ArchiveTreeNode? parent = null;
+
+            // F-20: when the same full path has already been materialized, this entry is a
+            // duplicate. Its size must be counted once in ancestor rollups (first-wins) so
+            // directory totals never exceed the sum of their displayed children.
+            bool isDuplicatePath = lookup.ContainsKey(normalizedPath);
 
             for (int i = 0; i < segments.Length; i++)
             {
@@ -68,14 +81,15 @@ public static class ArchiveHierarchy
                 {
                     if (isLeaf)
                     {
-                        node.IsDirectory = false;
-                        node.UncompressedSize = entry.UncompressedSize;
-                        node.CompressedSize = entry.CompressedSize;
-                        node.LastModified = entry.LastModified;
-                        node.Attributes = entry.Attributes;
+                        // Duplicate leaf path: first-wins keeps the original entry's data
+                        // (size and metadata) so the displayed tree stays self-consistent;
+                        // surface the extra copy via DuplicateCount.
+                        node.DuplicateCount++;
                     }
                     else if (isTarget)
                     {
+                        // Existing node re-declared as a directory. Refresh directory metadata
+                        // (last-wins for timestamps/attributes), but never re-add size.
                         node.IsDirectory = true;
                         if (entry.LastModified.HasValue)
                         {
@@ -88,7 +102,10 @@ public static class ArchiveHierarchy
                     }
                 }
 
-                if (!isLeaf && node != null)
+                // Roll file sizes up to every ancestor directory, once per distinct path.
+                // Directory entries carry metadata but no content size, so their declared size
+                // is never added — a directory's displayed size is the sum of its children.
+                if (!isLeaf && !isDuplicatePath && !entry.IsDirectory)
                 {
                     node.UncompressedSize += entry.UncompressedSize;
                     if (entry.CompressedSize.HasValue)
