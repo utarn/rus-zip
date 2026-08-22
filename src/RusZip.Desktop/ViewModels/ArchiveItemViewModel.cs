@@ -27,9 +27,22 @@ public partial class ArchiveItemViewModel : ObservableObject
     public bool HasChildren => Children.Count > 0;
     public bool IsDirectory => ItemType == ArchiveItemType.Directory;
 
+    /// <summary>Parent node in the tree (used for breadcrumb expansion tracking).</summary>
+    public ArchiveItemViewModel? Parent { get; set; }
+
     public string FormattedUncompressedSize => IsDirectory ? "-" : DataMetricsFormatter.FormatBytes(UncompressedSize);
     public string FormattedCompressedSize => (IsDirectory || !CompressedSize.HasValue) ? "-" : DataMetricsFormatter.FormatBytes(CompressedSize.Value);
     public string FormattedRatio => IsDirectory ? "-" : DataMetricsFormatter.FormatRatio(CompressedSize, UncompressedSize);
+
+    /// <summary>
+    /// Numeric compression ratio percentage for column sorting. Directories (whose formatted
+    /// ratio is always "-") and files without a compressed size sort to the end of the file
+    /// group via <see cref="double.MaxValue"/>.
+    /// </summary>
+    public double RatioValue =>
+        (!IsDirectory && CompressedSize.HasValue && UncompressedSize > 0)
+            ? (double)CompressedSize.Value / UncompressedSize * 100.0
+            : double.MaxValue;
 
     public string FormattedLastModified => LastModified.HasValue ? LastModified.Value.ToString("yyyy-MM-dd HH:mm") : "-";
 
@@ -71,7 +84,9 @@ public partial class ArchiveItemViewModel : ObservableObject
 
         foreach (var child in node.Children)
         {
-            vm.Children.Add(FromTreeNode(child, autoExpand));
+            var childVm = FromTreeNode(child, autoExpand);
+            childVm.Parent = vm;
+            vm.Children.Add(childVm);
         }
 
         return vm;

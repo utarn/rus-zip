@@ -23,6 +23,9 @@ internal static class ArchiveItemComparer
     public static IComparer CreateModified()
         => new ValueComparer(item => item.LastModified ?? DateTimeOffset.MinValue, directoriesFirst: true, Comparer<DateTimeOffset>.Default);
 
+    public static IComparer CreateRatio()
+        => new ValueComparer(item => item.RatioValue, directoriesFirst: true, Comparer<double>.Default);
+
     public static IComparer CreateAttributes()
         => new ValueComparer(item => item.Attributes, directoriesFirst: false, StringComparer.OrdinalIgnoreCase);
 

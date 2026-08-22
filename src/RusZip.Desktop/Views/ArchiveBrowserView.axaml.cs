@@ -5,11 +5,78 @@ namespace RusZip.Desktop.Views;
 
 public partial class ArchiveBrowserView : UserControl
 {
+    /// <summary>
+    /// The row under the right-click pointer, passed as <c>CommandParameter</c> to every context
+    /// menu item (F-40). Null when the menu is opened via keyboard, in which case the commands
+    /// fall back to the selected row.
+    /// </summary>
+    private ArchiveItemViewModel? _contextTarget;
+
     public ArchiveBrowserView()
     {
         InitializeComponent();
         DataContextChanged += (_, _) => ApplyColumnSortComparers();
         ApplyColumnSortComparers();
+
+        ArchiveGrid.CellPointerPressed += OnArchiveGridCellPointerPressed;
+        if (ArchiveGrid.ContextMenu is { } menu)
+        {
+            menu.Opening += OnArchiveGridContextMenuOpening;
+            menu.Closing += OnArchiveGridContextMenuClosing;
+        }
+    }
+
+    /// <summary>
+    /// Records the clicked row and pushes it as the <c>CommandParameter</c> on every context menu
+    /// item. Exposed internally for headless tests.
+    /// </summary>
+    internal void SetContextMenuTarget(ArchiveItemViewModel? item)
+    {
+        _contextTarget = item;
+        UpdateContextMenuParameters();
+    }
+
+    /// <summary>
+    /// Applies the keyboard-invocation fallback: no pointer target exists, so the selected row
+    /// becomes the context-menu target. Mirrors <see cref="OnArchiveGridContextMenuOpening"/>;
+    /// exposed internally for headless tests.
+    /// </summary>
+    internal void ApplyContextMenuFallbackToSelection()
+    {
+        SetContextMenuTarget(_contextTarget ?? ArchiveGrid.SelectedItem as ArchiveItemViewModel);
+    }
+
+    private void OnArchiveGridCellPointerPressed(object? sender, DataGridCellPointerPressedEventArgs e)
+    {
+        if (e.PointerPressedEventArgs.GetCurrentPoint(this).Properties.IsRightButtonPressed)
+        {
+            SetContextMenuTarget(e.Row?.DataContext as ArchiveItemViewModel);
+        }
+    }
+
+    private void OnArchiveGridContextMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        // Keyboard invocation (Shift+F10 / menu key) has no pointer target; fall back to the
+        // selected row so the commands act on the current selection.
+        ApplyContextMenuFallbackToSelection();
+    }
+
+    private void OnArchiveGridContextMenuClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        _contextTarget = null;
+    }
+
+    private void UpdateContextMenuParameters()
+    {
+        if (ArchiveGrid.ContextMenu is not { } menu)
+        {
+            return;
+        }
+
+        foreach (var menuItem in menu.Items.OfType<MenuItem>())
+        {
+            menuItem.CommandParameter = _contextTarget;
+        }
     }
 
     /// <summary>
@@ -36,6 +103,9 @@ public partial class ArchiveBrowserView : UserControl
                     break;
                 case "Compressed":
                     column.CustomSortComparer = vm.CompressedColumnSortComparer;
+                    break;
+                case "Ratio":
+                    column.CustomSortComparer = vm.RatioColumnSortComparer;
                     break;
                 case "Modified":
                     column.CustomSortComparer = vm.ModifiedColumnSortComparer;

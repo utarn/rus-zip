@@ -315,13 +315,32 @@ public partial class MainWindowViewModel : ObservableObject
     {
         if (paths.Count == 0) return;
 
-        if (paths.Count == 1 && File.Exists(paths[0]) && IsSupportedArchive(paths[0]))
+        var existing = paths.Where(p => File.Exists(p) || Directory.Exists(p)).ToList();
+        if (existing.Count == 0) return;
+
+        var archives = existing.Where(p => File.Exists(p) && IsSupportedArchive(p)).ToList();
+        var nonArchives = existing.Where(p => !(File.Exists(p) && IsSupportedArchive(p))).ToList();
+
+        // Any non-archive file or folder is staged for the compression wizard. Multiple sources
+        // are all staged (F-27) and shown in the wizard's multi-source display; archive items in
+        // the same drop are reported as ignored rather than silently discarded.
+        if (nonArchives.Count > 0)
         {
-            await OpenArchiveAsync(paths[0]);
+            Settings.StageSources(nonArchives);
+            if (archives.Count > 0)
+            {
+                StatusText = FormatStatus($"{archives.Count} archive{(archives.Count == 1 ? "" : "s")} ignored.");
+            }
+            ShowCompressDialog();
+            return;
         }
-        else
+
+        // All dropped items are archives: open the first and report the rest ignored.
+        await OpenArchiveAsync(archives[0]);
+        if (archives.Count > 1)
         {
-            ShowCompressDialog(paths[0]);
+            var ignored = archives.Count - 1;
+            StatusText = FormatStatus($"Opened {Path.GetFileName(archives[0])}; {ignored} other archive{(ignored == 1 ? "" : "s")} ignored.");
         }
     }
 }

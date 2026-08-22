@@ -56,7 +56,8 @@
                                 CornerRadius="6"
                                 Padding="8,4">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="⚡ Speed:" FontSize="12" Foreground="{DynamicResource TextFillColorTertiary}" />
+                                <PathIcon Data="{StaticResource Icon.Zap}" Width="12" Height="12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorTertiary}" />
+                                <TextBlock Text="Speed:" FontSize="12" Foreground="{DynamicResource TextFillColorTertiary}" />
                                 <TextBlock Text="{Binding FormattedSpeed}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimary}" />
                             </StackPanel>
                         </Border>
@@ -67,7 +68,8 @@
                                 CornerRadius="6"
                                 Padding="8,4">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="⏱ ETA:" FontSize="12" Foreground="{DynamicResource TextFillColorTertiary}" />
+                                <PathIcon Data="{StaticResource Icon.Clock}" Width="12" Height="12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorTertiary}" />
+                                <TextBlock Text="ETA:" FontSize="12" Foreground="{DynamicResource TextFillColorTertiary}" />
                                 <TextBlock Text="{Binding FormattedEta}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimary}" />
                             </StackPanel>
                         </Border>

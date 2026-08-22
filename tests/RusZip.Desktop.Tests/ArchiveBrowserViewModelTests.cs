@@ -104,6 +104,7 @@ public class ArchiveBrowserViewModelTests
         Assert.NotNull(browser.NameColumnSortComparer);
         Assert.NotNull(browser.SizeColumnSortComparer);
         Assert.NotNull(browser.CompressedColumnSortComparer);
+        Assert.NotNull(browser.RatioColumnSortComparer);
         Assert.NotNull(browser.ModifiedColumnSortComparer);
         Assert.NotNull(browser.AttributesColumnSortComparer);
     }
@@ -130,13 +131,46 @@ public class ArchiveBrowserViewModelTests
         Assert.Equal("Attributes", grid.Columns[5].Header?.ToString());
 
         // The view code-behind assigns the ViewModel's comparers to the CLR CustomSortComparer
-        // properties (they cannot be bound from XAML). The Ratio column relies on SortMemberPath.
+        // properties (they cannot be bound from XAML), including the numeric Ratio comparer.
         Assert.Same(browser.NameColumnSortComparer, grid.Columns[0].CustomSortComparer);
         Assert.Same(browser.SizeColumnSortComparer, grid.Columns[1].CustomSortComparer);
         Assert.Same(browser.CompressedColumnSortComparer, grid.Columns[2].CustomSortComparer);
-        Assert.Null(grid.Columns[3].CustomSortComparer);
+        Assert.Same(browser.RatioColumnSortComparer, grid.Columns[3].CustomSortComparer);
         Assert.Same(browser.ModifiedColumnSortComparer, grid.Columns[4].CustomSortComparer);
         Assert.Same(browser.AttributesColumnSortComparer, grid.Columns[5].CustomSortComparer);
+    }
+
+    [AvaloniaFact]
+    public void ContextMenu_RightClickedRowIsPassedAsCommandParameterToEveryItem()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        browser.LoadEntries("test.zip", new List<ArchiveEntry>
+        {
+            new("fileA.txt", 100, 50, null, false),
+            new("fileB.txt", 200, 100, null, false)
+        });
+
+        var view = new ArchiveBrowserView { DataContext = browser };
+        var grid = view.FindControl<DataGrid>("ArchiveGrid");
+        var menu = grid!.ContextMenu;
+        Assert.NotNull(menu);
+
+        var menuItems = menu.Items.OfType<MenuItem>().ToList();
+        Assert.Equal(2, menuItems.Count);
+
+        // Simulate a right-click on row B: every item receives B as CommandParameter (F-40).
+        var itemB = browser.FindItemByPath("fileB.txt")!;
+        view.SetContextMenuTarget(itemB);
+
+        Assert.Same(itemB, menuItems[0].CommandParameter);
+        Assert.Same(itemB, menuItems[1].CommandParameter);
+
+        // Keyboard invocation (no pointer target) falls back to the selected row.
+        browser.SelectedItem = browser.FindItemByPath("fileA.txt");
+        view.SetContextMenuTarget(null);
+        view.ApplyContextMenuFallbackToSelection();
+        Assert.Same(browser.SelectedItem, menuItems[0].CommandParameter);
+        Assert.Same(browser.SelectedItem, menuItems[1].CommandParameter);
     }
 
     [Fact]
@@ -241,6 +275,55 @@ public class ArchiveBrowserViewModelTests
         Assert.Equal("file1.txt", GetRowModel(source, 0).Name);
         Assert.Equal("file2.txt", GetRowModel(source, 1).Name);
         Assert.Equal("file3.txt", GetRowModel(source, 2).Name);
+    }
+
+    [Fact]
+    public void Sorting_ByRatioColumn_SortsNumericallyOnRatioValue()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("high.txt", 1000, 900, null, false),   // 90.0%
+            new("low.txt", 1000, 100, null, false),    // 10.0%
+            new("folder/item.txt", 1000, 500, null, false), // directory aggregate
+            new("mid.txt", 1000, 500, null, false)     // 50.0%
+        };
+
+        browser.LoadEntries("test.zip", entries);
+        var source = browser.GridSource!;
+
+        // Directories always sort above files ascending; files order by numeric ratio.
+        ApplySort(source, browser.RatioColumnSortComparer, ListSortDirection.Ascending);
+        Assert.Equal("folder", GetRowModel(source, 0).Name);
+        Assert.Equal("low.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("mid.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("high.txt", GetRowModel(source, 3).Name);
+
+        // Descending negates the comparer (per the ProDataGrid sort framework), reversing both
+        // the file group and the directories-first grouping.
+        ApplySort(source, browser.RatioColumnSortComparer, ListSortDirection.Descending);
+        Assert.Equal("high.txt", GetRowModel(source, 0).Name);
+        Assert.Equal("mid.txt", GetRowModel(source, 1).Name);
+        Assert.Equal("low.txt", GetRowModel(source, 2).Name);
+        Assert.Equal("folder", GetRowModel(source, 3).Name);
+    }
+
+    [Fact]
+    public void Sorting_ByRatioColumn_OrdersFilesWithoutRatioAfterFilesWithRatio()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("no_ratio.bin", 1000, null, null, false), // CompressedSize null -> "-"
+            new("ratio.txt", 1000, 200, null, false)      // 20.0%
+        };
+
+        browser.LoadEntries("test.zip", entries);
+        var source = browser.GridSource!;
+
+        ApplySort(source, browser.RatioColumnSortComparer, ListSortDirection.Ascending);
+        Assert.Equal("ratio.txt", GetRowModel(source, 0).Name);
+        Assert.Equal("no_ratio.bin", GetRowModel(source, 1).Name);
     }
 
     private static ArchiveItemViewModel GetRowModel(IHierarchicalModel source, int index)
@@ -815,5 +898,117 @@ public class ArchiveBrowserViewModelTests
         Assert.Equal("escseg", browser.Breadcrumbs[1].Name);
         Assert.Equal("file.txt", browser.Breadcrumbs[2].Name);
         Assert.All(browser.Breadcrumbs, b => Assert.DoesNotContain(esc, b.Name));
+    }
+
+    [Fact]
+    public void Breadcrumbs_OnFolderExpansion_TrackTheExpandedNode()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("src/RusZip.Desktop/App.axaml", 100, 50, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        // Nothing selected and nothing expanded: breadcrumbs show the archive root.
+        Assert.Single(browser.Breadcrumbs);
+        Assert.Equal("Archive", browser.Breadcrumbs[0].Name);
+        Assert.True(browser.Breadcrumbs[0].IsLast);
+
+        // Expanding "src" makes it the navigation context (F-39).
+        var src = browser.FindItemByPath("src")!;
+        src.IsExpanded = true;
+
+        Assert.Equal(2, browser.Breadcrumbs.Count);
+        Assert.Equal("Archive", browser.Breadcrumbs[0].Name);
+        Assert.Equal("src", browser.Breadcrumbs[1].Name);
+        Assert.True(browser.Breadcrumbs[1].IsLast);
+
+        // Expanding a descendant pushes the trail deeper.
+        var desktop = browser.FindItemByPath("src/RusZip.Desktop")!;
+        desktop.IsExpanded = true;
+
+        Assert.Equal(3, browser.Breadcrumbs.Count);
+        Assert.Equal("RusZip.Desktop", browser.Breadcrumbs[2].Name);
+        Assert.True(browser.Breadcrumbs[2].IsLast);
+        Assert.Equal(Avalonia.Media.FontWeight.SemiBold, browser.Breadcrumbs[2].FontWeight);
+    }
+
+    [Fact]
+    public void Breadcrumbs_OnFolderCollapse_RevertToDeepestExpandedAncestor()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("src/RusZip.Desktop/App.axaml", 100, 50, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        var src = browser.FindItemByPath("src")!;
+        var desktop = browser.FindItemByPath("src/RusZip.Desktop")!;
+        src.IsExpanded = true;
+        desktop.IsExpanded = true;
+
+        Assert.Equal(3, browser.Breadcrumbs.Count);
+        Assert.Equal("RusZip.Desktop", browser.Breadcrumbs[2].Name);
+
+        // Collapsing the deepest expanded folder reverts to its still-expanded parent.
+        desktop.IsExpanded = false;
+        Assert.Equal(2, browser.Breadcrumbs.Count);
+        Assert.Equal("src", browser.Breadcrumbs[1].Name);
+        Assert.True(browser.Breadcrumbs[1].IsLast);
+
+        // Collapsing the parent reverts all the way to the root.
+        src.IsExpanded = false;
+        Assert.Single(browser.Breadcrumbs);
+        Assert.Equal("Archive", browser.Breadcrumbs[0].Name);
+        Assert.True(browser.Breadcrumbs[0].IsLast);
+    }
+
+    [Fact]
+    public void Breadcrumbs_SelectionTakesPriorityOverExpansionAnchor()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("folder/selected.txt", 100, 50, null, false),
+            new("folder/other.txt", 100, 50, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        var selected = browser.FindItemByPath("folder/selected.txt")!;
+        browser.SelectedItem = selected;
+
+        Assert.Equal(3, browser.Breadcrumbs.Count);
+        Assert.Equal("selected.txt", browser.Breadcrumbs[2].Name);
+        Assert.True(browser.Breadcrumbs[2].IsLast);
+
+        // Expanding a sibling folder elsewhere must not override the selected node's trail.
+        var folder = browser.FindItemByPath("folder")!;
+        folder.IsExpanded = true;
+
+        Assert.Equal("selected.txt", browser.Breadcrumbs[2].Name);
+        Assert.Equal(3, browser.Breadcrumbs.Count);
+    }
+
+    [Fact]
+    public void Breadcrumbs_SelectingNullAfterExpansion_FallsBackToExpansionAnchor()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("folder/file.txt", 100, 50, null, false)
+        };
+        browser.LoadEntries("test.zip", entries);
+
+        var folder = browser.FindItemByPath("folder")!;
+        folder.IsExpanded = true;
+        Assert.Equal(2, browser.Breadcrumbs.Count);
+
+        // Explicitly clearing the selection keeps the expanded folder as the context.
+        browser.SelectedItem = null;
+        Assert.Equal(2, browser.Breadcrumbs.Count);
+        Assert.Equal("folder", browser.Breadcrumbs[1].Name);
+        Assert.True(browser.Breadcrumbs[1].IsLast);
     }
 }

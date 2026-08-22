@@ -38,6 +38,56 @@ public partial class CompressionSettingsViewModel : ObservableObject
     [ObservableProperty] private string _destinationPath = string.Empty;
     [ObservableProperty] private string _selectedFormat = ".zrus";
 
+    private IReadOnlyList<string> _sourcePaths = [];
+
+    /// <summary>
+    /// Every source staged for compression (F-27). A single dropped file/folder yields one
+    /// entry; dropping multiple non-archive items stages them all. The wizard surfaces them via
+    /// <see cref="SourcePathsDisplay"/>. <see cref="SourcePath"/> remains the primary path used
+    /// for destination derivation and engine invocation.
+    /// </summary>
+    public IReadOnlyList<string> SourcePaths
+    {
+        get => _sourcePaths;
+        private set
+        {
+            if (ReferenceEquals(_sourcePaths, value))
+            {
+                return;
+            }
+
+            _sourcePaths = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasMultipleSources));
+            OnPropertyChanged(nameof(SourcePathsDisplay));
+        }
+    }
+
+    public bool HasMultipleSources => SourcePaths.Count > 1;
+
+    public string SourcePathsDisplay => string.Join(Environment.NewLine, SourcePaths);
+
+    /// <summary>
+    /// Stages the given paths as compression sources. The first path becomes the primary
+    /// <see cref="SourcePath"/> and drives the derived destination; the full list is retained
+    /// for the wizard's multi-source display.
+    /// </summary>
+    public void StageSources(IReadOnlyList<string> paths)
+    {
+        var staged = paths
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        SourcePaths = staged;
+
+        if (staged.Count > 0)
+        {
+            SourcePath = staged[0];
+            DestinationPath = staged[0] + SelectedFormat;
+        }
+    }
+
     public IReadOnlyList<string> Formats => AvailableFormats;
 
     public Func<Task<string?>>? RequestSourceFile { get; set; }
@@ -116,6 +166,13 @@ public partial class CompressionSettingsViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(newValue))
         {
             return;
+        }
+
+        // When the primary source is edited or replaced by a browse action, collapse the staged
+        // collection back to that single path unless it is already the first staged source.
+        if (SourcePaths.Count == 0 || !string.Equals(SourcePaths[0], newValue, StringComparison.Ordinal))
+        {
+            SourcePaths = [newValue];
         }
 
         if (string.IsNullOrWhiteSpace(DestinationPath) ||
