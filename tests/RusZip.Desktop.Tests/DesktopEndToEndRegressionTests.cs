@@ -52,11 +52,11 @@ public sealed class DesktopEndToEndRegressionTests : IDisposable
             return Task.CompletedTask;
         }
 
-        public Task ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+        public Task<ExtractionResult> ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
         {
             LastExtractionRequest = request;
             progress?.Report(new ProgressReport(1000, 1000, "extract.txt", 100.0, 1, 1));
-            return Task.CompletedTask;
+            return Task.FromResult(new ExtractionResult(1000, 1, 1));
         }
 
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)

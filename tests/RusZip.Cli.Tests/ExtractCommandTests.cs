@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using RusZip.Cli.Models;
 using RusZip.Core.Tests;
 using Xunit;
@@ -263,5 +264,130 @@ public sealed class ExtractCommandTests : CliTestBase
         var err = ParseJson<ErrorResult>(stdout);
         Assert.False(err.Success);
         Assert.Equal("SECURITY_VIOLATION", err.Error.Code);
+    }
+
+    [Fact]
+    public async Task Extract_BombZip_WithMaxUncompressedSizeCap_ReturnsExitCode1_AndExecutionError()
+    {
+        // Arrange: a 2 MB stored zip entry against a 1 MB cap
+        var archivePath = Path.Combine(TempDirectory, "bomb_size.zip");
+        CreateZipWithEntries(archivePath, ("big.bin", new byte[2 * 1024 * 1024]));
+
+        var outDir = Path.Combine(TempDirectory, "extracted_bomb_size");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--max-uncompressed-size", "1MB", "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("uncompressed output", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("--max-uncompressed-size", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+        // Partial output cleaned up.
+        Assert.False(File.Exists(Path.Combine(outDir, "big.bin")));
+    }
+
+    [Fact]
+    public async Task Extract_BombZip_WithOverrideFlag_Completes_AndReportsRealTotals()
+    {
+        // Arrange
+        var payload = new byte[2 * 1024 * 1024];
+        Random.Shared.NextBytes(payload);
+        var archivePath = Path.Combine(TempDirectory, "bomb_override.zip");
+        CreateZipWithEntries(archivePath, ("big.bin", payload));
+
+        var outDir = Path.Combine(TempDirectory, "extracted_bomb_override");
+
+        // Act: override the cap (human-readable form) so the archive completes
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--max-uncompressed-size", "10MB", "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(Path.Combine(outDir, "big.bin")));
+        var result = ParseJson<ExtractResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(payload.Length, (int)result.TotalBytes);
+        Assert.Equal(1, result.ExtractedFiles);
+    }
+
+    [Fact]
+    public async Task Extract_InvalidMaxUncompressedSize_ReturnsExitCode2_AndArgumentErrorJson()
+    {
+        // Arrange
+        var sourceFile = CreateTempFile("ok.txt", "content");
+        var archivePath = Path.Combine(TempDirectory, "ok.zrus");
+        await RunCliAsync("compress", sourceFile, archivePath, "--json");
+
+        var outDir = Path.Combine(TempDirectory, "extracted_bad_flag");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--max-uncompressed-size", "not-a-size", "--json");
+
+        // Assert
+        Assert.Equal(2, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.Equal("ARGUMENT_ERROR", err.Error.Code);
+    }
+
+    [Fact]
+    public async Task Extract_EntryCountCapExceeded_ReturnsExitCode1_AndExecutionError()
+    {
+        // Arrange: a zip with 5 entries against a cap of 2
+        var archivePath = Path.Combine(TempDirectory, "bomb_entries.zip");
+        CreateZipWithEntries(
+            archivePath,
+            ("file0.txt", "zero"u8.ToArray()),
+            ("file1.txt", "one"u8.ToArray()),
+            ("file2.txt", "two"u8.ToArray()),
+            ("file3.txt", "three"u8.ToArray()),
+            ("file4.txt", "four"u8.ToArray()));
+
+        var outDir = Path.Combine(TempDirectory, "extracted_bomb_entries");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--max-entries", "2", "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("entry count", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("--max-entries", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Extract_ReportsActualExtractedSize_NotHeaderMetadata()
+    {
+        // Arrange: a normal small archive
+        var payload = "hello actual payload"u8.ToArray();
+        var archivePath = Path.Combine(TempDirectory, "real_totals.zip");
+        CreateZipWithEntries(archivePath, ("data.bin", payload));
+
+        var outDir = Path.Combine(TempDirectory, "extracted_real_totals");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<ExtractResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(payload.Length, (int)result.TotalBytes);
+        Assert.Equal(1, result.ExtractedFiles);
+    }
+
+    private static void CreateZipWithEntries(string archivePath, params (string Name, byte[] Content)[] entries)
+    {
+        using var fs = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var zip = new ZipArchive(fs, ZipArchiveMode.Create);
+        foreach (var (name, content) in entries)
+        {
+            var entry = zip.CreateEntry(name, CompressionLevel.NoCompression);
+            using var es = entry.Open();
+            es.Write(content);
+        }
     }
 }

@@ -629,4 +629,71 @@ public class ArchiveBrowserViewModelTests
         Assert.Contains(nameof(BreadcrumbItemViewModel.IsLast), changed);
         Assert.Contains(nameof(BreadcrumbItemViewModel.FontWeight), changed);
     }
+
+    [Fact]
+    public void LoadEntries_BeyondEntryCountCap_SetsErrorBanner_AndRefusesTreeConstruction()
+    {
+        var browser = new ArchiveBrowserViewModel { EntryCountCap = 2 };
+        var entries = new List<ArchiveEntry>
+        {
+            new("file1.txt", 1, 1, null, false),
+            new("file2.txt", 1, 1, null, false),
+            new("file3.txt", 1, 1, null, false)
+        };
+
+        browser.LoadEntries("bomb.zip", entries);
+
+        Assert.True(browser.HasLoadError);
+        Assert.Contains("safety limit", browser.LoadErrorMessage);
+        Assert.Null(browser.GridSource);
+        Assert.Empty(browser.RootItems);
+    }
+
+    [Fact]
+    public void LoadEntries_WithinEntryCountCap_ClearsErrorAndBuildsTree()
+    {
+        var browser = new ArchiveBrowserViewModel { EntryCountCap = 10 };
+        var entries = new List<ArchiveEntry>
+        {
+            new("file1.txt", 1, 1, null, false)
+        };
+
+        browser.LoadEntries("ok.zip", entries);
+
+        Assert.False(browser.HasLoadError);
+        Assert.Equal(string.Empty, browser.LoadErrorMessage);
+        Assert.NotNull(browser.GridSource);
+    }
+
+    [Fact]
+    public void ExtractionSettings_Defaults_MatchSafeArchiveExtractor()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var settings = browser.ExtractionSettings;
+
+        Assert.Equal("64.0 GB", settings.MaxUncompressedSizeText);
+        Assert.Equal(1_000_000m, settings.MaxEntryCount);
+
+        var limits = settings.BuildLimits();
+        Assert.Equal(64L * 1024 * 1024 * 1024, limits.MaxCumulativeUncompressedBytes);
+        Assert.Equal(1_000_000, limits.MaxEntryCount);
+    }
+
+    [Fact]
+    public void ExtractionSettings_ZeroOrInvalid_MeansUnlimited()
+    {
+        var settings = new ExtractionSettingsViewModel
+        {
+            MaxUncompressedSizeText = "0",
+            MaxEntryCount = 0
+        };
+
+        var limits = settings.BuildLimits();
+        Assert.Null(limits.MaxCumulativeUncompressedBytes);
+        Assert.Null(limits.MaxEntryCount);
+
+        settings.MaxUncompressedSizeText = "not-a-size";
+        var limits2 = settings.BuildLimits();
+        Assert.Null(limits2.MaxCumulativeUncompressedBytes);
+    }
 }

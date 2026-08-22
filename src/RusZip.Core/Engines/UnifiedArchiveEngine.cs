@@ -34,7 +34,7 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
         };
     }
 
-    public Task ExtractAsync(
+    public Task<ExtractionResult> ExtractAsync(
         ArchiveExtractionRequest request,
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default)

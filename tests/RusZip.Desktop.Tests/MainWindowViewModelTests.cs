@@ -37,7 +37,7 @@ public class MainWindowViewModelTests
             return Task.CompletedTask;
         }
 
-        public Task ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+        public Task<ExtractionResult> ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
         {
             if (ct.IsCancellationRequested)
             {
@@ -46,7 +46,7 @@ public class MainWindowViewModelTests
             if (ExceptionToThrow != null) throw ExceptionToThrow;
             LastExtractionRequest = request;
             progress?.Report(new ProgressReport(100, 100, "extracting", 100.0, 1, 1));
-            return Task.CompletedTask;
+            return Task.FromResult(new ExtractionResult(100, 1, 1));
         }
 
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
@@ -348,6 +348,37 @@ public class MainWindowViewModelTests
             Assert.Equal(destDir, fakeEngine.LastExtractionRequest.DestinationDirectory);
             Assert.True(fakeEngine.LastExtractionRequest.Overwrite);
             Assert.Contains($"Extracted to {destDir}", vm.StatusText);
+        }
+        finally
+        {
+            if (File.Exists(tempArchive)) File.Delete(tempArchive);
+            if (Directory.Exists(destDir)) Directory.Delete(destDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteExtractAllAsync_PassesExtractionLimitsFromSettings()
+    {
+        var tempArchive = Path.GetTempFileName();
+        var destDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine
+            {
+                EntriesToReturn = [new ArchiveEntry("file.txt", 100, 50, null, false)]
+            };
+            var vm = new MainWindowViewModel(fakeEngine);
+            vm.Browser.ExtractionSettings.MaxUncompressedSizeText = "2GB";
+            vm.Browser.ExtractionSettings.MaxEntryCount = 500;
+
+            await vm.OpenArchiveAsync(tempArchive);
+            await vm.ExecuteExtractAllAsync(destDir);
+
+            Assert.NotNull(fakeEngine.LastExtractionRequest);
+            Assert.NotNull(fakeEngine.LastExtractionRequest.Limits);
+            Assert.Equal(2L * 1024 * 1024 * 1024, fakeEngine.LastExtractionRequest.Limits.MaxCumulativeUncompressedBytes);
+            Assert.Equal(500, fakeEngine.LastExtractionRequest.Limits.MaxEntryCount);
         }
         finally
         {

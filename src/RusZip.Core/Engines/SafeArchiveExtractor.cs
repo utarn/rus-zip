@@ -8,24 +8,44 @@ public static class SafeArchiveExtractor
 {
     public const int BufferSize = 81920; // 80 KB
 
+    /// <summary>Default cumulative uncompressed output cap (64 GiB). 0 or null = unlimited.</summary>
+    public const long DefaultMaxCumulativeUncompressedBytes = 64L * 1024 * 1024 * 1024;
+
+    /// <summary>Default entry-count cap. 0 or null = unlimited.</summary>
+    public const int DefaultMaxEntryCount = 1_000_000;
+
     /// <summary>
     /// Extracts all entries from <paramref name="source"/> into <paramref name="destinationDirectory"/>.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// Guardrails (see ADR-0007): extraction aborts with <see cref="ExtractionLimitExceededException"/>
+    /// when the cumulative uncompressed output written exceeds <paramref name="limits"/>
+    /// <see cref="ExtractionLimits.MaxCumulativeUncompressedBytes"/> (default
+    /// <see cref="DefaultMaxCumulativeUncompressedBytes"/>) or the number of entries processed exceeds
+    /// <see cref="ExtractionLimits.MaxEntryCount"/> (default <see cref="DefaultMaxEntryCount"/>).
+    /// Enforcement is measured exclusively from actual streamed bytes and processed entries — the
+    /// <paramref name="totalBytes"/> metadata total is used for progress display only.
+    /// </para>
+    /// <para>
     /// Partial-cleanup semantics: if extraction aborts with a <see cref="SecurityException"/> (a malicious
-    /// entry name or a symlinked/reparse-point path component under the destination), any files and
+    /// entry name or a symlinked/reparse-point path component under the destination) or an
+    /// <see cref="ExtractionLimitExceededException"/> (a guardrail cap hit), any files and
     /// directories that this invocation created are removed best-effort before the exception propagates.
     /// Cleanup is best-effort only: paths that pre-existed before the call are left untouched (an
     /// overwritten pre-existing file cannot be restored and is not deleted), and a file that is locked or
     /// in use may survive cleanup.
+    /// </para>
     /// </remarks>
-    public static async Task ExtractAllAsync(
+    public static async Task<ExtractionResult> ExtractAllAsync(
         IArchiveExtractionSource source,
         string destinationDirectory,
         bool overwrite,
         long totalBytes,
         IProgress<ProgressReport>? progress,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        ExtractionLimits? limits = null,
+        bool totalIsEstimate = false)
     {
         var destDir = Path.GetFullPath(destinationDirectory);
         Directory.CreateDirectory(destDir);
@@ -34,8 +54,22 @@ public static class SafeArchiveExtractor
             ? destDir
             : destDir + Path.DirectorySeparatorChar;
 
+        long? maxUncompressedBytes = limits switch
+        {
+            null => DefaultMaxCumulativeUncompressedBytes,
+            _ when limits.MaxCumulativeUncompressedBytes is > 0 => limits.MaxCumulativeUncompressedBytes,
+            _ => null // 0 or null = unlimited
+        };
+        int? maxEntryCount = limits switch
+        {
+            null => DefaultMaxEntryCount,
+            _ when limits.MaxEntryCount is > 0 => limits.MaxEntryCount,
+            _ => null // 0 or null = unlimited
+        };
+
         long processedBytes = 0;
         int processedFiles = 0;
+        int processedEntries = 0;
         var extractedDirectories = new List<(string TargetPath, DateTimeOffset? ModTime, UnixFileMode? Mode)>();
         var createdPaths = new List<string>();
         byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
@@ -48,6 +82,13 @@ public static class SafeArchiveExtractor
 
                 if (string.IsNullOrWhiteSpace(entry.RelativePath))
                     continue;
+
+                processedEntries++;
+                if (maxEntryCount.HasValue && processedEntries > maxEntryCount.Value)
+                {
+                    throw new ExtractionLimitExceededException(
+                        $"Extraction aborted: entry count exceeded the limit of {maxEntryCount.Value:N0} (--max-entries). Override with --max-entries or raise the limit.");
+                }
 
                 var entryName = entry.RelativePath.Replace('\\', '/');
                 var targetPath = ResolveAndValidateTargetPath(destDir, normalizedDestDir, entryName, entry.RelativePath);
@@ -79,8 +120,12 @@ public static class SafeArchiveExtractor
                     throw new IOException($"Destination file already exists and overwrite is false: '{targetPath}'");
                 }
 
-                // 5. Stream writing with buffer pooling & progress reporting
+                // 5. Stream writing with buffer pooling & progress reporting.
+                //    Track the target path up-front so an abort mid-write still cleans up the partial file.
                 var fileExistedBefore = File.Exists(targetPath);
+                if (!fileExistedBefore)
+                    createdPaths.Add(targetPath);
+
                 await using (var entryStream = await entry.OpenStreamAsync(ct))
                 await using (var outFs = new FileStream(
                     targetPath,
@@ -93,8 +138,14 @@ public static class SafeArchiveExtractor
                     int bytesRead;
                     while ((bytesRead = await entryStream.ReadAsync(buffer.AsMemory(0, BufferSize), ct)) > 0)
                     {
-                        await outFs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
                         processedBytes += bytesRead;
+                        if (maxUncompressedBytes.HasValue && processedBytes > maxUncompressedBytes.Value)
+                        {
+                            throw new ExtractionLimitExceededException(
+                                $"Extraction aborted: cumulative uncompressed output exceeded the {DataMetricsFormatter.FormatBytes(maxUncompressedBytes.Value)} limit (--max-uncompressed-size). Override with --max-uncompressed-size or raise the limit.");
+                        }
+
+                        await outFs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
 
                         progress?.Report(new ProgressReport(
                             ProcessedBytes: processedBytes,
@@ -102,13 +153,11 @@ public static class SafeArchiveExtractor
                             CurrentFileName: entryName,
                             Percentage: totalBytes > 0 ? (double)processedBytes / totalBytes * 100.0 : 0,
                             ProcessedFiles: processedFiles,
-                            IsIndeterminate: totalBytes <= 0
+                            IsIndeterminate: totalBytes <= 0,
+                            IsTotalEstimate: totalIsEstimate
                         ));
                     }
                 }
-
-                if (!fileExistedBefore)
-                    createdPaths.Add(targetPath);
 
                 processedFiles++;
 
@@ -145,8 +194,10 @@ public static class SafeArchiveExtractor
                     }
                 }
             }
+
+            return new ExtractionResult(processedBytes, processedFiles, processedEntries);
         }
-        catch (SecurityException)
+        catch (Exception ex) when (ex is SecurityException or ExtractionLimitExceededException)
         {
             CleanupCreatedPaths(createdPaths);
             throw;

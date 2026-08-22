@@ -54,10 +54,21 @@ public sealed class AiHelpProvider(ICommandAppSettings settings) : HelpProvider(
                                     "  [red]1[/] = Execution / Engine error\n" +
                                     "  [red]2[/] = Invalid arguments / Path not found\n\n");
 
+            yield return new Markup("[bold yellow]EXTRACTION GUARDRAILS:[/]\n" +
+                                    "  Every archive is treated as untrusted. `extract` aborts hard (exit 1) when a guardrail is exceeded:\n" +
+                                    "  [bold]--max-uncompressed-size[/] <bytes|human>  Max cumulative uncompressed output (default 64GB, 0 = unlimited)\n" +
+                                    "  [bold]--max-entries[/] <n>                    Max entries processed (default 1,000,000, 0 = unlimited)\n" +
+                                    "  Limits are measured from actual streamed bytes/entries, never spoofable header metadata.\n\n");
+
             yield return new Markup("[dim]Machine-readable output available via [bold]--json[/] on all commands.[/]\n");
         }
         else
         {
+            if (command.Name.Equals("extract", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return new Markup("[dim]Extraction guardrails: use [bold]--max-uncompressed-size[/] (e.g. 10GB) and [bold]--max-entries[/] (0 = unlimited) to cap untrusted archives.[/]\n");
+            }
+
             yield return new Markup($"\n[dim]Run [bold]rus-zip --help[/] for global commands, compression profiles, and format matrix.[/]\n");
         }
     }

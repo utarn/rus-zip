@@ -3,6 +3,7 @@ using RusZip.Cli.Commands.Settings;
 using RusZip.Cli.Infrastructure;
 using RusZip.Cli.Models;
 using RusZip.Core.Abstractions;
+using RusZip.Core.Engines;
 using RusZip.Core.Models;
 using Spectre.Console;
 using Spectre.Console.Cli;
@@ -23,6 +24,14 @@ public sealed class ExtractSettings : JsonCommandSettings
     [Description("Overwrite existing files at destination.")]
     [DefaultValue(true)]
     public bool Overwrite { get; init; } = true;
+
+    [CommandOption("--max-uncompressed-size <SIZE>")]
+    [Description("Maximum cumulative uncompressed output before extraction aborts. Accepts bytes or human units (e.g. 10GB, 500MB, 1KB); 0 = unlimited. Default: 64GB.")]
+    public string? MaxUncompressedSize { get; init; }
+
+    [CommandOption("--max-entries <COUNT>")]
+    [Description("Maximum number of entries to process before extraction aborts; 0 = unlimited. Default: 1,000,000.")]
+    public long? MaxEntries { get; init; }
 }
 
 public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<ExtractSettings>
@@ -57,20 +66,20 @@ public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<Extract
                     ? Path.GetFullPath(settings.DestinationPath)
                     : Directory.GetCurrentDirectory();
 
-                var request = new ArchiveExtractionRequest(archivePath, destination, settings.Overwrite);
+                var request = new ArchiveExtractionRequest(
+                    archivePath,
+                    destination,
+                    settings.Overwrite,
+                    BuildLimits(settings));
 
-                await _engine.ExtractAsync(request, progress, ct);
-
-                var entries = await _engine.ListEntriesAsync(archivePath);
-                int fileCount = entries.Count(e => !e.IsDirectory);
-                long totalBytes = entries.Where(e => !e.IsDirectory).Sum(e => e.UncompressedSize);
+                var result = await _engine.ExtractAsync(request, progress, ct);
 
                 return new ExtractResult(
                     Success: true,
                     ArchivePath: archivePath,
                     DestinationPath: destination,
-                    ExtractedFiles: fileCount,
-                    TotalBytes: totalBytes,
+                    ExtractedFiles: result.FilesExtracted,
+                    TotalBytes: result.BytesExtracted,
                     ElapsedMilliseconds: 0
                 );
             },
@@ -89,5 +98,33 @@ public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<Extract
                 AnsiConsole.Write(new Panel(summaryTable).Header("[bold green]Extraction Summary[/]"));
             }
         );
+    }
+
+    private static ExtractionLimits BuildLimits(ExtractSettings settings)
+    {
+        long? maxBytes = SafeArchiveExtractor.DefaultMaxCumulativeUncompressedBytes;
+        if (settings.MaxUncompressedSize is not null)
+        {
+            if (!DataSizeParser.TryParse(settings.MaxUncompressedSize, out var parsed))
+            {
+                throw new ArgumentException(
+                    $"Invalid value for --max-uncompressed-size: '{settings.MaxUncompressedSize}'. Use bytes or human units such as 10GB, 500MB, 1KB (0 = unlimited).");
+            }
+
+            maxBytes = parsed > 0 ? parsed : null; // 0 = unlimited
+        }
+
+        int? maxEntries = SafeArchiveExtractor.DefaultMaxEntryCount;
+        if (settings.MaxEntries.HasValue)
+        {
+            if (settings.MaxEntries.Value is < 0 or > int.MaxValue)
+            {
+                throw new ArgumentException($"Invalid value for --max-entries: {settings.MaxEntries.Value}. Expected a non-negative integer (0 = unlimited).");
+            }
+
+            maxEntries = settings.MaxEntries.Value > 0 ? (int)settings.MaxEntries.Value : null; // 0 = unlimited
+        }
+
+        return new ExtractionLimits(maxBytes, maxEntries);
     }
 }

@@ -303,4 +303,117 @@ public class SafeArchiveExtractorTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(targetDir, "folder")));
         Assert.False(File.Exists(Path.Combine(targetDir, "folder", "nested", "data.txt")));
     }
+
+    [Fact]
+    public async Task ExtractAllAsync_SizeCapExceeded_ThrowsLimitException_AndCleansUpPartialFile()
+    {
+        var targetDir = Path.Combine(_testDir, "bomb_size_out");
+        // Metadata claims a tiny size but the stream actually expands well past the cap.
+        var payload = new byte[2 * 1024 * 1024]; // 2 MB
+        Random.Shared.NextBytes(payload);
+
+        var entries = new List<ExtractionEntry>
+        {
+            new("bomb.bin", false, UncompressedSize: 10, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream(payload)))
+        };
+
+        var source = new FakeExtractionSource(entries);
+        var limits = new ExtractionLimits(MaxCumulativeUncompressedBytes: 1 * 1024 * 1024, MaxEntryCount: null);
+
+        var ex = await Assert.ThrowsAsync<ExtractionLimitExceededException>(() =>
+            SafeArchiveExtractor.ExtractAllAsync(source, targetDir, overwrite: true, totalBytes: 10, null, limits: limits));
+
+        Assert.Contains("uncompressed output", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("--max-uncompressed-size", ex.Message, StringComparison.OrdinalIgnoreCase);
+        // Partial output must be cleaned up.
+        Assert.False(File.Exists(Path.Combine(targetDir, "bomb.bin")));
+        Assert.Empty(Directory.GetFiles(targetDir));
+    }
+
+    [Fact]
+    public async Task ExtractAllAsync_EntryCountCapExceeded_ThrowsLimitException_AndCleansUp()
+    {
+        var targetDir = Path.Combine(_testDir, "bomb_entries_out");
+        var entries = Enumerable.Range(0, 5)
+            .Select(i => new ExtractionEntry($"file{i}.txt", false, 1, null, null,
+                _ => ValueTask.FromResult<Stream>(new MemoryStream("x"u8.ToArray()))))
+            .ToList();
+
+        var source = new FakeExtractionSource(entries);
+        var limits = new ExtractionLimits(MaxCumulativeUncompressedBytes: null, MaxEntryCount: 3);
+
+        var ex = await Assert.ThrowsAsync<ExtractionLimitExceededException>(() =>
+            SafeArchiveExtractor.ExtractAllAsync(source, targetDir, overwrite: true, totalBytes: 5, null, limits: limits));
+
+        Assert.Contains("entry count", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("--max-entries", ex.Message, StringComparison.OrdinalIgnoreCase);
+        // The first three files were created, then aborted; all partial output must be removed.
+        Assert.Empty(Directory.GetFiles(targetDir));
+    }
+
+    [Fact]
+    public async Task ExtractAllAsync_UnlimitedLimits_AllowsBombToComplete()
+    {
+        var targetDir = Path.Combine(_testDir, "unlimited_out");
+        var payload = new byte[2 * 1024 * 1024]; // 2 MB
+        Random.Shared.NextBytes(payload);
+
+        var entries = new List<ExtractionEntry>
+        {
+            new("big.bin", false, UncompressedSize: 10, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream(payload)))
+        };
+
+        var source = new FakeExtractionSource(entries);
+        // null/0 limits mean unlimited on both dimensions.
+        var limits = new ExtractionLimits(MaxCumulativeUncompressedBytes: null, MaxEntryCount: 0);
+
+        var result = await SafeArchiveExtractor.ExtractAllAsync(source, targetDir, overwrite: true, totalBytes: 10, null, limits: limits);
+
+        Assert.Equal(payload.Length, result.BytesExtracted);
+        Assert.Equal(1, result.FilesExtracted);
+        Assert.Equal(1, result.EntriesProcessed);
+        Assert.True(File.Exists(Path.Combine(targetDir, "big.bin")));
+    }
+
+    [Fact]
+    public async Task ExtractAllAsync_SpoofedMetadata_ExtractsRealBytes_AndReportsRealTotals()
+    {
+        var targetDir = Path.Combine(_testDir, "spoofed_out");
+        var realPayload = "12345678"u8.ToArray(); // 8 real bytes
+        // Header declares ~2 GB but the stored content is only 8 bytes.
+        const long spoofedSize = 2L * 1024 * 1024 * 1024;
+
+        var entries = new List<ExtractionEntry>
+        {
+            new("small.txt", false, UncompressedSize: spoofedSize, null, null,
+                _ => ValueTask.FromResult<Stream>(new MemoryStream(realPayload)))
+        };
+
+        var source = new FakeExtractionSource(entries);
+
+        var result = await SafeArchiveExtractor.ExtractAllAsync(source, targetDir, overwrite: true, totalBytes: spoofedSize, null);
+
+        Assert.Equal(realPayload.Length, result.BytesExtracted);
+        Assert.Equal(1, result.FilesExtracted);
+        Assert.Equal(realPayload, await File.ReadAllBytesAsync(Path.Combine(targetDir, "small.txt")));
+    }
+
+    [Fact]
+    public async Task ExtractAllAsync_DefaultsApply_WhenLimitsAreNull_AndReturnsActualTotals()
+    {
+        var targetDir = Path.Combine(_testDir, "defaults_out");
+        var entries = new List<ExtractionEntry>
+        {
+            new("a.txt", false, 2, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("ab"u8.ToArray()))),
+            new("sub", true, 0, null, null, _ => ValueTask.FromResult<Stream>(Stream.Null)),
+            new("sub/b.txt", false, 3, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("cde"u8.ToArray())))
+        };
+
+        var source = new FakeExtractionSource(entries);
+        var result = await SafeArchiveExtractor.ExtractAllAsync(source, targetDir, overwrite: true, totalBytes: 5, null);
+
+        Assert.Equal(5, result.BytesExtracted);
+        Assert.Equal(2, result.FilesExtracted);
+        Assert.Equal(3, result.EntriesProcessed);
+    }
 }

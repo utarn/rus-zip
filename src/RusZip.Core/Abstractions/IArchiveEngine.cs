@@ -9,7 +9,7 @@ public interface IArchiveEngine
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default);
 
-    Task ExtractAsync(
+    Task<ExtractionResult> ExtractAsync(
         ArchiveExtractionRequest request,
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default);

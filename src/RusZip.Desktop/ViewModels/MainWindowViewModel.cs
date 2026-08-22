@@ -223,7 +223,11 @@ public partial class MainWindowViewModel : ObservableObject
         bool success = false;
         try
         {
-            var req = new ArchiveExtractionRequest(Browser.LoadedArchivePath, destinationDirectory, Overwrite: true);
+            var req = new ArchiveExtractionRequest(
+                Browser.LoadedArchivePath,
+                destinationDirectory,
+                Overwrite: true,
+                Limits: Browser.ExtractionSettings.BuildLimits());
             await Task.Run(async () => await _engine.ExtractAsync(req, progressHandler, cts.Token), cts.Token);
             success = true;
             StatusText = $"Extracted to {destinationDirectory}";
@@ -254,7 +258,11 @@ public partial class MainWindowViewModel : ObservableObject
         bool success = false;
         try
         {
-            var req = new ArchiveExtractionRequest(Browser.LoadedArchivePath, destinationDirectory, Overwrite: true);
+            var req = new ArchiveExtractionRequest(
+                Browser.LoadedArchivePath,
+                destinationDirectory,
+                Overwrite: true,
+                Limits: Browser.ExtractionSettings.BuildLimits());
             await Task.Run(async () => await _engine.ExtractAsync(req, progressHandler, cts.Token), cts.Token);
             success = true;
             StatusText = $"Extracted {item.Name} to {destinationDirectory}";

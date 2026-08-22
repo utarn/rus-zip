@@ -196,7 +196,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         }
     }
 
-    public async Task ExtractAsync(
+    public async Task<ExtractionResult> ExtractAsync(
         ArchiveExtractionRequest request,
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default)
@@ -207,7 +207,9 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             throw new FileNotFoundException($"Archive not found: {archivePath}");
         }
 
-        // Pre-scan uncompressed total size
+        // Pre-scan uncompressed total size. These totals are derived from header metadata and are
+        // therefore spoofable — they drive the progress bar only (labeled as estimates) and are never
+        // used for enforcement (see ADR-0007). Enforcement reads actual streamed bytes/entries.
         long totalBytes = 0;
         try
         {
@@ -227,13 +229,15 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
 
         try
         {
-            await SafeArchiveExtractor.ExtractAllAsync(
+            return await SafeArchiveExtractor.ExtractAllAsync(
                 source,
                 request.DestinationDirectory,
                 request.Overwrite,
                 totalBytes,
                 progress,
-                ct);
+                ct,
+                request.Limits,
+                totalIsEstimate: totalBytes >= 0);
         }
         catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
         {
