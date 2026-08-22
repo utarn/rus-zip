@@ -24,6 +24,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         IProgress<DomainProgressReport>? progress = null,
         CancellationToken ct = default)
     {
+        if (request.CompressionLevel < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(request.CompressionLevel), "Compression level cannot be negative.");
+        }
+
         var sourcePath = Path.GetFullPath(request.SourcePath);
         var isDir = Directory.Exists(sourcePath);
         var isFile = File.Exists(sourcePath);
@@ -40,66 +45,131 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             Directory.CreateDirectory(destDir);
         }
 
-        var files = isDir
-            ? Directory.GetFiles(sourcePath, "*", SearchOption.AllDirectories)
-            : [sourcePath];
+        var tempOutput = destination + ".tmp." + Guid.NewGuid().ToString("N");
 
-        long totalBytes = files.Sum(f => new FileInfo(f).Length);
-        long processedBytes = 0;
-        int processedFiles = 0;
-
-        await Task.Run(async () =>
+        try
         {
-            await using var outputStream = new FileStream(
-                destination,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                BufferSize,
-                useAsync: true);
-
-            var compressionType = request.CompressionLevel == 0 ? SharpCompress.Common.CompressionType.None : SharpCompress.Common.CompressionType.Deflate;
-            var writerOptions = new ZipWriterOptions(compressionType)
+            await Task.Run(async () =>
             {
-                UseZip64 = true,
-                LeaveStreamOpen = false
-            };
-
-            using var zipWriter = new ZipWriter(outputStream, writerOptions);
-
-            foreach (var filePath in files)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                var relPath = isDir
-                    ? Path.GetRelativePath(sourcePath, filePath).Replace('\\', '/')
-                    : Path.GetFileName(filePath);
-
-                var fileInfo = new FileInfo(filePath);
-
-                await using var fileStream = new FileStream(
-                    filePath,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read,
+                await using (var outputStream = new FileStream(
+                    tempOutput,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
                     BufferSize,
-                    useAsync: true);
+                    useAsync: true))
+                {
+                    var compressionType = request.CompressionLevel == 0 ? SharpCompress.Common.CompressionType.None : SharpCompress.Common.CompressionType.Deflate;
+                    var writerOptions = new ZipWriterOptions(compressionType)
+                    {
+                        UseZip64 = true,
+                        LeaveStreamOpen = false
+                    };
 
-                zipWriter.Write(relPath, fileStream, fileInfo.LastWriteTimeUtc);
+                    using var zipWriter = new ZipWriter(outputStream, writerOptions);
 
-                processedBytes += fileInfo.Length;
-                processedFiles++;
+                    if (isDir)
+                    {
+                        var rootDirInfo = new DirectoryInfo(sourcePath);
+                        var fileEntries = rootDirInfo.GetFiles("*", SearchOption.AllDirectories);
+                        var emptyDirs = rootDirInfo.GetDirectories("*", SearchOption.AllDirectories)
+                            .Where(d => d.GetFileSystemInfos().Length == 0)
+                            .ToList();
 
-                progress?.Report(new DomainProgressReport(
-                    ProcessedBytes: processedBytes,
-                    TotalBytes: totalBytes,
-                    CurrentFileName: relPath,
-                    Percentage: totalBytes > 0 ? (double)processedBytes / totalBytes * 100.0 : 0,
-                    ProcessedFiles: processedFiles,
-                    TotalFiles: files.Length
-                ));
+                        long totalBytes = fileEntries.Sum(f => f.Length);
+                        int totalFiles = fileEntries.Length;
+                        long processedBytes = 0;
+                        int processedFiles = 0;
+
+                        foreach (var emptyDir in emptyDirs)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            var relPath = Path.GetRelativePath(rootDirInfo.FullName, emptyDir.FullName).Replace('\\', '/');
+                            zipWriter.WriteDirectory(relPath, emptyDir.LastWriteTimeUtc);
+                        }
+
+                        foreach (var fileInfo in fileEntries)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            var relPath = Path.GetRelativePath(rootDirInfo.FullName, fileInfo.FullName).Replace('\\', '/');
+
+                            await using var fileStream = new FileStream(
+                                fileInfo.FullName,
+                                FileMode.Open,
+                                FileAccess.Read,
+                                FileShare.Read,
+                                BufferSize,
+                                useAsync: true);
+
+                            await using var trackingStream = new ProgressReportingStream(
+                                fileStream,
+                                fileInfo.Length,
+                                bytesRead =>
+                                {
+                                    Interlocked.Add(ref processedBytes, bytesRead);
+                                    var currentTotal = Volatile.Read(ref processedBytes);
+                                    progress?.Report(new DomainProgressReport(
+                                        ProcessedBytes: currentTotal,
+                                        TotalBytes: totalBytes,
+                                        CurrentFileName: relPath,
+                                        Percentage: totalBytes > 0 ? (double)currentTotal / totalBytes * 100.0 : 0,
+                                        ProcessedFiles: Volatile.Read(ref processedFiles),
+                                        TotalFiles: totalFiles
+                                    ));
+                                });
+
+                            zipWriter.Write(relPath, trackingStream, fileInfo.LastWriteTimeUtc);
+                            Interlocked.Increment(ref processedFiles);
+                        }
+                    }
+                    else
+                    {
+                        var fileInfo = new FileInfo(sourcePath);
+                        var relPath = fileInfo.Name;
+                        long totalBytes = fileInfo.Length;
+                        long processedBytes = 0;
+                        int processedFiles = 0;
+
+                        await using var fileStream = new FileStream(
+                            fileInfo.FullName,
+                            FileMode.Open,
+                            FileAccess.Read,
+                            FileShare.Read,
+                            BufferSize,
+                            useAsync: true);
+
+                        await using var trackingStream = new ProgressReportingStream(
+                            fileStream,
+                            fileInfo.Length,
+                            bytesRead =>
+                            {
+                                Interlocked.Add(ref processedBytes, bytesRead);
+                                var currentTotal = Volatile.Read(ref processedBytes);
+                                progress?.Report(new DomainProgressReport(
+                                    ProcessedBytes: currentTotal,
+                                    TotalBytes: totalBytes,
+                                    CurrentFileName: relPath,
+                                    Percentage: totalBytes > 0 ? (double)currentTotal / totalBytes * 100.0 : 0,
+                                    ProcessedFiles: Volatile.Read(ref processedFiles),
+                                    TotalFiles: 1
+                                ));
+                            });
+
+                        zipWriter.Write(relPath, trackingStream, fileInfo.LastWriteTimeUtc);
+                        Interlocked.Increment(ref processedFiles);
+                    }
+                }
+
+                File.Move(tempOutput, destination, overwrite: true);
+            }, ct);
+        }
+        finally
+        {
+            if (File.Exists(tempOutput))
+            {
+                try { File.Delete(tempOutput); } catch { /* Ignore */ }
             }
-        }, ct);
+        }
     }
 
     public async Task ExtractAsync(
@@ -133,96 +203,183 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         await Task.Run(async () =>
         {
             var readerOptions = new ReaderOptions { LeaveStreamOpen = false };
-            using var archive = OpenArchiveByFormat(archivePath, format, readerOptions);
-
-            if (archive is RarArchive rarArchive && !rarArchive.IsComplete)
-            {
-                throw new InvalidOperationException("Multi-volume RAR archive is missing subsequent volume parts.");
-            }
-
-            long totalBytes = 0;
+            IArchive archive;
             try
             {
-                totalBytes = archive.Entries
-                    .Where(e => !e.IsDirectory && e.Size > 0)
-                    .Sum(e => e.Size);
+                archive = OpenArchiveByFormat(archivePath, format, readerOptions);
             }
-            catch
+            catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
             {
-                totalBytes = -1;
+                throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
             }
 
-            long processedBytes = 0;
-            int processedFiles = 0;
-            byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
-
-            try
+            using (archive)
             {
-                foreach (var entry in archive.Entries)
+                try
                 {
-                    ct.ThrowIfCancellationRequested();
-
-                    if (entry.IsEncrypted)
+                    bool isComplete = true;
+                    try
                     {
-                        throw new NotSupportedException($"The entry '{entry.Key}' is password-protected. Encrypted archives are not supported.");
+                        if (archive is RarArchive rarArchive)
+                        {
+                            isComplete = rarArchive.IsComplete;
+                        }
+                    }
+                    catch (Exception ex) when (ex is InvalidFormatException or ArchiveException)
+                    {
+                        isComplete = false;
                     }
 
-                    if (string.IsNullOrEmpty(entry.Key))
-                        continue;
-
-                    var targetPath = Path.GetFullPath(Path.Combine(destDir, entry.Key));
-                    if (!targetPath.StartsWith(destDir, StringComparison.OrdinalIgnoreCase))
+                    if (!isComplete)
                     {
-                        throw new SecurityException($"Malicious entry detected attempting path traversal: {entry.Key}");
+                        throw new InvalidOperationException("Multi-volume RAR archive is missing subsequent volume parts.");
                     }
 
-                    if (entry.IsDirectory)
+                    long totalBytes = 0;
+                    int totalFiles = 0;
+                    try
                     {
-                        Directory.CreateDirectory(targetPath);
-                        continue;
+                        foreach (var e in archive.Entries)
+                        {
+                            if (e.IsEncrypted)
+                            {
+                                throw new NotSupportedException($"The entry '{e.Key}' is password-protected. Encrypted archives are not supported.");
+                            }
+
+                            if (!e.IsDirectory)
+                            {
+                                totalFiles++;
+                                if (e.Size > 0)
+                                {
+                                    totalBytes += e.Size;
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex) when (ex is not NotSupportedException && IsPasswordOrEncryptedException(ex))
+                    {
+                        throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
+                    }
+                    catch (NotSupportedException)
+                    {
+                        throw;
+                    }
+                    catch
+                    {
+                        totalBytes = -1;
                     }
 
-                    var parentDir = Path.GetDirectoryName(targetPath);
-                    if (!string.IsNullOrEmpty(parentDir))
+                    long processedBytes = 0;
+                    int processedFiles = 0;
+                    byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+
+                    try
                     {
-                        Directory.CreateDirectory(parentDir);
+                        var normalizedDestDir = destDir.EndsWith(Path.DirectorySeparatorChar)
+                            ? destDir
+                            : destDir + Path.DirectorySeparatorChar;
+
+                        IEnumerable<IArchiveEntry> entries;
+                        try
+                        {
+                            entries = archive.Entries;
+                        }
+                        catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
+                        {
+                            throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
+                        }
+
+                        foreach (var entry in entries)
+                        {
+                            ct.ThrowIfCancellationRequested();
+
+                            if (entry.IsEncrypted)
+                            {
+                                throw new NotSupportedException($"The entry '{entry.Key}' is password-protected. Encrypted archives are not supported.");
+                            }
+
+                            if (string.IsNullOrWhiteSpace(entry.Key))
+                                continue;
+
+                            var entryKey = entry.Key.Replace('\\', '/');
+                            var targetPath = Path.GetFullPath(Path.Combine(destDir, entryKey));
+
+                            if (!targetPath.StartsWith(normalizedDestDir, StringComparison.OrdinalIgnoreCase) &&
+                                !string.Equals(targetPath, destDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+                            {
+                                throw new SecurityException($"Malicious entry detected attempting path traversal: {entry.Key}");
+                            }
+
+                            if (entry.IsDirectory || entryKey.EndsWith('/') || Directory.Exists(targetPath))
+                            {
+                                Directory.CreateDirectory(targetPath);
+                                continue;
+                            }
+
+                            var parentDir = Path.GetDirectoryName(targetPath);
+                            if (!string.IsNullOrEmpty(parentDir))
+                            {
+                                Directory.CreateDirectory(parentDir);
+                            }
+
+                            if (!request.Overwrite && File.Exists(targetPath))
+                            {
+                                throw new IOException($"Destination file already exists and overwrite is false: '{targetPath}'");
+                            }
+
+                            Stream entryStream;
+                            try
+                            {
+                                entryStream = entry.OpenEntryStream();
+                            }
+                            catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
+                            {
+                                throw new NotSupportedException($"The entry '{entry.Key}' is password-protected. Encrypted archives are not supported.", ex);
+                            }
+
+                            using (entryStream)
+                            await using (var targetStream = new FileStream(
+                                targetPath,
+                                request.Overwrite ? FileMode.Create : FileMode.CreateNew,
+                                FileAccess.Write,
+                                FileShare.None,
+                                BufferSize,
+                                useAsync: true))
+                            {
+                                int bytesRead;
+                                while ((bytesRead = await entryStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                                {
+                                    await targetStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                                    processedBytes += bytesRead;
+
+                                    progress?.Report(new DomainProgressReport(
+                                        ProcessedBytes: processedBytes,
+                                        TotalBytes: totalBytes,
+                                        CurrentFileName: entry.Key,
+                                        Percentage: totalBytes > 0 ? (double)processedBytes / totalBytes * 100.0 : 0,
+                                        ProcessedFiles: processedFiles,
+                                        TotalFiles: totalFiles
+                                    ));
+                                }
+                            }
+
+                            processedFiles++;
+
+                            if (entry.LastModifiedTime.HasValue)
+                            {
+                                File.SetLastWriteTimeUtc(targetPath, entry.LastModifiedTime.Value.ToUniversalTime());
+                            }
+                        }
                     }
-
-                    using var entryStream = entry.OpenEntryStream();
-                    await using var targetStream = new FileStream(
-                        targetPath,
-                        request.Overwrite ? FileMode.Create : FileMode.CreateNew,
-                        FileAccess.Write,
-                        FileShare.None,
-                        BufferSize,
-                        useAsync: true);
-
-                    int bytesRead;
-                    while ((bytesRead = await entryStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                    finally
                     {
-                        await targetStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                        processedBytes += bytesRead;
-
-                        progress?.Report(new DomainProgressReport(
-                            ProcessedBytes: processedBytes,
-                            TotalBytes: totalBytes,
-                            CurrentFileName: entry.Key,
-                            Percentage: totalBytes > 0 ? (double)processedBytes / totalBytes * 100.0 : 0,
-                            ProcessedFiles: processedFiles
-                        ));
-                    }
-
-                    processedFiles++;
-
-                    if (entry.LastModifiedTime.HasValue)
-                    {
-                        File.SetLastWriteTimeUtc(targetPath, entry.LastModifiedTime.Value.ToUniversalTime());
+                        ArrayPool<byte>.Shared.Return(buffer);
                     }
                 }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
+                catch (Exception ex) when (ex is not SecurityException && ex is not NotSupportedException && ex is not InvalidOperationException && ex is not IOException && ex is not OperationCanceledException && IsPasswordOrEncryptedException(ex))
+                {
+                    throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
+                }
             }
         }, ct);
     }
@@ -246,8 +403,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
 
         if (format == ArchiveFormat.Gz)
         {
-            var fileName = Path.GetFileNameWithoutExtension(fullPath);
-            return [new ArchiveEntry(fileName, new FileInfo(fullPath).Length, null, File.GetLastWriteTimeUtc(fullPath), false)];
+            return await ListGzEntryAsync(fullPath, ct);
         }
 
         return await Task.Run(() =>
@@ -255,18 +411,25 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             var results = new List<ArchiveEntry>();
             var readerOptions = new ReaderOptions { LeaveStreamOpen = false };
 
-            using var archive = OpenArchiveByFormat(fullPath, format, readerOptions);
-            foreach (var entry in archive.Entries)
+            try
             {
-                ct.ThrowIfCancellationRequested();
-                results.Add(new ArchiveEntry(
-                    RelativePath: entry.Key ?? string.Empty,
-                    UncompressedSize: entry.Size,
-                    CompressedSize: entry.CompressedSize,
-                    LastModified: entry.LastModifiedTime.HasValue ? new DateTimeOffset(entry.LastModifiedTime.Value) : null,
-                    IsDirectory: entry.IsDirectory,
-                    IsEncrypted: entry.IsEncrypted
-                ));
+                using var archive = OpenArchiveByFormat(fullPath, format, readerOptions);
+                foreach (var entry in archive.Entries)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    results.Add(new ArchiveEntry(
+                        RelativePath: entry.Key ?? string.Empty,
+                        UncompressedSize: entry.Size,
+                        CompressedSize: entry.CompressedSize,
+                        LastModified: entry.LastModifiedTime.HasValue ? new DateTimeOffset(entry.LastModifiedTime.Value) : null,
+                        IsDirectory: entry.IsDirectory || (entry.Key != null && entry.Key.Replace('\\', '/').EndsWith('/')),
+                        IsEncrypted: entry.IsEncrypted
+                    ));
+                }
+            }
+            catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
+            {
+                throw new NotSupportedException($"The archive '{Path.GetFileName(fullPath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
             }
 
             return (IReadOnlyList<ArchiveEntry>)results;
@@ -291,71 +454,91 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         IProgress<DomainProgressReport>? progress,
         CancellationToken ct)
     {
+        var normalizedDestDir = destinationDir.EndsWith(Path.DirectorySeparatorChar)
+            ? destinationDir
+            : destinationDir + Path.DirectorySeparatorChar;
+
         await using var fileStream = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, useAsync: true);
         await using var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
         await using var tarReader = new TarReader(gzipStream, leaveOpen: false);
 
         long totalExtractedBytes = 0;
         int extractedFiles = 0;
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
 
-        TarEntry? entry;
-        while ((entry = await tarReader.GetNextEntryAsync(copyData: false, ct)) is not null)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-
-            var targetPath = Path.GetFullPath(Path.Combine(destinationDir, entry.Name));
-            if (!targetPath.StartsWith(destinationDir, StringComparison.OrdinalIgnoreCase))
+            TarEntry? entry;
+            while ((entry = await tarReader.GetNextEntryAsync(copyData: false, ct)) is not null)
             {
-                throw new SecurityException($"Malicious entry detected attempting path traversal: {entry.Name}");
-            }
+                ct.ThrowIfCancellationRequested();
 
-            if (entry.EntryType == TarEntryType.Directory)
-            {
-                Directory.CreateDirectory(targetPath);
-                continue;
-            }
+                var entryName = entry.Name.Replace('\\', '/');
+                var targetPath = Path.GetFullPath(Path.Combine(destinationDir, entryName));
 
-            if (entry.EntryType is TarEntryType.RegularFile or TarEntryType.V7RegularFile)
-            {
-                var parent = Path.GetDirectoryName(targetPath);
-                if (!string.IsNullOrEmpty(parent))
+                if (!targetPath.StartsWith(normalizedDestDir, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(targetPath, destinationDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
                 {
-                    Directory.CreateDirectory(parent);
+                    throw new SecurityException($"Malicious entry detected attempting path traversal: {entry.Name}");
                 }
 
-                await using (var outFs = new FileStream(
-                    targetPath,
-                    overwrite ? FileMode.Create : FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None,
-                    BufferSize,
-                    useAsync: true))
+                if (entry.EntryType == TarEntryType.Directory || entryName.EndsWith('/') || Directory.Exists(targetPath))
                 {
-                    if (entry.DataStream is not null)
+                    Directory.CreateDirectory(targetPath);
+                    continue;
+                }
+
+                if (entry.EntryType is TarEntryType.RegularFile or TarEntryType.V7RegularFile)
+                {
+                    var parent = Path.GetDirectoryName(targetPath);
+                    if (!string.IsNullOrEmpty(parent))
                     {
-                        var buffer = new byte[BufferSize];
-                        int bytesRead;
+                        Directory.CreateDirectory(parent);
+                    }
 
-                        while ((bytesRead = await entry.DataStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                    if (!overwrite && File.Exists(targetPath))
+                    {
+                        throw new IOException($"Destination file already exists and overwrite is false: '{targetPath}'");
+                    }
+
+                    await using (var outFs = new FileStream(
+                        targetPath,
+                        overwrite ? FileMode.Create : FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None,
+                        BufferSize,
+                        useAsync: true))
+                    {
+                        if (entry.DataStream is not null)
                         {
-                            await outFs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                            totalExtractedBytes += bytesRead;
+                            int bytesRead;
+                            while ((bytesRead = await entry.DataStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                            {
+                                await outFs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                                totalExtractedBytes += bytesRead;
 
-                            progress?.Report(new DomainProgressReport(
-                                ProcessedBytes: totalExtractedBytes,
-                                TotalBytes: -1,
-                                CurrentFileName: entry.Name,
-                                Percentage: 0,
-                                ProcessedFiles: extractedFiles
-                            ));
+                                progress?.Report(new DomainProgressReport(
+                                    ProcessedBytes: totalExtractedBytes,
+                                    TotalBytes: -1,
+                                    CurrentFileName: entry.Name,
+                                    Percentage: 0,
+                                    ProcessedFiles: extractedFiles,
+                                    TotalFiles: 0,
+                                    IsIndeterminate: true
+                                ));
+                            }
                         }
                     }
+
+                    extractedFiles++;
+
+                    File.SetLastWriteTimeUtc(targetPath, entry.ModificationTime.UtcDateTime);
                 }
-
-                extractedFiles++;
-
-                File.SetLastWriteTimeUtc(targetPath, entry.ModificationTime.UtcDateTime);
             }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 
@@ -366,30 +549,53 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         IProgress<DomainProgressReport>? progress,
         CancellationToken ct)
     {
+        var normalizedDestDir = destinationDir.EndsWith(Path.DirectorySeparatorChar)
+            ? destinationDir
+            : destinationDir + Path.DirectorySeparatorChar;
+
         var outFileName = Path.GetFileNameWithoutExtension(archivePath);
-        var targetPath = Path.Combine(destinationDir, outFileName);
+        var targetPath = Path.GetFullPath(Path.Combine(destinationDir, outFileName));
+
+        if (!targetPath.StartsWith(normalizedDestDir, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(targetPath, destinationDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SecurityException($"Malicious entry detected attempting path traversal: {outFileName}");
+        }
+
+        if (!overwrite && File.Exists(targetPath))
+        {
+            throw new IOException($"Destination file already exists and overwrite is false: '{targetPath}'");
+        }
 
         await using var inStream = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, useAsync: true);
         await using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress);
         await using var outStream = new FileStream(targetPath, overwrite ? FileMode.Create : FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, useAsync: true);
 
-        var buffer = new byte[BufferSize];
-        int bytesRead;
-        long totalBytes = 0;
-
-        while ((bytesRead = await gzipStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+        try
         {
-            await outStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-            totalBytes += bytesRead;
+            int bytesRead;
+            long totalBytes = 0;
 
-            progress?.Report(new DomainProgressReport(
-                ProcessedBytes: totalBytes,
-                TotalBytes: -1,
-                CurrentFileName: outFileName,
-                Percentage: 0,
-                ProcessedFiles: 1,
-                TotalFiles: 1
-            ));
+            while ((bytesRead = await gzipStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+            {
+                await outStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                totalBytes += bytesRead;
+
+                progress?.Report(new DomainProgressReport(
+                    ProcessedBytes: totalBytes,
+                    TotalBytes: -1,
+                    CurrentFileName: outFileName,
+                    Percentage: 0,
+                    ProcessedFiles: 1,
+                    TotalFiles: 1,
+                    IsIndeterminate: true
+                ));
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 
@@ -410,12 +616,57 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 UncompressedSize: entry.Length,
                 CompressedSize: null,
                 LastModified: entry.ModificationTime,
-                IsDirectory: entry.EntryType == TarEntryType.Directory,
+                IsDirectory: entry.EntryType == TarEntryType.Directory || entry.Name.EndsWith('/'),
                 IsEncrypted: false,
                 Attributes: entry.Mode.ToString()
             ));
         }
 
         return results;
+    }
+
+    private static async Task<IReadOnlyList<ArchiveEntry>> ListGzEntryAsync(string fullPath, CancellationToken ct)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(fullPath);
+        long uncompressedSize = -1;
+        try
+        {
+            await using var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 64, useAsync: true);
+            if (fs.Length >= 18)
+            {
+                fs.Seek(-4, SeekOrigin.End);
+                var b = new byte[4];
+                var read = await fs.ReadAsync(b.AsMemory(0, 4), ct);
+                if (read == 4)
+                {
+                    uncompressedSize = BitConverter.ToUInt32(b, 0);
+                }
+            }
+        }
+        catch
+        {
+            uncompressedSize = -1;
+        }
+
+        var fileInfo = new FileInfo(fullPath);
+        return [new ArchiveEntry(
+            RelativePath: fileName,
+            UncompressedSize: uncompressedSize >= 0 ? uncompressedSize : fileInfo.Length,
+            CompressedSize: fileInfo.Length,
+            LastModified: fileInfo.LastWriteTimeUtc,
+            IsDirectory: false,
+            IsEncrypted: false)];
+    }
+
+    private static bool IsPasswordOrEncryptedException(Exception ex)
+    {
+        return ex is SharpCompress.Common.CryptographicException or System.Security.Cryptography.CryptographicException
+            || ex.GetType().Name.Contains("Cryptographic", StringComparison.OrdinalIgnoreCase)
+            || ex.GetType().Name.Contains("Password", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("encrypted", StringComparison.OrdinalIgnoreCase)
+            || (ex is ArgumentNullException && ex.StackTrace?.Contains("DecoderRegistry", StringComparison.OrdinalIgnoreCase) == true)
+            || ex.StackTrace?.Contains("IPasswordProvider", StringComparison.OrdinalIgnoreCase) == true
+            || (ex.InnerException is not null && IsPasswordOrEncryptedException(ex.InnerException));
     }
 }

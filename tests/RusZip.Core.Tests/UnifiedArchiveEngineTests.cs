@@ -60,4 +60,86 @@ public class UnifiedArchiveEngineTests : IDisposable
         Assert.True(File.Exists(Path.Combine(zrusExtract, "info.json")));
         Assert.True(File.Exists(Path.Combine(zipExtract, "info.json")));
     }
+
+    [Theory]
+    [InlineData("output.rar")]
+    [InlineData("output.7z")]
+    [InlineData("output.gz")]
+    [InlineData("output.tar.gz")]
+    [InlineData("output.tgz")]
+    public async Task UnifiedEngine_Compress_UnsupportedFormat_ThrowsNotSupportedException(string unsupportedArchiveName)
+    {
+        var dummyFile = Path.Combine(_testDir, "dummy.txt");
+        await File.WriteAllTextAsync(dummyFile, "dummy");
+
+        var destination = Path.Combine(_testDir, unsupportedArchiveName);
+        var req = new ArchiveCompressionRequest(dummyFile, destination, 9);
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => _engine.CompressAsync(req));
+        Assert.Contains("Supported creation formats: .zrus, .zip", ex.Message);
+    }
+
+    [Fact]
+    public async Task UnifiedEngine_ExtractAndList_RoutesAllDecompressFormats()
+    {
+        // 1. .7z
+        var sevenZipPath = Path.Combine(_testDir, "test.7z");
+        TestArchiveFixtures.CreateSevenZipArchive(sevenZipPath, "seven.txt", "7z via unified engine");
+        var sevenEntries = await _engine.ListEntriesAsync(sevenZipPath);
+        Assert.Contains(sevenEntries, e => e.RelativePath == "seven.txt");
+        var sevenExtract = Path.Combine(_testDir, "seven_out");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(sevenZipPath, sevenExtract));
+        Assert.True(File.Exists(Path.Combine(sevenExtract, "seven.txt")));
+
+        // 2. .gz
+        var gzPath = Path.Combine(_testDir, "file.txt.gz");
+        await TestArchiveFixtures.CreateGzArchiveAsync(gzPath, "gz via unified engine");
+        var gzEntries = await _engine.ListEntriesAsync(gzPath);
+        Assert.Contains(gzEntries, e => e.RelativePath == "file.txt");
+        var gzExtract = Path.Combine(_testDir, "gz_out");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(gzPath, gzExtract));
+        Assert.True(File.Exists(Path.Combine(gzExtract, "file.txt")));
+
+        // 3. .tar.gz
+        var tarGzPath = Path.Combine(_testDir, "package.tar.gz");
+        await TestArchiveFixtures.CreateTarGzArchiveAsync(tarGzPath, new Dictionary<string, string> { ["targz.txt"] = "targz payload" });
+        var tarGzEntries = await _engine.ListEntriesAsync(tarGzPath);
+        Assert.Contains(tarGzEntries, e => e.RelativePath == "targz.txt");
+        var tarGzExtract = Path.Combine(_testDir, "targz_out");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(tarGzPath, tarGzExtract));
+        Assert.True(File.Exists(Path.Combine(tarGzExtract, "targz.txt")));
+
+        // 4. .tgz
+        var tgzPath = Path.Combine(_testDir, "bundle.tgz");
+        await TestArchiveFixtures.CreateTarGzArchiveAsync(tgzPath, new Dictionary<string, string> { ["tgz.txt"] = "tgz payload" });
+        var tgzEntries = await _engine.ListEntriesAsync(tgzPath);
+        Assert.Contains(tgzEntries, e => e.RelativePath == "tgz.txt");
+        var tgzExtract = Path.Combine(_testDir, "tgz_out");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(tgzPath, tgzExtract));
+        Assert.True(File.Exists(Path.Combine(tgzExtract, "tgz.txt")));
+
+        // 5. .rar (RAR4)
+        var rar4Path = Path.Combine(_testDir, "sample4.rar");
+        TestArchiveFixtures.CreateRar4Archive(rar4Path, "rar4.txt", "rar4 payload");
+        var rar4Entries = await _engine.ListEntriesAsync(rar4Path);
+        Assert.Contains(rar4Entries, e => e.RelativePath == "rar4.txt");
+        var rar4Extract = Path.Combine(_testDir, "rar4_out");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(rar4Path, rar4Extract));
+        Assert.True(File.Exists(Path.Combine(rar4Extract, "rar4.txt")));
+
+        // 6. .rar (RAR5)
+        var rar5Path = Path.Combine(_testDir, "sample5.rar");
+        TestArchiveFixtures.CreateRar5Archive(rar5Path, "rar5.txt", "rar5 payload");
+        var rar5Entries = await _engine.ListEntriesAsync(rar5Path);
+        Assert.Contains(rar5Entries, e => e.RelativePath == "rar5.txt");
+        var rar5Extract = Path.Combine(_testDir, "rar5_out");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(rar5Path, rar5Extract));
+        Assert.True(File.Exists(Path.Combine(rar5Extract, "rar5.txt")));
+    }
+
+    [Fact]
+    public void ArchiveFormatDetector_UnknownExtension_ThrowsNotSupportedException()
+    {
+        Assert.Throws<NotSupportedException>(() => ArchiveFormatDetector.DetectFromPath("file.unknown_extension"));
+    }
 }
