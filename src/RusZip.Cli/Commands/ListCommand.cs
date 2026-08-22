@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Security;
 using RusZip.Cli.Commands.Settings;
 using RusZip.Cli.Infrastructure;
 using RusZip.Cli.Models;
@@ -23,47 +22,26 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
 
     public override async Task<int> ExecuteAsync(CommandContext context, ListSettings settings)
     {
-        if (string.IsNullOrWhiteSpace(settings.ArchivePath))
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("ARGUMENT_ERROR", "Archive path cannot be empty.");
-            else
-                AnsiConsole.MarkupLine("[red]Error:[/] Archive path cannot be empty.");
-            return 2;
-        }
-
-        var archivePath = Path.GetFullPath(settings.ArchivePath);
-        if (!File.Exists(archivePath))
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("ARCHIVE_NOT_FOUND", $"Archive file '{settings.ArchivePath}' was not found.");
-            else
-                AnsiConsole.MarkupLine($"[red]Error:[/] Archive file '{Markup.Escape(settings.ArchivePath)}' not found.");
-            return 2;
-        }
-
-        ArchiveFormatDescriptor formatDescriptor;
-        try
-        {
-            formatDescriptor = ArchiveFormatRegistry.Detect(archivePath);
-        }
-        catch (NotSupportedException ex)
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", ex.Message);
-            else
-                AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
-            return 2;
-        }
-
-        try
-        {
-            var entries = await _engine.ListEntriesAsync(archivePath);
-
-            string formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
-
-            if (settings.Json)
+        return await CliCommandRunner.RunAsync(
+            "Listing",
+            settings.Json,
+            async (progress, ct) =>
             {
+                if (string.IsNullOrWhiteSpace(settings.ArchivePath))
+                {
+                    throw new ArgumentException("Archive path cannot be empty.");
+                }
+
+                var archivePath = Path.GetFullPath(settings.ArchivePath);
+                if (!File.Exists(archivePath))
+                {
+                    throw new FileNotFoundException($"Archive file '{settings.ArchivePath}' was not found.", archivePath);
+                }
+
+                var formatDescriptor = ArchiveFormatRegistry.Detect(archivePath);
+                var entries = await _engine.ListEntriesAsync(archivePath);
+
+                string formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
                 var entryItems = entries.Select(e => new ListEntryItem(
                     Path: e.RelativePath,
                     IsDirectory: e.IsDirectory,
@@ -72,54 +50,36 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
                     LastModified: e.LastModified
                 )).ToList();
 
-                CliJsonSerializer.Emit(new ListResult(
+                return new ListResult(
                     Success: true,
                     ArchivePath: archivePath,
                     Format: formatStr,
                     TotalEntries: entryItems.Count,
                     TotalUncompressedBytes: entryItems.Sum(e => e.UncompressedSize),
                     Entries: entryItems
-                ));
-            }
-            else
+                );
+            },
+            renderConsoleSummary: (result, elapsedMs) =>
             {
                 var table = new Table()
                     .Border(TableBorder.Rounded)
-                    .Title($"[bold cyan]{Markup.Escape(Path.GetFileName(archivePath))}[/]")
+                    .Title($"[bold cyan]{Markup.Escape(Path.GetFileName(result.ArchivePath))}[/]")
                     .AddColumn(new TableColumn("Path").LeftAligned())
                     .AddColumn(new TableColumn("Size").RightAligned())
                     .AddColumn(new TableColumn("Modified").RightAligned());
 
-                foreach (var entry in entries)
+                foreach (var entry in result.Entries)
                 {
                     string icon = entry.IsDirectory ? "[yellow]📁[/]" : "[blue]📄[/]";
                     string size = entry.IsDirectory ? "-" : DataMetricsFormatter.FormatBytes(entry.UncompressedSize);
                     string modified = entry.LastModified?.ToString("yyyy-MM-dd HH:mm:ss") ?? "-";
 
-                    table.AddRow($"{icon} {Markup.Escape(entry.RelativePath)}", size, modified);
+                    table.AddRow($"{icon} {Markup.Escape(entry.Path)}", size, modified);
                 }
 
                 AnsiConsole.Write(table);
-                AnsiConsole.MarkupLine($"\n[dim]Total: {entries.Count:N0} entries ({DataMetricsFormatter.FormatBytes(entries.Sum(e => e.UncompressedSize))})[/]");
+                AnsiConsole.MarkupLine($"\n[dim]Total: {result.TotalEntries:N0} entries ({DataMetricsFormatter.FormatBytes(result.TotalUncompressedBytes)})[/]");
             }
-
-            return 0;
-        }
-        catch (SecurityException secEx)
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("SECURITY_VIOLATION", secEx.Message, secEx.StackTrace);
-            else
-                AnsiConsole.MarkupLine($"[red]Security Violation:[/] {Markup.Escape(secEx.Message)}");
-            return 1;
-        }
-        catch (Exception ex)
-        {
-            if (settings.Json)
-                CliJsonSerializer.EmitError("LIST_FAILED", ex.Message, ex.StackTrace);
-            else
-                AnsiConsole.WriteException(ex);
-            return 1;
-        }
+        );
     }
 }

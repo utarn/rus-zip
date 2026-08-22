@@ -183,7 +183,7 @@ public sealed class ExtractCommandTests : CliTestBase
     }
 
     [Fact]
-    public async Task Extract_NonExistentArchive_ReturnsExitCode2_AndArchiveNotFoundJson()
+    public async Task Extract_NonExistentArchive_ReturnsExitCode2_AndSourceNotFoundJson()
     {
         // Arrange
         var nonExistent = Path.Combine(TempDirectory, "missing_archive.zrus");
@@ -195,7 +195,7 @@ public sealed class ExtractCommandTests : CliTestBase
         Assert.Equal(2, exitCode);
         var err = ParseJson<ErrorResult>(stdout);
         Assert.False(err.Success);
-        Assert.Equal("ARCHIVE_NOT_FOUND", err.Error.Code);
+        Assert.Equal("SOURCE_NOT_FOUND", err.Error.Code);
     }
 
     [Fact]
@@ -228,7 +228,7 @@ public sealed class ExtractCommandTests : CliTestBase
     }
 
     [Fact]
-    public async Task Extract_CorruptedArchive_ReturnsExitCode1_AndExtractFailedJson()
+    public async Task Extract_CorruptedArchive_ReturnsExitCode1_AndExecutionErrorJson()
     {
         // Arrange: Corrupted Zstd header in .zrus file
         var corruptedArchive = Path.Combine(TempDirectory, "corrupted.zrus");
@@ -243,7 +243,7 @@ public sealed class ExtractCommandTests : CliTestBase
         Assert.Equal(1, exitCode);
         var err = ParseJson<ErrorResult>(stdout);
         Assert.False(err.Success);
-        Assert.Equal("EXTRACT_FAILED", err.Error.Code);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
     }
 
     [Fact]

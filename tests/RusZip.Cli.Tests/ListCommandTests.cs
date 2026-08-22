@@ -137,7 +137,7 @@ public sealed class ListCommandTests : CliTestBase
     }
 
     [Fact]
-    public async Task List_NonExistentArchive_ReturnsExitCode2_AndArchiveNotFoundJson()
+    public async Task List_NonExistentArchive_ReturnsExitCode2_AndSourceNotFoundJson()
     {
         // Arrange
         var nonExistent = Path.Combine(TempDirectory, "missing_list.zrus");
@@ -149,7 +149,7 @@ public sealed class ListCommandTests : CliTestBase
         Assert.Equal(2, exitCode);
         var err = ParseJson<ErrorResult>(stdout);
         Assert.False(err.Success);
-        Assert.Equal("ARCHIVE_NOT_FOUND", err.Error.Code);
+        Assert.Equal("SOURCE_NOT_FOUND", err.Error.Code);
     }
 
     [Fact]
@@ -182,7 +182,7 @@ public sealed class ListCommandTests : CliTestBase
     }
 
     [Fact]
-    public async Task List_CorruptedArchive_ReturnsExitCode1_AndListFailedJson()
+    public async Task List_CorruptedArchive_ReturnsExitCode1_AndExecutionErrorJson()
     {
         // Arrange: Corrupted Zstd frame
         var corruptedArchive = Path.Combine(TempDirectory, "corrupted_list.zrus");
@@ -195,6 +195,6 @@ public sealed class ListCommandTests : CliTestBase
         Assert.Equal(1, exitCode);
         var err = ParseJson<ErrorResult>(stdout);
         Assert.False(err.Success);
-        Assert.Equal("LIST_FAILED", err.Error.Code);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
     }
 }
