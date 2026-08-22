@@ -9,11 +9,22 @@ public abstract class CliTestBase : IDisposable
 {
     private static readonly SemaphoreSlim Semaphore = new(1, 1);
     private readonly string _tempDirectory;
+    private readonly IAnsiConsole _originalConsole;
+    private readonly TextWriter _originalOut;
+    private readonly TextWriter _originalError;
 
     protected CliTestBase()
     {
         _tempDirectory = Path.Combine(Path.GetTempPath(), "ruszip_cli_tests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDirectory);
+
+        // Issue #62: capture the ambient Spectre.Console / System.Console state so Dispose can
+        // restore it. RunCliAsync already restores around each invocation; this outer capture is
+        // a safety net that heals any stale static state left by a previous test (e.g. a console
+        // whose TextWriter was closed) before the next test observes it.
+        _originalConsole = AnsiConsole.Console;
+        _originalOut = Console.Out;
+        _originalError = Console.Error;
     }
 
     protected string TempDirectory => _tempDirectory;
@@ -88,6 +99,28 @@ public abstract class CliTestBase : IDisposable
 
     public virtual void Dispose()
     {
+        // Issue #62: restore the ambient Spectre.Console / System.Console state captured in the
+        // constructor. Even if a test redirects or closes a writer and its own finally misses it,
+        // the next test in this assembly starts from a known-good console.
+        try
+        {
+            AnsiConsole.Console = _originalConsole;
+        }
+        catch
+        {
+            // Ignore restoration failures; the static may already be unusable.
+        }
+
+        try
+        {
+            Console.SetOut(_originalOut);
+            Console.SetError(_originalError);
+        }
+        catch
+        {
+            // Ignore restoration failures.
+        }
+
         try
         {
             if (Directory.Exists(_tempDirectory))

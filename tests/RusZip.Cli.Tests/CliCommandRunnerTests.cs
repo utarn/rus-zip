@@ -2,6 +2,7 @@ using System.Security;
 using RusZip.Cli.Infrastructure;
 using RusZip.Cli.Models;
 using RusZip.Core.Engines;
+using Spectre.Console;
 using Spectre.Console.Cli;
 using Xunit;
 
@@ -17,6 +18,24 @@ public class CliCommandRunnerTests : CliTestBase
         var (exitCode, stdout) = await RunCliAsync("compress", "--help");
         Assert.Equal(0, exitCode);
         Assert.Contains("USAGE", stdout);
+    }
+
+    [Fact]
+    public async Task RunCliAsync_RestoresAnsiConsoleStatic_AndSystemConsoleWriters()
+    {
+        // Issue #62 regression: RunCliAsync redirects AnsiConsole.Console (and the System.Console
+        // writers it wraps) to a test-local console for the duration of the command run. If that
+        // redirection is not restored, a later human-mode EmitError can inherit a disposed
+        // TextWriter ("Cannot write to a closed TextWriter") — the order-dependent CLI flake.
+        var consoleBefore = AnsiConsole.Console;
+        var outBefore = Console.Out;
+        var errBefore = Console.Error;
+
+        await RunCliAsync("compress", "--help");
+
+        Assert.Same(consoleBefore, AnsiConsole.Console);
+        Assert.Same(outBefore, Console.Out);
+        Assert.Same(errBefore, Console.Error);
     }
 
     [Theory]
