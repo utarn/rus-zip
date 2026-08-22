@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Formats.Tar;
+using System.Runtime.CompilerServices;
 using System.Security;
 using RusZip.Core.Abstractions;
 using RusZip.Core.Models;
@@ -206,13 +207,6 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             throw new FileNotFoundException($"Archive not found: {archivePath}");
         }
 
-        var destinationDir = Path.GetFullPath(request.DestinationDirectory);
-        Directory.CreateDirectory(destinationDir);
-
-        var normalizedDestDir = destinationDir.EndsWith(Path.DirectorySeparatorChar)
-            ? destinationDir
-            : destinationDir + Path.DirectorySeparatorChar;
-
         // Pre-scan uncompressed total size
         long totalBytes = 0;
         try
@@ -220,123 +214,110 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             var entries = await ListEntriesAsync(archivePath, ct);
             totalBytes = entries.Where(e => !e.IsDirectory).Sum(e => e.UncompressedSize);
         }
+        catch (InvalidDataException)
+        {
+            throw;
+        }
         catch
         {
             totalBytes = -1;
         }
 
-        long totalExtractedBytes = 0;
-        int extractedFiles = 0;
-        var extractedDirectories = new List<(string TargetPath, DateTimeOffset ModTime, UnixFileMode Mode)>();
-
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+        var source = new ZstdTarExtractionSource(archivePath);
 
         try
         {
-            await using var fileStream = new FileStream(
-                archivePath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                BufferSize,
-                useAsync: true);
-
-            await using var decompressionStream = new DecompressionStream(fileStream);
-            await using var tarReader = new TarReader(decompressionStream, leaveOpen: false);
-
-            TarEntry? entry;
-            while ((entry = await tarReader.GetNextEntryAsync(copyData: false, ct)) is not null)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                var entryName = entry.Name.Replace('\\', '/');
-                var targetPath = Path.GetFullPath(Path.Combine(destinationDir, entryName));
-
-                if (!targetPath.StartsWith(normalizedDestDir, StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(targetPath, destinationDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new SecurityException($"Malicious path traversal detected in archive entry: {entry.Name}");
-                }
-
-                if (entry.EntryType is TarEntryType.Directory)
-                {
-                    Directory.CreateDirectory(targetPath);
-                    extractedDirectories.Add((targetPath, entry.ModificationTime, entry.Mode));
-                    continue;
-                }
-
-                if (entry.EntryType is TarEntryType.RegularFile or TarEntryType.V7RegularFile)
-                {
-                    var parentDir = Path.GetDirectoryName(targetPath);
-                    if (!string.IsNullOrEmpty(parentDir))
-                    {
-                        Directory.CreateDirectory(parentDir);
-                    }
-
-                    await using (var outFs = new FileStream(
-                        targetPath,
-                        request.Overwrite ? FileMode.Create : FileMode.CreateNew,
-                        FileAccess.Write,
-                        FileShare.None,
-                        BufferSize,
-                        useAsync: true))
-                    {
-                        if (entry.DataStream is not null)
-                        {
-                            int bytesRead;
-                            while ((bytesRead = await entry.DataStream.ReadAsync(buffer.AsMemory(0, BufferSize), ct)) > 0)
-                            {
-                                await outFs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                                totalExtractedBytes += bytesRead;
-
-                                progress?.Report(new ProgressReport(
-                                    ProcessedBytes: totalExtractedBytes,
-                                    TotalBytes: totalBytes,
-                                    CurrentFileName: entry.Name,
-                                    Percentage: totalBytes > 0 ? (double)totalExtractedBytes / totalBytes * 100.0 : 0,
-                                    ProcessedFiles: extractedFiles
-                                ));
-                            }
-                        }
-                    }
-
-                    extractedFiles++;
-
-                    File.SetLastWriteTimeUtc(targetPath, entry.ModificationTime.UtcDateTime);
-                    if (!OperatingSystem.IsWindows() && entry.Mode != 0 && entry.Mode != (UnixFileMode)(-1))
-                    {
-                        File.SetUnixFileMode(targetPath, entry.Mode);
-                    }
-                }
-            }
-
-            // Restore directory modification times and permissions in bottom-up order
-            foreach (var dir in extractedDirectories.OrderByDescending(d => d.TargetPath.Length))
-            {
-                if (Directory.Exists(dir.TargetPath))
-                {
-                    try
-                    {
-                        Directory.SetLastWriteTimeUtc(dir.TargetPath, dir.ModTime.UtcDateTime);
-                        if (!OperatingSystem.IsWindows() && dir.Mode != 0 && dir.Mode != (UnixFileMode)(-1))
-                        {
-                            File.SetUnixFileMode(dir.TargetPath, dir.Mode);
-                        }
-                    }
-                    catch
-                    {
-                        // Best effort for directory timestamps/permissions
-                    }
-                }
-            }
+            await SafeArchiveExtractor.ExtractAllAsync(
+                source,
+                request.DestinationDirectory,
+                request.Overwrite,
+                totalBytes,
+                progress,
+                ct);
         }
         catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
         {
             throw new InvalidDataException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", ex);
         }
-        finally
+    }
+
+    private sealed class ZstdTarExtractionSource(string archivePath) : IArchiveExtractionSource
+    {
+        public async IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync([EnumeratorCancellation] CancellationToken ct = default)
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            FileStream fileStream;
+            try
+            {
+                fileStream = new FileStream(
+                    archivePath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    SafeArchiveExtractor.BufferSize,
+                    useAsync: true);
+            }
+            catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+            {
+                throw new InvalidDataException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", ex);
+            }
+
+            await using (fileStream)
+            {
+                DecompressionStream decompressionStream;
+                try
+                {
+                    decompressionStream = new DecompressionStream(fileStream);
+                }
+                catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+                {
+                    throw new InvalidDataException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", ex);
+                }
+
+                await using (decompressionStream)
+                {
+                    TarReader tarReader;
+                    try
+                    {
+                        tarReader = new TarReader(decompressionStream, leaveOpen: false);
+                    }
+                    catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+                    {
+                        throw new InvalidDataException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", ex);
+                    }
+
+                    await using (tarReader)
+                    {
+                        while (true)
+                        {
+                            TarEntry? entry;
+                            try
+                            {
+                                entry = await tarReader.GetNextEntryAsync(copyData: false, ct);
+                            }
+                            catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+                            {
+                                throw new InvalidDataException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", ex);
+                            }
+
+                            if (entry is null)
+                                break;
+
+                            bool isDir = entry.EntryType == TarEntryType.Directory || entry.Name.Replace('\\', '/').EndsWith('/');
+                            UnixFileMode? unixMode = entry.Mode != 0 && entry.Mode != (UnixFileMode)(-1) ? entry.Mode : null;
+                            var dataStream = entry.DataStream;
+
+                            yield return new ExtractionEntry(
+                                RelativePath: entry.Name,
+                                IsDirectory: isDir,
+                                UncompressedSize: entry.Length,
+                                ModificationTime: entry.ModificationTime,
+                                UnixMode: unixMode,
+                                OpenStreamAsync: _ => ValueTask.FromResult(dataStream ?? Stream.Null)
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 
