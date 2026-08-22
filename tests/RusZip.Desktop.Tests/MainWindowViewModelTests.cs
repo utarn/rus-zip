@@ -21,6 +21,15 @@ public class MainWindowViewModelTests
                 throw new OperationCanceledException(ct);
             }
             if (ExceptionToThrow != null) throw ExceptionToThrow;
+            if (!string.IsNullOrEmpty(request.DestinationArchivePath))
+            {
+                var dir = Path.GetDirectoryName(request.DestinationArchivePath);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                if (!File.Exists(request.DestinationArchivePath))
+                {
+                    File.WriteAllBytes(request.DestinationArchivePath, [0x01]);
+                }
+            }
             OnCompress?.Invoke();
             LastCompressionRequest = request;
             progress?.Report(new ProgressReport(100, 100, "compressing", 100.0, 1, 1));
