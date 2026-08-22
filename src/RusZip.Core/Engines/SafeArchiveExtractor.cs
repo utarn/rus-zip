@@ -29,8 +29,10 @@ public static class SafeArchiveExtractor
     /// </para>
     /// <para>
     /// Partial-cleanup semantics: if extraction aborts with a <see cref="SecurityException"/> (a malicious
-    /// entry name or a symlinked/reparse-point path component under the destination) or an
-    /// <see cref="ExtractionLimitExceededException"/> (a guardrail cap hit), any files and
+    /// entry name or a symlinked/reparse-point path component under the destination), an
+    /// <see cref="ExtractionLimitExceededException"/> (a guardrail cap hit), or an
+    /// <see cref="ArchiveIntegrityException"/> (a checksum/CRC mismatch or unparseable archive — corrupt
+    /// data must never be left behind as if it were a successful extraction), any files and
     /// directories that this invocation created are removed best-effort before the exception propagates.
     /// Cleanup is best-effort only: paths that pre-existed before the call are left untouched (an
     /// overwritten pre-existing file cannot be restored and is not deleted), and a file that is locked or
@@ -197,7 +199,7 @@ public static class SafeArchiveExtractor
 
             return new ExtractionResult(processedBytes, processedFiles, processedEntries);
         }
-        catch (Exception ex) when (ex is SecurityException or ExtractionLimitExceededException)
+        catch (Exception ex) when (ex is SecurityException or ExtractionLimitExceededException or ArchiveIntegrityException)
         {
             CleanupCreatedPaths(createdPaths);
             throw;

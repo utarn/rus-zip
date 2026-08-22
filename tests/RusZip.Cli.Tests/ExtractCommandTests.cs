@@ -379,6 +379,145 @@ public sealed class ExtractCommandTests : CliTestBase
         Assert.Equal(1, result.ExtractedFiles);
     }
 
+    [Fact]
+    public async Task Extract_CorruptedZrus_MidStream_ReturnsExitCode1_AndExecutionError_AndCleansUp()
+    {
+        // Arrange: a large incompressible file so a mid-stream byte flip corrupts compressed data
+        // (F-08: previously extracted silently with exit 0 and different content).
+        var sourceFile = Path.Combine(TempDirectory, "midstream_cli.bin");
+        var payload = new byte[5 * 1024 * 1024];
+        new Random(4242).NextBytes(payload);
+        await File.WriteAllBytesAsync(sourceFile, payload);
+
+        var archivePath = Path.Combine(TempDirectory, "midstream_cli.zrus");
+        await RunCliAsync("compress", sourceFile, archivePath, "--json");
+
+        var bytes = await File.ReadAllBytesAsync(archivePath);
+        bytes[bytes.Length / 2] ^= 0xFF;
+        var badPath = Path.Combine(TempDirectory, "midstream_cli_bad.zrus");
+        await File.WriteAllBytesAsync(badPath, bytes);
+
+        var outDir = Path.Combine(TempDirectory, "midstream_cli_out");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", badPath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("checksum", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+        // Partial (corrupt) output cleaned up.
+        Assert.False(File.Exists(Path.Combine(outDir, "midstream_cli.bin")));
+        Assert.Empty(Directory.GetFiles(outDir, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Extract_ZipCrcMismatch_ReturnsExitCode1_AndExecutionError_AndCleansUp()
+    {
+        // F-09: a byte-patched local-data region previously extracted silently with exit 0.
+        var validZip = TestArchiveFixtures.BuildStoreZip(("a.txt", "AAAAA"), ("b.txt", "BBBBBBBBBB"));
+        var patched = TestArchiveFixtures.FlipByteInFirstLocalData(validZip);
+        var archivePath = Path.Combine(TempDirectory, "crc_mismatch.zip");
+        await File.WriteAllBytesAsync(archivePath, patched);
+        var outDir = Path.Combine(TempDirectory, "crc_mismatch_out");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("CRC-32", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(Path.Combine(outDir, "a.txt")));
+        Assert.Empty(Directory.GetFiles(outDir, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Extract_ZipBrokenCentralDirectory_ReturnsExitCode1_AndExecutionError()
+    {
+        // F-10: EOCD declares entries but the central directory is zeroed.
+        var validZip = TestArchiveFixtures.BuildStoreZip(("a.txt", "AAAAA"), ("b.txt", "BBBBBBBBBB"));
+        var broken = TestArchiveFixtures.ZeroCentralDirectoryRegion(validZip);
+        var archivePath = Path.Combine(TempDirectory, "broken_cd_cli.zip");
+        await File.WriteAllBytesAsync(archivePath, broken);
+        var outDir = Path.Combine(TempDirectory, "broken_cd_cli_out");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("central directory", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Directory.GetFiles(outDir, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Extract_ZipBrokenEocd_ReturnsExitCode1_AndExecutionError()
+    {
+        var validZip = TestArchiveFixtures.BuildStoreZip(("a.txt", "AAAAA"));
+        var broken = TestArchiveFixtures.CorruptEocdSignature(validZip);
+        var archivePath = Path.Combine(TempDirectory, "broken_eocd_cli.zip");
+        await File.WriteAllBytesAsync(archivePath, broken);
+        var outDir = Path.Combine(TempDirectory, "broken_eocd_cli_out");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("corrupted or unparseable", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Extract_ZipNameLengthCorruption_ReturnsExitCode1_AndExecutionError_AndCleansUp()
+    {
+        var validZip = TestArchiveFixtures.BuildStoreZip(("a.txt", "AAAAA"), ("b.txt", "BBBBBBBBBB"));
+        var broken = TestArchiveFixtures.CorruptFirstNameLength(validZip);
+        var archivePath = Path.Combine(TempDirectory, "name_len_cli.zip");
+        await File.WriteAllBytesAsync(archivePath, broken);
+        var outDir = Path.Combine(TempDirectory, "name_len_cli_out");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("corrupted", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Directory.GetFiles(outDir, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Extract_EmptyZip_ReturnsExitCode0()
+    {
+        // A genuinely empty zip must keep working (zero-entry success is legal only for empty archives).
+        var emptyZip = TestArchiveFixtures.BuildStoreZip();
+        var archivePath = Path.Combine(TempDirectory, "empty_cli.zip");
+        await File.WriteAllBytesAsync(archivePath, emptyZip);
+        var outDir = Path.Combine(TempDirectory, "empty_cli_out");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<ExtractResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(0, result.ExtractedFiles);
+    }
+
     private static void CreateZipWithEntries(string archivePath, params (string Name, byte[] Content)[] entries)
     {
         using var fs = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None);

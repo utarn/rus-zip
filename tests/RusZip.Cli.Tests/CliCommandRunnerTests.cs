@@ -1,6 +1,7 @@
 using System.Security;
 using RusZip.Cli.Infrastructure;
 using RusZip.Cli.Models;
+using RusZip.Core.Engines;
 using Spectre.Console.Cli;
 using Xunit;
 
@@ -34,6 +35,20 @@ public class CliCommandRunnerTests : CliTestBase
 
         Assert.Equal(expectedExitCode, code);
         Assert.Contains(expectedErrorCode, sw.ToString());
+    }
+
+    [Fact]
+    public void HandleException_ArchiveIntegrityException_MapsToExitCode1ExecutionError()
+    {
+        var ex = new ArchiveIntegrityException("CRC-32 mismatch for entry 'a.txt': expected 00000000, computed DDDD", "a.txt");
+        using var sw = new StringWriter();
+
+        int code = CliCommandRunner.HandleException(ex, isJson: true, writer: sw);
+
+        Assert.Equal(1, code);
+        var err = CliTestBase.ParseJson<ErrorResult>(sw.ToString());
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("CRC-32 mismatch", err.Error.Message);
     }
 
     [Fact]
