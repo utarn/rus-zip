@@ -34,12 +34,13 @@ public partial class ArchiveItemViewModel : ObservableObject
 
     public string IconDisplay => IsDirectory ? "📁" : GetFileIcon(Name);
 
-    private static string FormatBytes(long bytes)
+    public static string FormatBytes(long bytes)
     {
-        string[] suffixes = ["B", "KB", "MB", "GB", "TB"];
+        if (bytes <= 0) return "0 B";
+        string[] suffixes = ["B", "KB", "MB", "GB", "TB", "PB"];
         int counter = 0;
         decimal number = bytes;
-        while (Math.Round(number / 1024) >= 1)
+        while (Math.Round(number / 1024, 2) >= 1 && counter < suffixes.Length - 1)
         {
             number /= 1024;
             counter++;
@@ -47,15 +48,17 @@ public partial class ArchiveItemViewModel : ObservableObject
         return $"{number:0.##} {suffixes[counter]}";
     }
 
-    private static string GetFileIcon(string fileName)
+    public static string GetFileIcon(string fileName)
     {
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
         return ext switch
         {
-            ".zrus" or ".zip" or ".tar" or ".gz" or ".7z" or ".rar" => "📦",
-            ".cs" or ".rs" or ".py" or ".js" or ".ts" or ".json" or ".xml" => "📝",
-            ".png" or ".jpg" or ".jpeg" or ".svg" or ".webp" or ".gif" => "🖼️",
-            ".pdf" or ".doc" or ".docx" or ".txt" or ".md" => "📄",
+            ".zrus" or ".zip" or ".tar" or ".gz" or ".tgz" or ".7z" or ".rar" or ".bz2" or ".xz" => "📦",
+            ".cs" or ".rs" or ".py" or ".js" or ".ts" or ".json" or ".xml" or ".yaml" or ".yml" or ".toml" or ".html" or ".css" or ".sh" or ".bash" => "📝",
+            ".png" or ".jpg" or ".jpeg" or ".svg" or ".webp" or ".gif" or ".bmp" or ".ico" => "🖼️",
+            ".pdf" or ".doc" or ".docx" or ".txt" or ".md" or ".rtf" or ".csv" or ".xlsx" => "📄",
+            ".exe" or ".dll" or ".so" or ".dylib" or ".bin" => "⚙️",
+            ".mp3" or ".wav" or ".flac" or ".ogg" or ".mp4" or ".mkv" or ".avi" or ".mov" => "🎬",
             _ => "📄"
         };
     }

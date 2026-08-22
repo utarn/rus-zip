@@ -17,6 +17,28 @@ public partial class MainWindow : Window
         AddHandler(DragDrop.DropEvent, OnDrop);
     }
 
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+        if (DataContext is MainWindowViewModel vm)
+        {
+            vm.RequestExtractDestinationFolder = async () =>
+            {
+                var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                {
+                    Title = "Select Destination Directory for Extraction",
+                    AllowMultiple = false
+                });
+
+                if (folders.Count > 0)
+                {
+                    return folders[0].TryGetLocalPath();
+                }
+                return null;
+            };
+        }
+    }
+
     private void OnDragOver(object? sender, DragEventArgs e)
     {
         if (e.Data.Contains(DataFormats.Files))
@@ -62,12 +84,15 @@ public partial class MainWindow : Window
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz)")
+                new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz, *.tgz)")
                 {
-                    Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz"]
+                    Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz", "*.tar"]
                 },
                 new FilePickerFileType("Zstandard Tar Archives (*.zrus)") { Patterns = ["*.zrus"] },
                 new FilePickerFileType("Zip Archives (*.zip)") { Patterns = ["*.zip"] },
+                new FilePickerFileType("7-Zip Archives (*.7z)") { Patterns = ["*.7z"] },
+                new FilePickerFileType("RAR Archives (*.rar)") { Patterns = ["*.rar"] },
+                new FilePickerFileType("GZip Archives (*.gz, *.tar.gz, *.tgz)") { Patterns = ["*.gz", "*.tar.gz", "*.tgz"] },
                 new FilePickerFileType("All Files (*.*)") { Patterns = ["*.*"] }
             ]
         });
