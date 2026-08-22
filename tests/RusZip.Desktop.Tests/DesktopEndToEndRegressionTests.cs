@@ -9,7 +9,7 @@ namespace RusZip.Desktop.Tests;
 
 /// <summary>
 /// End-to-end regression tests verifying the integrated Desktop application workflows:
-/// Drag-and-drop empty state -> compression presets -> archive loading -> TreeDataGrid projection ->
+/// Drag-and-drop empty state -> compression presets -> archive loading -> ProDataGrid projection ->
 /// breadcrumbs drilldown & navigation -> item extraction -> theme toggling.
 /// </summary>
 public sealed class DesktopEndToEndRegressionTests : IDisposable
@@ -107,14 +107,14 @@ public sealed class DesktopEndToEndRegressionTests : IDisposable
         Assert.NotNull(fakeEngine.LastCompressionRequest);
         Assert.Equal(22, fakeEngine.LastCompressionRequest.CompressionLevel);
 
-        // 6. Verify TreeDataGrid projection and aggregate totals
+        // 6. Verify ProDataGrid projection and aggregate totals
         var browser = mainWindowVm.Browser;
         Assert.Equal(3, browser.TotalEntries);
         Assert.Equal(7000, browser.TotalUncompressedBytes);
         Assert.Equal(2400, browser.TotalCompressedBytes);
         Assert.Equal(2, browser.RootItems.Count); // "src" folder and "README.md" file
         Assert.NotNull(browser.GridSource);
-        Assert.Equal(6, browser.GridSource.Columns.Count);
+        Assert.Equal(2, browser.GridSource!.RootItems!.Cast<object>().Count());
 
         // 7. Select deep item and verify Breadcrumbs
         var deepItem = browser.FindItemByPath("src/RusZip.Desktop/App.axaml");

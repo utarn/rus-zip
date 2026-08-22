@@ -1,7 +1,11 @@
+using System.Collections;
 using System.ComponentModel;
 using Avalonia.Controls;
+using Avalonia.Controls.DataGridHierarchical;
+using Avalonia.Headless.XUnit;
 using RusZip.Core.Models;
 using RusZip.Desktop.ViewModels;
+using RusZip.Desktop.Views;
 
 namespace RusZip.Desktop.Tests;
 
@@ -80,7 +84,7 @@ public class ArchiveBrowserViewModelTests
     }
 
     [Fact]
-    public void LoadEntries_ConfiguresGridSource_WithAllRequiredColumns()
+    public void LoadEntries_ConfiguresHierarchicalGridSource_AndColumnSortComparers()
     {
         var browser = new ArchiveBrowserViewModel();
         var entries = new List<ArchiveEntry>
@@ -90,29 +94,53 @@ public class ArchiveBrowserViewModelTests
 
         browser.LoadEntries("test.zip", entries);
 
+        // GridSource is now the ProDataGrid hierarchical model that drives the DataGrid rows.
         Assert.NotNull(browser.GridSource);
-        Assert.Equal(6, browser.GridSource.Columns.Count);
+        Assert.True(browser.GridSource.IsVirtualRoot);
+        Assert.Single(browser.GridSource!.RootItems!.Cast<object>());
 
-        Assert.Equal("Name", browser.GridSource.Columns[0].Header?.ToString());
-        Assert.Equal("Size", browser.GridSource.Columns[1].Header?.ToString());
-        Assert.Equal("Compressed", browser.GridSource.Columns[2].Header?.ToString());
-        Assert.Equal("Ratio", browser.GridSource.Columns[3].Header?.ToString());
-        Assert.Equal("Modified", browser.GridSource.Columns[4].Header?.ToString());
-        Assert.Equal("Attributes", browser.GridSource.Columns[5].Header?.ToString());
+        // The 6-column layout lives in ArchiveBrowserView.axaml; the ViewModel exposes the
+        // same sort comparers the view's code-behind assigns to the DataGrid columns.
+        Assert.NotNull(browser.NameColumnSortComparer);
+        Assert.NotNull(browser.SizeColumnSortComparer);
+        Assert.NotNull(browser.CompressedColumnSortComparer);
+        Assert.NotNull(browser.ModifiedColumnSortComparer);
+        Assert.NotNull(browser.AttributesColumnSortComparer);
+    }
 
-        foreach (var column in browser.GridSource.Columns)
+    [AvaloniaFact]
+    public void ArchiveBrowserView_ConfiguresSixDataGridColumns_WithViewModelSortComparers()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        browser.LoadEntries("test.zip", new List<ArchiveEntry>
         {
-            Assert.True(column.CanUserResize);
-            if (column is Avalonia.Controls.Models.TreeDataGrid.ColumnBase<ArchiveItemViewModel> colBase)
-            {
-                Assert.True(colBase.Options?.CanUserSortColumn);
-                Assert.True(colBase.Options?.CanUserResizeColumn);
-            }
-        }
+            new("file.txt", 100, 50, DateTimeOffset.UtcNow, false)
+        });
+
+        var view = new ArchiveBrowserView { DataContext = browser };
+        var grid = view.FindControl<DataGrid>("ArchiveGrid");
+
+        Assert.NotNull(grid);
+        Assert.Equal(6, grid.Columns.Count);
+        Assert.Equal("Name", grid.Columns[0].Header?.ToString());
+        Assert.Equal("Size", grid.Columns[1].Header?.ToString());
+        Assert.Equal("Compressed", grid.Columns[2].Header?.ToString());
+        Assert.Equal("Ratio", grid.Columns[3].Header?.ToString());
+        Assert.Equal("Modified", grid.Columns[4].Header?.ToString());
+        Assert.Equal("Attributes", grid.Columns[5].Header?.ToString());
+
+        // The view code-behind assigns the ViewModel's comparers to the CLR CustomSortComparer
+        // properties (they cannot be bound from XAML). The Ratio column relies on SortMemberPath.
+        Assert.Same(browser.NameColumnSortComparer, grid.Columns[0].CustomSortComparer);
+        Assert.Same(browser.SizeColumnSortComparer, grid.Columns[1].CustomSortComparer);
+        Assert.Same(browser.CompressedColumnSortComparer, grid.Columns[2].CustomSortComparer);
+        Assert.Null(grid.Columns[3].CustomSortComparer);
+        Assert.Same(browser.ModifiedColumnSortComparer, grid.Columns[4].CustomSortComparer);
+        Assert.Same(browser.AttributesColumnSortComparer, grid.Columns[5].CustomSortComparer);
     }
 
     [Fact]
-    public void Sorting_ByNameColumn_KeepsDirectoriesFirst_AndSortsAlphabetically()
+    public void Sorting_ByNameColumn_SortsDirectoriesFirstAscending_AndReversesOnDescending()
     {
         var browser = new ArchiveBrowserViewModel();
         var entries = new List<ArchiveEntry>
@@ -125,7 +153,7 @@ public class ArchiveBrowserViewModelTests
         browser.LoadEntries("test.zip", entries);
         var source = browser.GridSource!;
 
-        source.SortBy(source.Columns[0], ListSortDirection.Ascending);
+        ApplySort(source, browser.NameColumnSortComparer, ListSortDirection.Ascending);
         var item0 = GetRowModel(source, 0);
         var item1 = GetRowModel(source, 1);
         var item2 = GetRowModel(source, 2);
@@ -134,14 +162,16 @@ public class ArchiveBrowserViewModelTests
         Assert.Equal("a_file.txt", item1.Name);
         Assert.Equal("z_file.txt", item2.Name);
 
-        source.SortBy(source.Columns[0], ListSortDirection.Descending);
+        // ProDataGrid negates the column comparer for descending sorts, so the ascending
+        // directories-first grouping is reversed (files sort before folders).
+        ApplySort(source, browser.NameColumnSortComparer, ListSortDirection.Descending);
         var desc0 = GetRowModel(source, 0);
         var desc1 = GetRowModel(source, 1);
         var desc2 = GetRowModel(source, 2);
 
-        Assert.Equal("b_folder", desc0.Name);
-        Assert.Equal("z_file.txt", desc1.Name);
-        Assert.Equal("a_file.txt", desc2.Name);
+        Assert.Equal("z_file.txt", desc0.Name);
+        Assert.Equal("a_file.txt", desc1.Name);
+        Assert.Equal("b_folder", desc2.Name);
     }
 
     [Fact]
@@ -158,12 +188,12 @@ public class ArchiveBrowserViewModelTests
         browser.LoadEntries("test.zip", entries);
         var source = browser.GridSource!;
 
-        source.SortBy(source.Columns[1], ListSortDirection.Ascending);
+        ApplySort(source, browser.SizeColumnSortComparer, ListSortDirection.Ascending);
         Assert.Equal("small.txt", GetRowModel(source, 0).Name);
         Assert.Equal("medium.txt", GetRowModel(source, 1).Name);
         Assert.Equal("large.txt", GetRowModel(source, 2).Name);
 
-        source.SortBy(source.Columns[1], ListSortDirection.Descending);
+        ApplySort(source, browser.SizeColumnSortComparer, ListSortDirection.Descending);
         Assert.Equal("large.txt", GetRowModel(source, 0).Name);
         Assert.Equal("medium.txt", GetRowModel(source, 1).Name);
         Assert.Equal("small.txt", GetRowModel(source, 2).Name);
@@ -183,7 +213,7 @@ public class ArchiveBrowserViewModelTests
         browser.LoadEntries("test.zip", entries);
         var source = browser.GridSource!;
 
-        source.SortBy(source.Columns[2], ListSortDirection.Ascending);
+        ApplySort(source, browser.CompressedColumnSortComparer, ListSortDirection.Ascending);
         Assert.Equal("fileA.txt", GetRowModel(source, 0).Name);
         Assert.Equal("fileB.txt", GetRowModel(source, 1).Name);
         Assert.Equal("fileC.txt", GetRowModel(source, 2).Name);
@@ -207,15 +237,29 @@ public class ArchiveBrowserViewModelTests
         browser.LoadEntries("test.zip", entries);
         var source = browser.GridSource!;
 
-        source.SortBy(source.Columns[4], ListSortDirection.Ascending);
+        ApplySort(source, browser.ModifiedColumnSortComparer, ListSortDirection.Ascending);
         Assert.Equal("file1.txt", GetRowModel(source, 0).Name);
         Assert.Equal("file2.txt", GetRowModel(source, 1).Name);
         Assert.Equal("file3.txt", GetRowModel(source, 2).Name);
     }
 
-    private static ArchiveItemViewModel GetRowModel(HierarchicalTreeDataGridSource<ArchiveItemViewModel> source, int index)
+    private static ArchiveItemViewModel GetRowModel(IHierarchicalModel source, int index)
     {
-        return (ArchiveItemViewModel)source.Rows[index].Model!;
+        return (ArchiveItemViewModel)source.Flattened[index].Item;
+    }
+
+    /// <summary>
+    /// Applies a column comparer to the hierarchical model the same way the ProDataGrid
+    /// column-sort framework does: ascending uses the comparer directly; descending negates
+    /// its result.
+    /// </summary>
+    private static void ApplySort(IHierarchicalModel source, IComparer comparer, ListSortDirection direction)
+    {
+        source.ApplySiblingComparer(Comparer<object>.Create((a, b) =>
+        {
+            int result = comparer.Compare(a, b);
+            return direction == ListSortDirection.Descending ? -result : result;
+        }), recursive: true);
     }
 
     [Fact]
@@ -250,6 +294,28 @@ public class ArchiveBrowserViewModelTests
     }
 
     [Fact]
+    public void FilterText_AutoExpandsDirectories_InModelFlattenedRows()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("documents/reports/q1.pdf", 1000, 500, null, false),
+            new("images/photo.png", 2000, 1800, null, false)
+        };
+
+        browser.LoadEntries("archive.zrus", entries);
+        Assert.Equal(2, browser.GridSource!.Flattened.Count); // documents + images (collapsed)
+
+        browser.FilterText = "q1";
+        var source = browser.GridSource!;
+        // Filtered directories auto-expand so the matching descendant is visible.
+        Assert.Equal(3, source.Flattened.Count);
+        Assert.Equal("documents", ((ArchiveItemViewModel)source.Flattened[0].Item).Name);
+        Assert.Equal("reports", ((ArchiveItemViewModel)source.Flattened[1].Item).Name);
+        Assert.Equal("q1.pdf", ((ArchiveItemViewModel)source.Flattened[2].Item).Name);
+    }
+
+    [Fact]
     public void ExpandAllAndCollapseAll_WorksRecursively()
     {
         var browser = new ArchiveBrowserViewModel();
@@ -272,6 +338,36 @@ public class ArchiveBrowserViewModelTests
         Assert.False(dir1.IsExpanded);
         Assert.False(dir2.IsExpanded);
         Assert.False(dir3.IsExpanded);
+    }
+
+    [Fact]
+    public void GridSource_FlattenedRows_ReflectExpansionAndCollapse()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var entries = new List<ArchiveEntry>
+        {
+            new("folder/subfolder/file.txt", 100, 50, null, false)
+        };
+
+        browser.LoadEntries("test.zip", entries);
+        var source = browser.GridSource!;
+
+        // Roots are visible; descendants appear only when their ancestors expand.
+        Assert.Single(source.Flattened);
+        Assert.Equal("folder", ((ArchiveItemViewModel)source.Flattened[0].Item).Name);
+
+        var folder = browser.RootItems[0];
+        folder.IsExpanded = true;
+        Assert.Equal(2, source.Flattened.Count);
+        Assert.Equal("subfolder", ((ArchiveItemViewModel)source.Flattened[1].Item).Name);
+
+        folder.Children[0].IsExpanded = true;
+        Assert.Equal(3, source.Flattened.Count);
+        Assert.Equal("file.txt", ((ArchiveItemViewModel)source.Flattened[2].Item).Name);
+
+        folder.IsExpanded = false;
+        Assert.Single(source.Flattened);
+        Assert.Equal("folder", ((ArchiveItemViewModel)source.Flattened[0].Item).Name);
     }
 
     [Fact]

@@ -1,10 +1,9 @@
+using System.Collections;
 using System.Collections.ObjectModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Controls.Models.TreeDataGrid;
-using Avalonia.Controls.Templates;
-using Avalonia.Layout;
+using Avalonia.Controls.DataGridHierarchical;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RusZip.Core.Engines;
@@ -16,7 +15,7 @@ public partial class ArchiveBrowserViewModel : ObservableObject
 {
     private List<ArchiveEntry> _allEntries = [];
 
-    [ObservableProperty] private HierarchicalTreeDataGridSource<ArchiveItemViewModel>? _gridSource;
+    [ObservableProperty] private IHierarchicalModel? _gridSource;
     [ObservableProperty] private ObservableCollection<ArchiveItemViewModel> _rootItems = [];
     [ObservableProperty] private string _loadedArchivePath = string.Empty;
     [ObservableProperty] private int _totalEntries;
@@ -31,6 +30,17 @@ public partial class ArchiveBrowserViewModel : ObservableObject
 
     /// <summary>Extraction guardrail settings surfaced in the browser toolbar (ADR-0007).</summary>
     public ExtractionSettingsViewModel ExtractionSettings { get; } = new();
+
+    /// <summary>
+    /// Column sort comparers consumed by the ProDataGrid column definitions in
+    /// <c>ArchiveBrowserView.axaml</c>. Directories sort above files (matching the
+    /// TreeDataGrid-era behavior); the grid framework negates these for descending sorts.
+    /// </summary>
+    public IComparer NameColumnSortComparer { get; } = ArchiveItemComparer.CreateName();
+    public IComparer SizeColumnSortComparer { get; } = ArchiveItemComparer.CreateSize();
+    public IComparer CompressedColumnSortComparer { get; } = ArchiveItemComparer.CreateCompressed();
+    public IComparer ModifiedColumnSortComparer { get; } = ArchiveItemComparer.CreateModified();
+    public IComparer AttributesColumnSortComparer { get; } = ArchiveItemComparer.CreateAttributes();
 
     /// <summary>
     /// Entry-count cap above which tree construction is refused to avoid exhausting memory
@@ -222,10 +232,6 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(path) || path == "/" || path == "(root)" || path.Equals("archive", StringComparison.OrdinalIgnoreCase))
         {
             SelectedItem = null;
-            if (GridSource?.RowSelection != null)
-            {
-                GridSource.RowSelection.Clear();
-            }
             UpdateBreadcrumbs(null);
             return;
         }
@@ -344,218 +350,16 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         GridSource = CreateGridSource(RootItems);
     }
 
-    private HierarchicalTreeDataGridSource<ArchiveItemViewModel> CreateGridSource(ObservableCollection<ArchiveItemViewModel> items)
+    private IHierarchicalModel CreateGridSource(ObservableCollection<ArchiveItemViewModel> items)
     {
-        var nameOptions = new TemplateColumnOptions<ArchiveItemViewModel>
+        var model = new HierarchicalModel(new HierarchicalOptions
         {
-            CanUserSortColumn = true,
-            CanUserResizeColumn = true,
-            CompareAscending = (a, b) =>
-            {
-                if (a == null && b == null) return 0;
-                if (a == null) return -1;
-                if (b == null) return 1;
-                if (a.IsDirectory != b.IsDirectory)
-                    return a.IsDirectory ? -1 : 1;
-                return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
-            },
-            CompareDescending = (a, b) =>
-            {
-                if (a == null && b == null) return 0;
-                if (a == null) return 1;
-                if (b == null) return -1;
-                if (a.IsDirectory != b.IsDirectory)
-                    return a.IsDirectory ? -1 : 1;
-                return string.Compare(b.Name, a.Name, StringComparison.OrdinalIgnoreCase);
-            }
-        };
-
-        var uncompressedSizeOptions = new TextColumnOptions<ArchiveItemViewModel>
-        {
-            CanUserSortColumn = true,
-            CanUserResizeColumn = true,
-            TextAlignment = Avalonia.Media.TextAlignment.Right,
-            CompareAscending = (a, b) =>
-            {
-                if (a == null && b == null) return 0;
-                if (a == null) return -1;
-                if (b == null) return 1;
-                if (a.IsDirectory != b.IsDirectory)
-                    return a.IsDirectory ? -1 : 1;
-                return a.UncompressedSize.CompareTo(b.UncompressedSize);
-            },
-            CompareDescending = (a, b) =>
-            {
-                if (a == null && b == null) return 0;
-                if (a == null) return 1;
-                if (b == null) return -1;
-                if (a.IsDirectory != b.IsDirectory)
-                    return a.IsDirectory ? -1 : 1;
-                return b.UncompressedSize.CompareTo(a.UncompressedSize);
-            }
-        };
-
-        var compressedSizeOptions = new TextColumnOptions<ArchiveItemViewModel>
-        {
-            CanUserSortColumn = true,
-            CanUserResizeColumn = true,
-            TextAlignment = Avalonia.Media.TextAlignment.Right,
-            CompareAscending = (a, b) =>
-            {
-                if (a == null && b == null) return 0;
-                if (a == null) return -1;
-                if (b == null) return 1;
-                if (a.IsDirectory != b.IsDirectory)
-                    return a.IsDirectory ? -1 : 1;
-                return (a.CompressedSize ?? 0).CompareTo(b.CompressedSize ?? 0);
-            },
-            CompareDescending = (a, b) =>
-            {
-                if (a == null && b == null) return 0;
-                if (a == null) return 1;
-                if (b == null) return -1;
-                if (a.IsDirectory != b.IsDirectory)
-                    return a.IsDirectory ? -1 : 1;
-                return (b.CompressedSize ?? 0).CompareTo(a.CompressedSize ?? 0);
-            }
-        };
-
-        var ratioOptions = new TextColumnOptions<ArchiveItemViewModel>
-        {
-            CanUserSortColumn = true,
-            CanUserResizeColumn = true,
-            TextAlignment = Avalonia.Media.TextAlignment.Right
-        };
-
-        var modifiedOptions = new TextColumnOptions<ArchiveItemViewModel>
-        {
-            CanUserSortColumn = true,
-            CanUserResizeColumn = true,
-            CompareAscending = (a, b) =>
-            {
-                if (a == null && b == null) return 0;
-                if (a == null) return -1;
-                if (b == null) return 1;
-                if (a.IsDirectory != b.IsDirectory)
-                    return a.IsDirectory ? -1 : 1;
-                return (a.LastModified ?? DateTimeOffset.MinValue).CompareTo(b.LastModified ?? DateTimeOffset.MinValue);
-            },
-            CompareDescending = (a, b) =>
-            {
-                if (a == null && b == null) return 0;
-                if (a == null) return 1;
-                if (b == null) return -1;
-                if (a.IsDirectory != b.IsDirectory)
-                    return a.IsDirectory ? -1 : 1;
-                return (b.LastModified ?? DateTimeOffset.MinValue).CompareTo(a.LastModified ?? DateTimeOffset.MinValue);
-            }
-        };
-
-        var attributesOptions = new TextColumnOptions<ArchiveItemViewModel>
-        {
-            CanUserSortColumn = true,
-            CanUserResizeColumn = true,
-            CompareAscending = (a, b) =>
-            {
-                if (a == null && b == null) return 0;
-                if (a == null) return -1;
-                if (b == null) return 1;
-                return string.Compare(a.Attributes, b.Attributes, StringComparison.OrdinalIgnoreCase);
-            },
-            CompareDescending = (a, b) =>
-            {
-                if (a == null && b == null) return 0;
-                if (a == null) return 1;
-                if (b == null) return -1;
-                return string.Compare(b.Attributes, a.Attributes, StringComparison.OrdinalIgnoreCase);
-            }
-        };
-
-        var source = new HierarchicalTreeDataGridSource<ArchiveItemViewModel>(items)
-        {
-            Columns =
-            {
-                new HierarchicalExpanderColumn<ArchiveItemViewModel>(
-                    new TemplateColumn<ArchiveItemViewModel>(
-                        "Name",
-                        new FuncDataTemplate<ArchiveItemViewModel>((item, _) =>
-                            new StackPanel
-                            {
-                                Orientation = Orientation.Horizontal,
-                                Spacing = 6,
-                                Children =
-                                {
-                                    new PathIcon
-                                    {
-                                        Width = 16,
-                                        Height = 16,
-                                        VerticalAlignment = VerticalAlignment.Center,
-                                        [!PathIcon.DataProperty] = new Avalonia.Data.Binding(nameof(ArchiveItemViewModel.IconGeometry))
-                                    },
-                                    new TextBlock
-                                    {
-                                        VerticalAlignment = VerticalAlignment.Center,
-                                        [!TextBlock.TextProperty] = new Avalonia.Data.Binding(nameof(ArchiveItemViewModel.Name))
-                                    }
-                                }
-                            }
-                        ),
-                        null,
-                        new GridLength(1, GridUnitType.Star),
-                        nameOptions
-                    ),
-                    x => x.Children,
-                    x => x.HasChildren,
-                    x => x.IsExpanded
-                ),
-
-                new TextColumn<ArchiveItemViewModel, string>(
-                    "Size",
-                    x => x.FormattedUncompressedSize,
-                    new GridLength(110, GridUnitType.Pixel),
-                    uncompressedSizeOptions
-                ),
-
-                new TextColumn<ArchiveItemViewModel, string>(
-                    "Compressed",
-                    x => x.FormattedCompressedSize,
-                    new GridLength(110, GridUnitType.Pixel),
-                    compressedSizeOptions
-                ),
-
-                new TextColumn<ArchiveItemViewModel, string>(
-                    "Ratio",
-                    x => x.FormattedRatio,
-                    new GridLength(80, GridUnitType.Pixel),
-                    ratioOptions
-                ),
-
-                new TextColumn<ArchiveItemViewModel, string>(
-                    "Modified",
-                    x => x.FormattedLastModified,
-                    new GridLength(140, GridUnitType.Pixel),
-                    modifiedOptions
-                ),
-
-                new TextColumn<ArchiveItemViewModel, string>(
-                    "Attributes",
-                    x => x.Attributes,
-                    new GridLength(90, GridUnitType.Pixel),
-                    attributesOptions
-                )
-            }
-        };
-
-        if (source.RowSelection != null)
-        {
-            source.RowSelection.SingleSelect = true;
-            source.RowSelection.SelectionChanged += (_, e) =>
-            {
-                SelectedItem = source.RowSelection.SelectedItem;
-            };
-        }
-
-        return source;
+            ChildrenPropertyPath = nameof(ArchiveItemViewModel.Children),
+            IsExpandedPropertyPath = nameof(ArchiveItemViewModel.IsExpanded),
+            VirtualizeChildren = true
+        });
+        model.SetRoots(items);
+        return model;
     }
 
     public static ObservableCollection<ArchiveItemViewModel> BuildTree(

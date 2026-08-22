@@ -11,11 +11,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.2.3" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.3" />
-    <PackageReference Include="Avalonia.Controls.TreeDataGrid" Version="11.1.1" />
+    <PackageReference Include="Avalonia" Version="11.3.20" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.20" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.20" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.20" />
+    <!-- ProDataGrid 11.3.x is the MIT-licensed continuation of Avalonia.Controls.TreeDataGrid
+         (same original author, wieslawsoltes). The TreeDataGrid 11.2+ line went commercial
+         (Avalonia Pro license, AvaloniaUI.Licensing build gate), so this is the drop-in
+         replacement for the archive browser. See issue #51 / docs. -->
+    <PackageReference Include="ProDataGrid" Version="11.3.11" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
     <!-- Transitive pin: resolves GHSA-xrw6-gwf8-vvr9 (CVE-2026-39959) for Tmds.DBus.Protocol,

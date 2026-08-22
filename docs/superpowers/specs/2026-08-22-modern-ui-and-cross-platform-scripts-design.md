@@ -73,7 +73,7 @@ A centralized Avalonia `ResourceDictionary` containing `StreamGeometry` definiti
     - Image: `.png`, `.jpg`, `.jpeg`, `.svg`, `.ico`, `.webp`, `.bmp`, `.gif`
     - Archive: `.zip`, `.zrus`, `.tar`, `.gz`, `.tgz`, `.7z`, `.rar`, `.bz2`
     - Generic: default fallback.
-- **Context Menu (`TreeDataGrid` / Row ContextMenu)**:
+- **Context Menu (ProDataGrid / Row ContextMenu)**:
   - Context menu on archive items:
     - `Extract Item...` -> triggers single-item / subfolder extraction request.
     - `Copy Path` -> copies item relative path to system clipboard.

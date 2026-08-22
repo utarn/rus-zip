@@ -60,6 +60,13 @@ Following the deep module philosophy (`/codebase-design`):
   - Removes 70 lines of path tokenization from `ArchiveBrowserViewModel`.
   - Enables headless testing of tree operations. A CLI tree view (`rus-zip list --tree`) is
     future work (per PRD #31) and no such flag ships today.
+  - **Desktop grid control**: `ArchiveBrowserViewModel` presents the projected tree through
+    ProDataGrid 11.3.x (`Avalonia.Controls.DataGrid` with hierarchical rows) in the Desktop
+    browser. ProDataGrid is the MIT-licensed continuation of `Avalonia.Controls.TreeDataGrid`
+    by its original author; the TreeDataGrid 11.2+ line moved behind a commercial Avalonia Pro
+    license (`AvaloniaUI.Licensing` build gate), so the browser adopted ProDataGrid (issue #51).
+    The DataGrid columns live in `ArchiveBrowserView.axaml`; per-column sort comparers are
+    exposed by the ViewModel and assigned to the columns from the view code-behind.
 
 ### 2.5 CLI Command Execution Pipeline (`CliCommandRunner`)
 - **Location**: `RusZip.Cli/Infrastructure/CliCommandRunner.cs`
