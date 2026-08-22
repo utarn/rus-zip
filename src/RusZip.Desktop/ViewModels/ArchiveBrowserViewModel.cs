@@ -68,6 +68,14 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     /// </summary>
     public int EntryCountCap { get; set; } = SafeArchiveExtractor.DefaultMaxEntryCount;
 
+    /// <summary>
+    /// Factory used to materialize <see cref="ArchiveItemViewModel"/> tree nodes. Defaults to
+    /// <see cref="ArchiveItemViewModel.FromTreeNode"/>; tests override it to count allocations and
+    /// prove the entry-count cap (ADR-0007 F-36) is enforced before any tree node / row model is
+    /// ever allocated.
+    /// </summary>
+    internal Func<ArchiveTreeNode, bool, ArchiveItemViewModel>? ItemFactory { get; set; }
+
     public bool HasLoadError => !string.IsNullOrEmpty(LoadErrorMessage);
 
     public ObservableCollection<BreadcrumbItemViewModel> Breadcrumbs { get; } = [];
@@ -97,7 +105,6 @@ public partial class ArchiveBrowserViewModel : ObservableObject
 
     public void LoadEntries(string archivePath, IReadOnlyList<ArchiveEntry> entries)
     {
-        _allEntries = entries.ToList();
         LoadedArchivePath = archivePath;
         TotalEntries = entries.Count;
         TotalUncompressedBytes = entries.Sum(e => e.UncompressedSize);
@@ -109,23 +116,32 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         OnPropertyChanged(nameof(FormattedTotalCompressedSize));
         OnPropertyChanged(nameof(FormattedTotalRatio));
 
-        FilterText = string.Empty;
-        SelectedItem = null;
-
         // GUI memory guard (ADR-0007 F-36): refuse tree construction beyond the entry-count cap
-        // with a clear message instead of exhausting memory.
+        // with a clear message instead of exhausting memory. This check MUST run before
+        // _allEntries is retained and before the filter is reset — resetting the filter fires
+        // OnFilterTextChanged -> RebuildGridSource, and a later check would let a hostile
+        // archive's tree (ArchiveItemViewModels, the HierarchicalModel, and row structures)
+        // materialize first. On the abort path _allEntries is dropped and RebuildGridSource
+        // additionally no-ops while HasLoadError is set, so the tree can never be rebuilt from
+        // the hostile list afterwards either.
         if (entries.Count > EntryCountCap)
         {
+            _allEntries = [];
             LoadErrorMessage =
                 $"This archive lists {entries.Count:N0} entries, exceeding the {EntryCountCap:N0}-entry safety limit for browsing. " +
                 "It may be a decompression bomb; the tree was not loaded to avoid exhausting memory.";
             RootItems = [];
             GridSource = null;
+            FilterText = string.Empty;
+            SelectedItem = null;
             UpdateBreadcrumbs(null);
             return;
         }
 
+        _allEntries = entries.ToList();
         LoadErrorMessage = string.Empty;
+        FilterText = string.Empty;
+        SelectedItem = null;
         RebuildGridSource();
         UpdateBreadcrumbs(null);
     }
@@ -373,9 +389,18 @@ public partial class ArchiveBrowserViewModel : ObservableObject
 
     private void RebuildGridSource()
     {
+        // GUI memory guard (ADR-0007 F-36): while a load error is showing the tree is refused.
+        // Guarding the single rebuild choke point means no caller (filter keystrokes, breadcrumb
+        // navigation, etc.) can rebuild a tree from a hostile entry list after the initial cap
+        // check in LoadEntries.
+        if (HasLoadError)
+        {
+            return;
+        }
+
         _expansionAnchor = null;
         bool isFiltered = !string.IsNullOrWhiteSpace(FilterText);
-        RootItems = BuildTree(_allEntries, FilterText, autoExpand: isFiltered);
+        RootItems = BuildTree(_allEntries, FilterText, autoExpand: isFiltered, factory: ItemFactory);
         GridSource = CreateGridSource(RootItems);
         HookExpansionNotifications(RootItems);
         UpdateBreadcrumbsFromNavigation();
@@ -486,11 +511,26 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         string? filterText,
         bool autoExpand = false)
     {
+        return BuildTree(entries, filterText, autoExpand, factory: null);
+    }
+
+    /// <summary>
+    /// Materializes the tree. <paramref name="factory"/> lets tests intercept node creation to
+    /// prove the entry-count cap (ADR-0007 F-36) is enforced before any row model is allocated;
+    /// when null the default <see cref="ArchiveItemViewModel.FromTreeNode"/> is used.
+    /// </summary>
+    internal static ObservableCollection<ArchiveItemViewModel> BuildTree(
+        IEnumerable<ArchiveEntry> entries,
+        string? filterText,
+        bool autoExpand,
+        Func<ArchiveTreeNode, bool, ArchiveItemViewModel>? factory)
+    {
         var treeNodes = ArchiveHierarchy.BuildTree(entries, filterText);
         var result = new ObservableCollection<ArchiveItemViewModel>();
+        var create = factory ?? ArchiveItemViewModel.FromTreeNode;
         foreach (var node in treeNodes)
         {
-            result.Add(ArchiveItemViewModel.FromTreeNode(node, autoExpand));
+            result.Add(create(node, autoExpand));
         }
         return result;
     }

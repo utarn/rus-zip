@@ -42,7 +42,9 @@ Extend `ArchiveExtractionRequest` (`src/RusZip.Core/Models/ArchiveRequests.cs`) 
   built by `MainWindowViewModel` carries `Limits`.
 - **GUI memory guard (F-36)**: `ArchiveBrowserViewModel.LoadEntries` refuses tree construction when the
   entry count exceeds the entry-count cap and shows an empty-state error banner instead of exhausting
-  memory.
+  memory. The cap is checked before any `ArchiveItemViewModel` / `HierarchicalModel` / row structure is
+  allocated: the entry list is dropped on the abort path, and `RebuildGridSource` no-ops while a load
+  error is showing, so a later filter keystroke cannot rebuild a hostile tree after the initial check.
 - **F-33 (double decompression pass)**: the pre-scan is kept. Eliminating it would force the progress
   bar to be indeterminate for the whole operation (a running-total can never reach a retroactive
   percentage), which is a UX regression for legitimate archives. The pre-scan total is labeled as an

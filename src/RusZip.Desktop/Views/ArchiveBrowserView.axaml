@@ -147,7 +147,8 @@
         </Border>
 
         <!-- Empty-State Error Banner (e.g. entry-count cap exceeded) -->
-        <Border Grid.Row="2"
+        <Border x:Name="LoadErrorBanner"
+                Grid.Row="2"
                 IsVisible="{Binding HasLoadError}"
                 Background="{DynamicResource SystemFillColorCriticalBackground}"
                 BorderBrush="{DynamicResource SystemFillColorCriticalBorderBrush}"
