@@ -5,22 +5,42 @@
              x:DataType="vm:CompressionSettingsViewModel">
 
     <StackPanel Spacing="16" Margin="16">
-        <!-- Source Path -->
+        <!-- Source Path with File and Folder Browse Buttons -->
         <StackPanel Spacing="6">
             <TextBlock Text="Source File / Directory:" FontWeight="SemiBold" />
-            <TextBox Text="{Binding SourcePath}" Watermark="Select file or directory to compress" />
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBox Grid.Column="0"
+                         Text="{Binding SourcePath}"
+                         Watermark="Select file or directory to compress" />
+                <Button Grid.Column="1"
+                        Content="Browse File..."
+                        Command="{Binding BrowseSourceFileCommand}"
+                        Margin="8,0,0,0" />
+                <Button Grid.Column="2"
+                        Content="Browse Folder..."
+                        Command="{Binding BrowseSourceFolderCommand}"
+                        Margin="4,0,0,0" />
+            </Grid>
         </StackPanel>
 
-        <!-- Destination Path & Format -->
-        <Grid ColumnDefinitions="*,120" RowDefinitions="Auto,Auto">
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Destination Archive:" FontWeight="SemiBold" />
-            <TextBlock Grid.Row="0" Grid.Column="1" Text="Format:" FontWeight="SemiBold" Margin="8,0,0,0" />
+        <!-- Destination Path & Format with Browse Destination Button -->
+        <Grid ColumnDefinitions="*,Auto,120" RowDefinitions="Auto,Auto">
+            <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Text="Destination Archive:" FontWeight="SemiBold" />
+            <TextBlock Grid.Row="0" Grid.Column="2" Text="Format:" FontWeight="SemiBold" Margin="8,0,0,0" />
 
-            <TextBox Grid.Row="1" Grid.Column="0" Text="{Binding DestinationPath}" Watermark="Destination archive path" Margin="0,6,0,0" />
-            <ComboBox Grid.Row="1" Grid.Column="1" SelectedItem="{Binding SelectedFormat}" Margin="8,6,0,0" HorizontalAlignment="Stretch">
-                <x:String>.zrus</x:String>
-                <x:String>.zip</x:String>
-            </ComboBox>
+            <TextBox Grid.Row="1" Grid.Column="0"
+                     Text="{Binding DestinationPath}"
+                     Watermark="Destination archive path"
+                     Margin="0,6,0,0" />
+            <Button Grid.Row="1" Grid.Column="1"
+                    Content="Browse..."
+                    Command="{Binding BrowseDestinationFileCommand}"
+                    Margin="8,6,0,0" />
+            <ComboBox Grid.Row="1" Grid.Column="2"
+                      ItemsSource="{Binding Formats}"
+                      SelectedItem="{Binding SelectedFormat}"
+                      Margin="8,6,0,0"
+                      HorizontalAlignment="Stretch" />
         </Grid>
 
         <!-- Compression Level Slider & Dynamic Badge -->

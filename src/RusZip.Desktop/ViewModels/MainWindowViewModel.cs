@@ -129,6 +129,10 @@ public partial class MainWindowViewModel : ObservableObject
         catch (OperationCanceledException)
         {
             StatusText = "Compression cancelled.";
+            if (File.Exists(Settings.DestinationPath))
+            {
+                try { File.Delete(Settings.DestinationPath); } catch { /* Ignore */ }
+            }
         }
         catch (Exception ex)
         {
