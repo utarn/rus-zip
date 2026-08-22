@@ -207,7 +207,61 @@ public sealed class CompressCommandTests : CliTestBase
         var err = ParseJson<ErrorResult>(stdout);
         Assert.False(err.Success);
         Assert.Equal("ARGUMENT_ERROR", err.Error.Code);
-        Assert.Contains("Compression level must be between", err.Error.Message);
+        Assert.Contains("Compression level", err.Error.Message);
+        Assert.Contains(".zrus", err.Error.Message);
+        Assert.Contains("1-22", err.Error.Message);
+    }
+
+    [Fact]
+    public async Task Compress_ZipLevel15_ReturnsExitCode2_AndArgumentErrorJson()
+    {
+        // F-16: `-l 15 x.zip` must be rejected for the .zip format (valid 0-9), not silently capped.
+        var sourceFile = CreateTempFile("zip_lvl15.txt", "Valid file");
+        var destArchive = Path.Combine(TempDirectory, "lvl15.zip");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", sourceFile, destArchive, "-l", "15", "--json");
+
+        // Assert
+        Assert.Equal(2, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("ARGUMENT_ERROR", err.Error.Code);
+        Assert.Contains("Compression level 15 is not valid for .zip archives", err.Error.Message);
+        Assert.Contains("Valid range: 0-9", err.Error.Message);
+    }
+
+    [Fact]
+    public async Task Compress_ZipLevel0_ProducesStoreArchive_AndRoundTrips()
+    {
+        // F-16: `-l 0 x.zip` must produce a Store (no compression) archive and round-trip.
+        var sourceFile = CreateTempFile("store_input.txt", "Store me without compression");
+        var destArchive = Path.Combine(TempDirectory, "store_out.zip");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", sourceFile, destArchive, "-l", "0", "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(destArchive));
+
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal("zip", result.Format);
+
+        // The entry must be stored (method 0): compressed length equals uncompressed length.
+        using var zip = System.IO.Compression.ZipFile.OpenRead(destArchive);
+        var entry = Assert.Single(zip.Entries);
+        Assert.Equal(entry.Length, entry.CompressedLength);
+
+        // Round-trip: extract and verify content.
+        var outDir = Path.Combine(TempDirectory, "store_roundtrip");
+        var (extractCode, extractStdout) = await RunCliAsync("extract", destArchive, "-o", outDir, "--json");
+        Assert.Equal(0, extractCode);
+        var extractResult = ParseJson<ExtractResult>(extractStdout);
+        Assert.True(extractResult.Success);
+        Assert.Equal(1, extractResult.ExtractedFiles);
+        Assert.Equal("Store me without compression", File.ReadAllText(Path.Combine(outDir, "store_input.txt")));
     }
 
     [Theory]

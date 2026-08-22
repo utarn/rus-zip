@@ -20,11 +20,24 @@ public static class Program
         console ??= AnsiConsole.Console;
         AnsiConsole.Console = console;
 
+        // Clear interceptor state from any prior invocation so a parse error in this run cannot
+        // pick up a stale JSON flag bound by an earlier one.
+        JsonModeInterceptor.Reset();
+
         var services = new ServiceCollection();
         services.AddSingleton<IArchiveEngine, UnifiedArchiveEngine>();
 
         var registrar = new TypeRegistrar(services);
         var app = new CommandApp(registrar);
+
+        // F-22: normalize argv before handing it to Spectre so a literal file named "--json"
+        // (or any other option-shaped value) can be referenced after a "--" separator. Everything
+        // after "--" is treated as positional and prefixed with "./" when it looks like an option,
+        // which makes Spectre bind it as a value rather than a flag. As a side effect, after
+        // normalization a bare "--json"/"-j" token can only ever mean the JSON flag — so the
+        // exception handler's pre-binding fallback never misfires on a literal filename.
+        var normalizedArgs = NormalizeArgs(args);
+        var effectiveArgs = normalizedArgs.Length == 0 ? ["--help"] : normalizedArgs;
 
         app.Configure(config =>
         {
@@ -53,17 +66,61 @@ public static class Program
                 .WithExample(["archive.zrus"])
                 .WithExample(["package.zip", "--json"]);
 
+            // Record the JSON/verbose-errors flags from the actual parsed settings binding so the
+            // global handler below does not have to guess from raw argv (F-22).
+            config.SetInterceptor(new JsonModeInterceptor());
             config.SetExceptionHandler((ex, resolver) =>
             {
-                bool isJson = args.Any(a => a is "--json" or "-j");
-                bool verboseErrors = args.Any(a => a == "--verbose-errors");
+                bool isJson;
+                bool verboseErrors;
+                if (JsonModeInterceptor.LastInvocationHadSettingsBound)
+                {
+                    isJson = JsonModeInterceptor.LastBoundJson;
+                    verboseErrors = JsonModeInterceptor.LastBoundVerboseErrors;
+                }
+                else
+                {
+                    isJson = normalizedArgs.Any(a => a is "--json" or "-j");
+                    verboseErrors = normalizedArgs.Any(a => a == "--verbose-errors");
+                }
+
                 return CliCommandRunner.HandleException(ex, isJson, verboseErrors: verboseErrors);
             });
         });
 
         // If typing the cli executable file without any parameters, show --help
-        string[] effectiveArgs = args.Length == 0 ? ["--help"] : args;
-
         return await app.RunAsync(effectiveArgs);
     }
+
+    /// <summary>
+    /// Implements the standard <c>--</c> end-of-options separator (Spectre 0.49 has no native
+    /// support for it). The separator token itself is dropped and every following token that
+    /// looks like an option is prefixed with <c>./</c> so Spectre binds it as a positional value
+    /// instead of a flag.
+    /// </summary>
+    internal static string[] NormalizeArgs(string[] args)
+    {
+        var result = new List<string>(args.Length);
+        bool afterSeparator = false;
+        foreach (var arg in args)
+        {
+            if (!afterSeparator && arg == "--")
+            {
+                afterSeparator = true;
+                continue;
+            }
+
+            result.Add(afterSeparator && LooksLikeOption(arg) ? "./" + arg : arg);
+        }
+
+        return [.. result];
+    }
+
+    private static bool LooksLikeOption(string arg) =>
+        arg.Length > 1
+        && arg[0] == '-'
+        && !arg.StartsWith("./")
+        && !arg.StartsWith("../")
+        && !arg.Contains('/')
+        && !arg.Contains('\\');
 }

@@ -164,6 +164,53 @@ public sealed class ExtractCommandTests : CliTestBase
     }
 
     [Fact]
+    public async Task Extract_NoOverwrite_ExistingFile_ReturnsExitCode1_AndExecutionErrorNamingPath()
+    {
+        // F-15: with --no-overwrite, an existing destination file must abort (exit 1) and name
+        // the conflicting path instead of overwriting.
+        var sourceFile = CreateTempFile("no_overwrite.txt", "Archive content");
+        var archivePath = Path.Combine(TempDirectory, "no_overwrite.zrus");
+        await RunCliAsync("compress", sourceFile, archivePath, "--json");
+
+        var outDir = Path.Combine(TempDirectory, "extracted_no_overwrite");
+        Directory.CreateDirectory(outDir);
+        var conflict = Path.Combine(outDir, "no_overwrite.txt");
+        File.WriteAllText(conflict, "pre-existing content");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--no-overwrite", "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains(conflict, err.Error.Message);
+        Assert.Equal("pre-existing content", File.ReadAllText(conflict)); // untouched
+    }
+
+    [Fact]
+    public async Task Extract_NoOverwrite_NoConflict_Succeeds()
+    {
+        // F-15: --no-overwrite must not block extraction when no destination file exists.
+        var sourceFile = CreateTempFile("no_conflict.txt", "Content");
+        var archivePath = Path.Combine(TempDirectory, "no_conflict.zrus");
+        await RunCliAsync("compress", sourceFile, archivePath, "--json");
+
+        var outDir = Path.Combine(TempDirectory, "extracted_no_conflict");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--no-overwrite", "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(Path.Combine(outDir, "no_conflict.txt")));
+        var result = ParseJson<ExtractResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(1, result.ExtractedFiles);
+    }
+
+    [Fact]
     public async Task Extract_HumanMode_DisplaysSummaryPanel()
     {
         // Arrange
