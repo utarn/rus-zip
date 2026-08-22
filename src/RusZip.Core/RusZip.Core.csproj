@@ -8,8 +8,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
-    <PackageReference Include="SharpCompress" Version="0.50.4" />
+    <PackageReference Include="ZstdSharp.Port" />
+    <PackageReference Include="SharpCompress" />
   </ItemGroup>
 
 </Project>

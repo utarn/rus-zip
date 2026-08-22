@@ -9,7 +9,7 @@
         MinWidth="700" MinHeight="450"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="46"
-        ExtendClientAreaChromeHints="PreferSystemChrome"
+        WindowDecorations="Full"
         TransparencyLevelHint="Mica, AcrylicBlur, Blur"
         Background="Transparent">
 

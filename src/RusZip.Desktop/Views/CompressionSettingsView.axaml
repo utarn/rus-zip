@@ -12,7 +12,7 @@
             <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto">
                 <TextBox Grid.Row="0" Grid.Column="0"
                          Text="{Binding SourcePath}"
-                         Watermark="Select file or directory to compress" />
+                         PlaceholderText="Select file or directory to compress" />
                 <Button Grid.Row="0" Grid.Column="1"
                         Content="Browse File..."
                         Command="{Binding BrowseSourceFileCommand}"
@@ -52,7 +52,7 @@
 
             <TextBox Grid.Row="1" Grid.Column="0"
                      Text="{Binding DestinationPath}"
-                     Watermark="Destination archive path"
+                     PlaceholderText="Destination archive path"
                      Margin="0,6,0,0" />
             <Button Grid.Row="1" Grid.Column="1"
                     Content="Browse..."
