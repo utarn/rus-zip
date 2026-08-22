@@ -4,7 +4,13 @@
 #   ./scripts/install.sh                  # Install to $HOME/.local/bin (or /usr/local/bin if root)
 #   ./scripts/install.sh --dir /usr/local/bin
 #   ./scripts/install.sh --rid osx-arm64
+#   ./scripts/install.sh --uninstall      # Remove rus-zip and its backup
 #   ./scripts/install.sh --help
+#
+# NOTE: Full Windows/macOS runtime verification of these installers is out of
+# scope for the #54 audit (no Windows/macOS test machines were available). The
+# Linux logic paths are exercised; PowerShell/macOS specifics are parse-checked
+# only.
 
 set -euo pipefail
 
@@ -44,6 +50,7 @@ RID="$(detect_rid)"
 CONFIGURATION="Release"
 FORCE_BUILD=false
 CUSTOM_INSTALL_DIR=""
+DO_UNINSTALL=false
 
 # Determine default install directory
 if [ "${EUID:-$(id -u)}" -eq 0 ]; then
@@ -65,12 +72,14 @@ Options:
   -r, --rid <RID>         Runtime Identifier (auto-detected: osx-arm64, osx-x64, linux-x64, linux-arm64)
   -c, --configuration <C> Build configuration when building from source (default: Release)
   -b, --build             Force rebuilding CLI from source even if pre-built binary exists in dist/
+  -u, --uninstall         Remove rus-zip and its backup from the install directory
   -h, --help              Show this help message
 
 Examples:
   ./scripts/install.sh
   ./scripts/install.sh --dir /usr/local/bin
   ./scripts/install.sh --rid osx-arm64 --build
+  ./scripts/install.sh --uninstall
 EOF
 }
 
@@ -144,6 +153,10 @@ while [[ $# -gt 0 ]]; do
             FORCE_BUILD=true
             shift
             ;;
+        -u|--uninstall|uninstall)
+            DO_UNINSTALL=true
+            shift
+            ;;
         -h|--help|help)
             print_usage
             exit 0
@@ -167,6 +180,54 @@ while [[ $# -gt 0 ]]; do
 done
 
 INSTALL_DIR="${CUSTOM_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
+
+# Best-effort read of a binary's version string (rus-zip --version -> e.g. "1.0.0").
+# Empty result when the binary is absent or not runnable.
+get_binary_version() {
+    local binary="$1"
+    if [ -x "$binary" ]; then
+        local out
+        out="$("$binary" --version 2>/dev/null | head -n 1)" || true
+        echo "$out"
+    else
+        echo ""
+    fi
+}
+
+# Remove the installed binary and its single backup. Leaves the install directory
+# behind if it still contains other files; removes it only when it becomes empty.
+uninstall_ruszip() {
+    local installed="$INSTALL_DIR/rus-zip"
+    local backup="$INSTALL_DIR/rus-zip.bak"
+
+    if [ -f "$installed" ]; then
+        rm -f "$installed"
+        echo "[✓] Removed $installed"
+    else
+        echo "[✓] No installed binary at $installed"
+    fi
+
+    if [ -f "$backup" ]; then
+        rm -f "$backup"
+        echo "[✓] Removed backup $backup"
+    else
+        echo "[✓] No backup at $backup"
+    fi
+
+    if [ -d "$INSTALL_DIR" ] && rmdir "$INSTALL_DIR" 2>/dev/null; then
+        echo "[✓] Removed now-empty directory $INSTALL_DIR"
+    fi
+
+    echo ""
+    echo "rus-zip has been uninstalled."
+    echo "If you added '$INSTALL_DIR' to your PATH manually, remove that entry yourself."
+    exit 0
+}
+
+if [ "$DO_UNINSTALL" = true ]; then
+    echo "Uninstalling rus-zip from $INSTALL_DIR"
+    uninstall_ruszip
+fi
 
 echo "=================================================="
 echo "Installing rus-zip CLI"
@@ -219,13 +280,45 @@ if [ -z "$BINARY_SOURCE" ]; then
     fi
 fi
 
-# 2. Install binary
-echo "[*] Installing binary to $INSTALL_DIR/rus-zip..."
+# 2. Version check, backup, and idempotency
 mkdir -p "$INSTALL_DIR"
-cp "$BINARY_SOURCE" "$INSTALL_DIR/rus-zip"
-chmod +x "$INSTALL_DIR/rus-zip"
 
-BINARY_SIZE="$(get_file_size "$INSTALL_DIR/rus-zip")"
+INSTALLED_BINARY="$INSTALL_DIR/rus-zip"
+NEW_BINARY="$BINARY_SOURCE"
+
+# The staged/source binary may not have the executable bit set yet; make it
+# runnable so we can query its version (dist/ artifacts are disposable build output).
+if [ ! -x "$NEW_BINARY" ]; then
+    chmod +x "$NEW_BINARY" 2>/dev/null || true
+fi
+
+OLD_VERSION="$(get_binary_version "$INSTALLED_BINARY")"
+NEW_VERSION="$(get_binary_version "$NEW_BINARY")"
+
+# Idempotency: same version already installed is a no-op success.
+if [ -f "$INSTALLED_BINARY" ] && [ -n "$OLD_VERSION" ] && [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
+    echo "[✓] rus-zip $OLD_VERSION is already installed at $INSTALLED_BINARY. Nothing to do."
+    exit 0
+fi
+
+echo "[*] Installing binary to $INSTALLED_BINARY..."
+if [ -f "$INSTALLED_BINARY" ]; then
+    echo "  Existing version:   ${OLD_VERSION:-<unknown>}"
+    echo "  Installing version: ${NEW_VERSION:-<unknown>}"
+    # Keep exactly one timestamped backup of the previous binary.
+    if [ -f "$INSTALL_DIR/rus-zip.bak" ]; then
+        rm -f "$INSTALL_DIR/rus-zip.bak"
+    fi
+    cp "$INSTALLED_BINARY" "$INSTALL_DIR/rus-zip.bak"
+    echo "[+] Backed up previous binary to $INSTALL_DIR/rus-zip.bak ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+else
+    echo "  Installing version: ${NEW_VERSION:-<unknown>}"
+fi
+
+cp "$NEW_BINARY" "$INSTALLED_BINARY"
+chmod +x "$INSTALLED_BINARY"
+
+BINARY_SIZE="$(get_file_size "$INSTALLED_BINARY")"
 
 # 3. Check PATH presence
 IS_IN_PATH=false
@@ -279,6 +372,5 @@ echo "Quick Start Commands:"
 echo "  rus-zip compress <source> <archive.zrus> --profile high   # Create a .zrus archive"
 echo "  rus-zip extract <archive.zrus> -o <destination>           # Extract archive"
 echo "  rus-zip list <archive.zrus>                               # List archive contents"
-echo "  rus-zip info <archive.zrus>                               # Inspect archive metadata & stats"
 echo "  rus-zip --help                                            # Show all CLI commands & options"
 echo "=================================================="
