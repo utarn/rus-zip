@@ -20,10 +20,11 @@ public class ThemeSwitchingTests
     [Fact]
     public void App_SetTheme_HandlesAllVariantsGracefully()
     {
-        // Should not throw even if Application.Current is null
-        App.SetTheme(ThemeMode.System);
-        App.SetTheme(ThemeMode.Dark);
-        App.SetTheme(ThemeMode.Light);
+        // Should not throw even if Application.Current is null (headless test environment).
+        // Record.Exception makes the no-throw contract explicit rather than a bare call with no assert.
+        Assert.Null(Record.Exception(() => App.SetTheme(ThemeMode.System)));
+        Assert.Null(Record.Exception(() => App.SetTheme(ThemeMode.Dark)));
+        Assert.Null(Record.Exception(() => App.SetTheme(ThemeMode.Light)));
     }
 
     [Fact]

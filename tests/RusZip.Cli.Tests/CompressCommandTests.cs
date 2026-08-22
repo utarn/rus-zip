@@ -1,4 +1,9 @@
+using RusZip.Cli.Commands;
 using RusZip.Cli.Models;
+using RusZip.Core.Abstractions;
+using RusZip.Core.Engines;
+using RusZip.Core.Models;
+using Spectre.Console.Cli;
 using Xunit;
 
 namespace RusZip.Cli.Tests;
@@ -319,5 +324,67 @@ public sealed class CompressCommandTests : CliTestBase
         Assert.Equal(0, result.TotalFiles);
         Assert.Equal(0, result.UncompressedBytes);
         Assert.True(result.CompressedBytes > 0);
+    }
+
+    [Theory]
+    [InlineData("fast", 3)]
+    [InlineData("balanced", 9)]
+    [InlineData("high", 15)]
+    [InlineData("ultra", 22)]
+    public async Task Compress_Profile_ResolveLevelReachesEngine(string profile, int expectedLevel)
+    {
+        // F-25: the e2e profile test only used `expectedLevel` in a filename, so a ResolveLevel
+        // regression (e.g. always returning the default 9) would go unnoticed. This test drives
+        // CompressCommand directly with a spy engine that records the CompressionLevel it receives,
+        // locking the profile→level contract: fast=3, balanced=9, high=15, ultra=22.
+        var src = CreateTempFile($"file_{profile}.txt", $"Payload for profile {profile} (level {expectedLevel})");
+        var archive = Path.Combine(TempDirectory, $"archive_{profile}_engine_level.zrus");
+
+        var engine = new RecordingArchiveEngine();
+        var command = new CompressCommand(engine);
+        var settings = new CompressSettings
+        {
+            SourcePath = src,
+            DestinationPath = archive,
+            Profile = profile,
+            Json = true
+        };
+        var context = new CommandContext(Array.Empty<string>(), new EmptyRemainingArguments(), "compress", null);
+
+        var exitCode = await command.ExecuteAsync(context, settings);
+
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(archive));
+        var receivedLevel = Assert.Single(engine.CompressionLevels);
+        Assert.Equal(expectedLevel, receivedLevel);
+    }
+
+    /// <summary>
+    /// Delegates to the real engine but records the <see cref="ArchiveCompressionRequest.CompressionLevel"/>
+    /// it was asked to apply. Used to lock the profile→level mapping end-to-end through CompressCommand.
+    /// </summary>
+    private sealed class RecordingArchiveEngine : IArchiveEngine
+    {
+        private readonly IArchiveEngine _inner = new UnifiedArchiveEngine();
+
+        public List<int> CompressionLevels { get; } = [];
+
+        public Task CompressAsync(ArchiveCompressionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+        {
+            CompressionLevels.Add(request.CompressionLevel);
+            return _inner.CompressAsync(request, progress, ct);
+        }
+
+        public Task<ExtractionResult> ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+            => _inner.ExtractAsync(request, progress, ct);
+
+        public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
+            => _inner.ListEntriesAsync(archivePath, ct);
+    }
+
+    private sealed class EmptyRemainingArguments : IRemainingArguments
+    {
+        public ILookup<string, string?> Parsed => Enumerable.Empty<string?>().ToLookup(x => x ?? string.Empty);
+        public IReadOnlyList<string> Raw => Array.Empty<string>();
     }
 }
