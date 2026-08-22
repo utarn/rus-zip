@@ -283,4 +283,45 @@ public sealed class ListCommandTests : CliTestBase
         Assert.Equal(0, result.TotalEntries);
         Assert.Empty(result.Entries);
     }
+
+    [Fact]
+    public async Task List_EmptyZrusArchive_ReturnsExitCode0_AndZeroEntries()
+    {
+        // F-11: an empty directory compressed to .zrus must list as 0 entries, exit 0 — parity
+        // with the .zip path.
+        var sourceDir = Path.Combine(TempDirectory, "list_empty_zrus_src");
+        Directory.CreateDirectory(sourceDir);
+        var archivePath = Path.Combine(TempDirectory, "list_empty.zrus");
+        await RunCliAsync("compress", sourceDir, archivePath, "--json");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("list", archivePath, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<ListResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal("zrus", result.Format);
+        Assert.Equal(0, result.TotalEntries);
+        Assert.Empty(result.Entries);
+    }
+
+    [Fact]
+    public async Task List_LegacyEmptyZrus_ReturnsExitCode0_AndZeroEntries()
+    {
+        // F-11 read-side compat: the pre-fix 13-byte empty frame (valid zstd, 0 decompressed bytes)
+        // must list as 0 entries, exit 0, instead of an integrity error.
+        var archivePath = Path.Combine(TempDirectory, "legacy_empty_list.zrus");
+        await File.WriteAllBytesAsync(archivePath, [0x28, 0xB5, 0x2F, 0xFD, 0x24, 0x00, 0x01, 0x00, 0x00, 0x99, 0xE9, 0xD8, 0x51]);
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("list", archivePath, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<ListResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(0, result.TotalEntries);
+        Assert.Empty(result.Entries);
+    }
 }

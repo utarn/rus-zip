@@ -56,6 +56,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         var tempOutput = destination + ".tmp." + Guid.NewGuid().ToString("N");
         long processedBytes = 0;
         int processedFiles = 0;
+        int entriesWritten = 0;
 
         try
         {
@@ -74,7 +75,10 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                     compressionStream.SetParameter(ZSTD_cParameter.ZSTD_c_nbWorkers, Environment.ProcessorCount);
                 }
 
-                await using (var tarWriter = new TarWriter(compressionStream, TarEntryFormat.Pax, leaveOpen: false))
+                // leaveOpen: true so the CompressionStream survives the TarWriter's disposal — an
+                // empty directory produces zero tar entries and .NET's TarWriter then writes no
+                // end-of-archive blocks, so the two zero blocks must be appended below.
+                await using (var tarWriter = new TarWriter(compressionStream, TarEntryFormat.Pax, leaveOpen: true))
                 {
                     if (isDir)
                     {
@@ -96,6 +100,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                                     dirEntry.Mode = dirInfo.UnixFileMode;
                                 }
                                 await tarWriter.WriteEntryAsync(dirEntry, ct);
+                                entriesWritten++;
                             }
                             else if (fsi is FileInfo fileInfo)
                             {
@@ -135,6 +140,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                                 }
 
                                 await tarWriter.WriteEntryAsync(fileEntry, ct);
+                                entriesWritten++;
                                 Interlocked.Increment(ref processedFiles);
                             }
                         }
@@ -180,8 +186,20 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                         }
 
                         await tarWriter.WriteEntryAsync(fileEntry, ct);
+                        entriesWritten++;
                         Interlocked.Increment(ref processedFiles);
                     }
+                }
+
+                // A valid tar archive ends with two 512-byte zero blocks. .NET's TarWriter writes
+                // them on dispose only when at least one entry was written; an empty directory
+                // (zero entries) otherwise yields a zstd frame with empty content, which is not a
+                // valid tar stream and is unreadable by tar readers (F-11). Append the two zero
+                // blocks so an empty archive is a valid Tar+Zstd stream (an "empty tar").
+                if (entriesWritten == 0)
+                {
+                    byte[] endOfArchive = new byte[1024]; // two 512-byte zero blocks
+                    await compressionStream.WriteAsync(endOfArchive.AsMemory(), ct);
                 }
             }
 
@@ -286,79 +304,91 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
 
                 await using (decompressionStream)
                 {
-                    TarReader tarReader;
-                    try
+                    var countingStream = new CountingReadStream(decompressionStream);
+                    await using (countingStream)
                     {
-                        tarReader = new TarReader(decompressionStream, leaveOpen: false);
-                    }
-                    catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
-                    {
-                        throw new ArchiveIntegrityException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", innerException: ex);
-                    }
-
-                    await using (tarReader)
-                    {
-                        string? lastEntryName = null;
-                        while (true)
-                        {
-                            TarEntry? entry;
-                            try
-                            {
-                                entry = await tarReader.GetNextEntryAsync(copyData: false, ct);
-                            }
-                            catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
-                            {
-                                throw new ArchiveIntegrityException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", lastEntryName, ex);
-                            }
-
-                            if (entry is null)
-                                break;
-
-                            lastEntryName = entry.Name;
-                            bool isDir = entry.EntryType == TarEntryType.Directory || entry.Name.Replace('\\', '/').EndsWith('/');
-                            UnixFileMode? unixMode = entry.Mode != 0 && entry.Mode != (UnixFileMode)(-1) ? entry.Mode : null;
-                            var dataStream = entry.DataStream;
-                            if (dataStream is not null)
-                            {
-                                // Wrap so any mid-stream zstd corruption surfaces as an
-                                // ArchiveIntegrityException with the offending entry name.
-                                dataStream = new ZstdIntegrityStream(dataStream, archivePath, entry.Name);
-                            }
-
-                            yield return new ExtractionEntry(
-                                RelativePath: entry.Name,
-                                IsDirectory: isDir,
-                                UncompressedSize: entry.Length,
-                                ModificationTime: entry.ModificationTime,
-                                UnixMode: unixMode,
-                                OpenStreamAsync: _ => ValueTask.FromResult(dataStream ?? Stream.Null)
-                            );
-                        }
-
-                        // Drain the decompression stream to EOF so the zstd frame content checksum is
-                        // validated. Without this the tar end-of-archive markers are consumed but the
-                        // trailing frame checksum trailer is never read, so a corrupted archive would
-                        // silently extract with exit 0 (F-08).
-                        byte[] drainBuffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+                        TarReader tarReader;
                         try
                         {
-                            int read;
-                            while ((read = await decompressionStream.ReadAsync(drainBuffer.AsMemory(0, BufferSize), ct)) > 0)
-                            {
-                            }
+                            tarReader = new TarReader(countingStream, leaveOpen: false);
                         }
                         catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
                         {
-                            throw new ArchiveIntegrityException(
-                                $"Zstandard frame content checksum validation failed in '{archivePath}'" +
-                                (lastEntryName is not null ? $", entry '{lastEntryName}'" : string.Empty) +
-                                $": {ex.Message}",
-                                lastEntryName,
-                                ex);
+                            throw new ArchiveIntegrityException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", innerException: ex);
                         }
-                        finally
+
+                        await using (tarReader)
                         {
-                            ArrayPool<byte>.Shared.Return(drainBuffer);
+                            string? lastEntryName = null;
+                            while (true)
+                            {
+                                TarEntry? entry;
+                                try
+                                {
+                                    entry = await tarReader.GetNextEntryAsync(copyData: false, ct);
+                                }
+                                catch (EndOfStreamException) when (countingStream.TotalBytesRead == 0)
+                                {
+                                    // Legacy empty-directory output (F-11): a valid zstd frame whose
+                                    // content is 0 bytes (the pre-fix 13-byte archive) is not a valid
+                                    // tar stream but is unambiguous — there are no entries. Treat it as
+                                    // an empty archive so legacy archives list/extract with exit 0.
+                                    break;
+                                }
+                                catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+                                {
+                                    throw new ArchiveIntegrityException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", lastEntryName, ex);
+                                }
+
+                                if (entry is null)
+                                    break;
+
+                                lastEntryName = entry.Name;
+                                bool isDir = entry.EntryType == TarEntryType.Directory || entry.Name.Replace('\\', '/').EndsWith('/');
+                                UnixFileMode? unixMode = entry.Mode != 0 && entry.Mode != (UnixFileMode)(-1) ? entry.Mode : null;
+                                var dataStream = entry.DataStream;
+                                if (dataStream is not null)
+                                {
+                                    // Wrap so any mid-stream zstd corruption surfaces as an
+                                    // ArchiveIntegrityException with the offending entry name.
+                                    dataStream = new ZstdIntegrityStream(dataStream, archivePath, entry.Name);
+                                }
+
+                                yield return new ExtractionEntry(
+                                    RelativePath: entry.Name,
+                                    IsDirectory: isDir,
+                                    UncompressedSize: entry.Length,
+                                    ModificationTime: entry.ModificationTime,
+                                    UnixMode: unixMode,
+                                    OpenStreamAsync: _ => ValueTask.FromResult(dataStream ?? Stream.Null)
+                                );
+                            }
+
+                            // Drain the decompression stream to EOF so the zstd frame content checksum is
+                            // validated. Without this the tar end-of-archive markers are consumed but the
+                            // trailing frame checksum trailer is never read, so a corrupted archive would
+                            // silently extract with exit 0 (F-08).
+                            byte[] drainBuffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+                            try
+                            {
+                                int read;
+                                while ((read = await decompressionStream.ReadAsync(drainBuffer.AsMemory(0, BufferSize), ct)) > 0)
+                                {
+                                }
+                            }
+                            catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+                            {
+                                throw new ArchiveIntegrityException(
+                                    $"Zstandard frame content checksum validation failed in '{archivePath}'" +
+                                    (lastEntryName is not null ? $", entry '{lastEntryName}'" : string.Empty) +
+                                    $": {ex.Message}",
+                                    lastEntryName,
+                                    ex);
+                            }
+                            finally
+                            {
+                                ArrayPool<byte>.Shared.Return(drainBuffer);
+                            }
                         }
                     }
                 }
@@ -431,6 +461,61 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
+    /// <summary>
+    /// Pass-through stream that counts the bytes read from the underlying stream. The reader uses it
+    /// to distinguish a genuinely empty zstd frame (legacy empty-directory output: a valid frame with
+    /// 0 decompressed bytes) from a truncated archive (partial bytes then EOF). The former is treated
+    /// as an empty tar archive; the latter is corruption.
+    /// </summary>
+    private sealed class CountingReadStream(Stream inner) : Stream
+    {
+        private readonly Stream _inner = inner;
+
+        /// <summary>Cumulative bytes read through this wrapper.</summary>
+        public long TotalBytesRead { get; private set; }
+
+        public override bool CanRead => _inner.CanRead;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int n = _inner.Read(buffer, offset, count);
+            TotalBytesRead += n;
+            return n;
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            int n = _inner.Read(buffer);
+            TotalBytesRead += n;
+            return n;
+        }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+            => ReadAsyncCore(buffer, ct);
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+            => ReadAsyncCore(buffer.AsMemory(offset, count), ct).AsTask();
+
+        private async ValueTask<int> ReadAsyncCore(Memory<byte> buffer, CancellationToken ct)
+        {
+            int n = await _inner.ReadAsync(buffer, ct);
+            TotalBytesRead += n;
+            return n;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     public async Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(
         string archivePath,
         CancellationToken ct = default)
@@ -454,20 +539,30 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                 useAsync: true);
 
             await using var decompressionStream = new DecompressionStream(fileStream);
-            await using var tarReader = new TarReader(decompressionStream, leaveOpen: false);
+            await using var countingStream = new CountingReadStream(decompressionStream);
+            await using var tarReader = new TarReader(countingStream, leaveOpen: false);
 
             TarEntry? entry;
-            while ((entry = await tarReader.GetNextEntryAsync(copyData: false, ct)) is not null)
+            try
             {
-                results.Add(new ArchiveEntry(
-                    RelativePath: entry.Name,
-                    UncompressedSize: entry.Length,
-                    CompressedSize: null,
-                    LastModified: entry.ModificationTime,
-                    IsDirectory: entry.EntryType == TarEntryType.Directory,
-                    IsEncrypted: false,
-                    Attributes: entry.Mode.ToString()
-                ));
+                while ((entry = await tarReader.GetNextEntryAsync(copyData: false, ct)) is not null)
+                {
+                    results.Add(new ArchiveEntry(
+                        RelativePath: entry.Name,
+                        UncompressedSize: entry.Length,
+                        CompressedSize: null,
+                        LastModified: entry.ModificationTime,
+                        IsDirectory: entry.EntryType == TarEntryType.Directory,
+                        IsEncrypted: false,
+                        Attributes: entry.Mode.ToString()
+                    ));
+                }
+            }
+            catch (EndOfStreamException) when (countingStream.TotalBytesRead == 0)
+            {
+                // Legacy empty-directory output (F-11): a valid zstd frame with 0 decompressed bytes
+                // (the pre-fix 13-byte archive) is not a valid tar stream but is unambiguous — there
+                // are no entries. Treat it as an empty archive so legacy archives list with exit 0.
             }
 
             // Drain the decompression stream to EOF so the zstd frame content checksum is validated.
