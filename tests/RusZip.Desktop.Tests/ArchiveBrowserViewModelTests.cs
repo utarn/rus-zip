@@ -910,6 +910,217 @@ public class ArchiveBrowserViewModelTests
     }
 
     [Fact]
+    public void LoadEntries_BeyondEntryCountCap_NeverInvokesItemFactory()
+    {
+        var browser = new ArchiveBrowserViewModel { EntryCountCap = 10 };
+        int factoryCalls = 0;
+        browser.ItemFactory = (node, autoExpand) =>
+        {
+            factoryCalls++;
+            return ArchiveItemViewModel.FromTreeNode(node, autoExpand);
+        };
+
+        var entries = new List<ArchiveEntry>();
+        for (int i = 0; i < 20; i++)
+        {
+            entries.Add(new($"file{i}.txt", 100, 50, null, false));
+        }
+
+        browser.LoadEntries("bomb.zip", entries);
+
+        // The cap is enforced before any tree node is materialized: the factory (the sole
+        // ArchiveItemViewModel creation seam) is never invoked, so no visual-tree row model,
+        // HierarchicalModel, or row structure is allocated for the hostile archive.
+        Assert.Equal(0, factoryCalls);
+        Assert.True(browser.HasLoadError);
+        Assert.Contains("safety limit", browser.LoadErrorMessage);
+        Assert.Null(browser.GridSource);
+        Assert.Empty(browser.RootItems);
+    }
+
+    [Fact]
+    public void LoadEntries_BeyondEntryCountCap_FilterChangeCannotRebuildTree()
+    {
+        var browser = new ArchiveBrowserViewModel { EntryCountCap = 10 };
+        int factoryCalls = 0;
+        browser.ItemFactory = (node, autoExpand) =>
+        {
+            factoryCalls++;
+            return ArchiveItemViewModel.FromTreeNode(node, autoExpand);
+        };
+
+        var entries = new List<ArchiveEntry>();
+        for (int i = 0; i < 20; i++)
+        {
+            entries.Add(new($"file{i}.txt", 100, 50, null, false));
+        }
+
+        browser.LoadEntries("bomb.zip", entries);
+        Assert.Equal(0, factoryCalls);
+
+        // A later filter keystroke (or ClearFilter) must not rebuild the tree from the hostile
+        // entry list — the error state is frozen and the tree stays empty.
+        browser.FilterText = "file1";
+        browser.FilterText = "file";
+        browser.ClearFilter();
+
+        Assert.Equal(0, factoryCalls);
+        Assert.True(browser.HasLoadError);
+        Assert.Null(browser.GridSource);
+        Assert.Empty(browser.RootItems);
+        Assert.Contains("safety limit", browser.LoadErrorMessage);
+    }
+
+    [Fact]
+    public void LoadEntries_BeyondCap_WithPriorFilter_DoesNotMaterializeHostileTree()
+    {
+        var browser = new ArchiveBrowserViewModel { EntryCountCap = 10 };
+        int factoryCalls = 0;
+        browser.ItemFactory = (node, autoExpand) =>
+        {
+            factoryCalls++;
+            return ArchiveItemViewModel.FromTreeNode(node, autoExpand);
+        };
+
+        // Load a legitimate archive and apply a filter so FilterText is non-empty when the
+        // hostile archive is loaded — the filter reset in LoadEntries must not trigger a rebuild
+        // from the hostile list before the cap is consulted.
+        browser.LoadEntries("ok.zip", new List<ArchiveEntry> { new("alpha.txt", 100, 50, null, false) });
+        browser.FilterText = "a";
+        int callsBeforeHostileLoad = factoryCalls;
+        Assert.True(callsBeforeHostileLoad >= 1);
+
+        var hostile = new List<ArchiveEntry>();
+        for (int i = 0; i < 20; i++)
+        {
+            hostile.Add(new($"file{i}.txt", 100, 50, null, false));
+        }
+        browser.LoadEntries("bomb.zip", hostile);
+
+        Assert.Equal(callsBeforeHostileLoad, factoryCalls);
+        Assert.True(browser.HasLoadError);
+        Assert.Contains("safety limit", browser.LoadErrorMessage);
+        Assert.Null(browser.GridSource);
+        Assert.Empty(browser.RootItems);
+        Assert.Equal(string.Empty, browser.FilterText);
+    }
+
+    [Fact]
+    public void LoadEntries_BeyondCap_ThenValidLoad_ClearsErrorAndRebuilds()
+    {
+        var browser = new ArchiveBrowserViewModel { EntryCountCap = 10 };
+        int factoryCalls = 0;
+        browser.ItemFactory = (node, autoExpand) =>
+        {
+            factoryCalls++;
+            return ArchiveItemViewModel.FromTreeNode(node, autoExpand);
+        };
+
+        var hostile = new List<ArchiveEntry>();
+        for (int i = 0; i < 20; i++)
+        {
+            hostile.Add(new($"file{i}.txt", 100, 50, null, false));
+        }
+        browser.LoadEntries("bomb.zip", hostile);
+        Assert.True(browser.HasLoadError);
+        Assert.Equal(0, factoryCalls);
+
+        // Loading a legitimate archive afterwards clears the error and rebuilds the tree normally.
+        browser.LoadEntries("ok.zip", new List<ArchiveEntry> { new("ok.txt", 100, 50, null, false) });
+
+        Assert.False(browser.HasLoadError);
+        Assert.Equal(string.Empty, browser.LoadErrorMessage);
+        Assert.Single(browser.RootItems);
+        Assert.NotNull(browser.GridSource);
+        Assert.Equal(1, factoryCalls);
+    }
+
+    [Fact]
+    public async Task LoadEntries_BeyondCap_ErrorStateCommandsDoNotThrow()
+    {
+        var browser = new ArchiveBrowserViewModel { EntryCountCap = 10 };
+        int factoryCalls = 0;
+        browser.ItemFactory = (node, autoExpand) =>
+        {
+            factoryCalls++;
+            return ArchiveItemViewModel.FromTreeNode(node, autoExpand);
+        };
+        bool extractAllInvoked = false;
+        browser.ExtractRequested += () =>
+        {
+            extractAllInvoked = true;
+            return Task.CompletedTask;
+        };
+
+        var entries = new List<ArchiveEntry>();
+        for (int i = 0; i < 20; i++)
+        {
+            entries.Add(new($"file{i}.txt", 100, 50, null, false));
+        }
+        browser.LoadEntries("bomb.zip", entries);
+        Assert.True(browser.HasLoadError);
+
+        // Filter / clear-filter no-op on the frozen error state.
+        browser.FilterText = "file1";
+        browser.ClearFilter();
+        Assert.True(browser.HasLoadError);
+
+        // Breadcrumb navigation stays at the root with no tree behind it.
+        Assert.Single(browser.Breadcrumbs);
+        Assert.Equal("Archive", browser.Breadcrumbs[0].Name);
+        browser.NavigateToBreadcrumbCommand.Execute(string.Empty);
+        browser.NavigateToBreadcrumbCommand.Execute(browser.Breadcrumbs[0]);
+        browser.NavigateToPath("a/b/c");
+        Assert.Null(browser.SelectedItem);
+
+        // Expand/collapse no-op on the empty tree.
+        browser.ExpandAll();
+        browser.CollapseAll();
+
+        // Extraction with nothing selected falls back to "extract all" without NRE.
+        await browser.ExtractSelectedItemCommand.ExecuteAsync(null);
+        Assert.True(extractAllInvoked);
+        await browser.RequestExtractCommand.ExecuteAsync(null);
+
+        // Copy-path with nothing selected is a graceful no-op.
+        await browser.CopyPathCommand.ExecuteAsync(null);
+        await browser.CopySelectedItemPathCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, factoryCalls);
+        Assert.Null(browser.GridSource);
+        Assert.Empty(browser.RootItems);
+    }
+
+    [AvaloniaFact]
+    public void ArchiveBrowserView_BeyondEntryCountCap_ShowsErrorBanner_AndEmptyGrid()
+    {
+        var browser = new ArchiveBrowserViewModel { EntryCountCap = 10 };
+        var entries = new List<ArchiveEntry>();
+        for (int i = 0; i < 20; i++)
+        {
+            entries.Add(new($"file{i}.txt", 100, 50, null, false));
+        }
+        browser.LoadEntries("bomb.zip", entries);
+
+        var view = new ArchiveBrowserView { DataContext = browser };
+        var banner = view.FindControl<Border>("LoadErrorBanner");
+        Assert.NotNull(banner);
+        Assert.True(banner.IsVisible);
+
+        var grid = view.FindControl<DataGrid>("ArchiveGrid");
+        Assert.NotNull(grid);
+
+        // The DataGrid's two-way HierarchicalModel binding may normalize the null source to an
+        // empty model, but either way zero row models are materialized (no allocation).
+        var source = browser.GridSource;
+        Assert.True(source is null || source.Flattened.Count == 0);
+
+        // Clearing the error (loading a legitimate archive) hides the banner.
+        browser.LoadEntries("ok.zip", new List<ArchiveEntry> { new("ok.txt", 100, 50, null, false) });
+        Assert.False(banner.IsVisible);
+    }
+
+    [Fact]
     public void ExtractionSettings_Defaults_MatchSafeArchiveExtractor()
     {
         var browser = new ArchiveBrowserViewModel();
