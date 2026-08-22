@@ -1,8 +1,10 @@
 using System.ComponentModel;
+using System.Security;
 using RusZip.Cli.Commands.Settings;
 using RusZip.Cli.Infrastructure;
 using RusZip.Cli.Models;
 using RusZip.Core.Abstractions;
+using RusZip.Core.Models;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -21,6 +23,15 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
 
     public override async Task<int> ExecuteAsync(CommandContext context, ListSettings settings)
     {
+        if (string.IsNullOrWhiteSpace(settings.ArchivePath))
+        {
+            if (settings.Json)
+                CliJsonSerializer.EmitError("ARGUMENT_ERROR", "Archive path cannot be empty.");
+            else
+                AnsiConsole.MarkupLine("[red]Error:[/] Archive path cannot be empty.");
+            return 2;
+        }
+
         var archivePath = Path.GetFullPath(settings.ArchivePath);
         if (!File.Exists(archivePath))
         {
@@ -33,7 +44,24 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
 
         try
         {
+            ArchiveFormatDetector.DetectFromPath(archivePath);
+        }
+        catch (NotSupportedException ex)
+        {
+            if (settings.Json)
+                CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", ex.Message);
+            else
+                AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
+            return 2;
+        }
+
+        try
+        {
             var entries = await _engine.ListEntriesAsync(archivePath);
+
+            string formatStr = archivePath.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
+                ? "tar.gz"
+                : Path.GetExtension(archivePath).TrimStart('.').ToLowerInvariant();
 
             if (settings.Json)
             {
@@ -48,7 +76,7 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
                 CliJsonSerializer.Emit(new ListResult(
                     Success: true,
                     ArchivePath: archivePath,
-                    Format: Path.GetExtension(archivePath).TrimStart('.').ToLowerInvariant(),
+                    Format: formatStr,
                     TotalEntries: entryItems.Count,
                     TotalUncompressedBytes: entryItems.Sum(e => e.UncompressedSize),
                     Entries: entryItems
@@ -77,6 +105,14 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
             }
 
             return 0;
+        }
+        catch (SecurityException secEx)
+        {
+            if (settings.Json)
+                CliJsonSerializer.EmitError("SECURITY_VIOLATION", secEx.Message, secEx.StackTrace);
+            else
+                AnsiConsole.MarkupLine($"[red]Security Violation:[/] {Markup.Escape(secEx.Message)}");
+            return 1;
         }
         catch (Exception ex)
         {
