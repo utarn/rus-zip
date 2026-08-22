@@ -1,12 +1,19 @@
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ProCharts;
 using RusZip.Core.Models;
+using RusZip.Desktop.Models;
 
 namespace RusZip.Desktop.ViewModels;
 
 public partial class OperationProgressViewModel : ObservableObject
 {
     private readonly ThroughputTracker _throughputTracker = new();
+    private readonly ThroughputSeriesBuffer _throughputSeries;
+    private readonly Stopwatch _telemetryStopwatch = new();
+    private readonly TimeSpan _throughputSampleInterval;
+    private TimeSpan _lastThroughputSampleElapsed = TimeSpan.MinValue;
     private CancellationTokenSource? _cts;
 
     [ObservableProperty] private bool _isOperationRunning;
@@ -33,11 +40,49 @@ public partial class OperationProgressViewModel : ObservableObject
     public string FormattedEta => EtaFormatted;
     public string TimeRemaining => EtaFormatted;
 
+    /// <summary>Gets the ProCharts model the overlay's velocity chart binds to.</summary>
+    public ChartModel ThroughputChartModel { get; }
+
+    /// <summary>Gets the live throughput samples backing the velocity chart (for tests/observers).</summary>
+    public IReadOnlyList<ThroughputSample> ThroughputSamples => _throughputSeries.Samples;
+
+    /// <summary>Gets the number of throughput samples currently buffered.</summary>
+    public int ThroughputSampleCount => _throughputSeries.Count;
+
+    /// <summary>Gets the rolling wall-clock window preserved by the throughput buffer.</summary>
+    public TimeSpan ThroughputWindow => _throughputSeries.Window;
+
+    /// <summary>
+    /// Initializes the progress VM and its throughput velocity chart.
+    /// </summary>
+    /// <param name="throughputSampleInterval">
+    /// Minimum wall-clock gap between buffered throughput samples. Defaults to 250 ms (4 Hz)
+    /// to keep UI churn low. Tests pass a tiny interval to sample on every progress report.
+    /// </param>
+    public OperationProgressViewModel(TimeSpan? throughputSampleInterval = null)
+    {
+        _throughputSeries = new ThroughputSeriesBuffer(TimeSpan.FromSeconds(60), maxCapacity: 600);
+        _throughputSampleInterval = throughputSampleInterval ?? TimeSpan.FromMilliseconds(250);
+
+        ThroughputChartModel = new ChartModel
+        {
+            DataSource = new ThroughputChartDataSource(_throughputSeries)
+        };
+        ThroughputChartModel.Legend.IsVisible = false;
+        ThroughputChartModel.CategoryAxis.Title = "Time";
+        ThroughputChartModel.ValueAxis.Title = "MB/s";
+        ThroughputChartModel.ValueAxis.Minimum = 0;
+        ThroughputChartModel.ValueAxis.LabelFormatter = value => $"{value:0.#}";
+    }
+
     public CancellationTokenSource CreateCancellationTokenSource()
     {
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
         _throughputTracker.Start();
+        _telemetryStopwatch.Restart();
+        _lastThroughputSampleElapsed = TimeSpan.MinValue;
+        _throughputSeries.Clear();
         IsOperationRunning = true;
         ProgressPercentage = 0;
         StatusMessage = "Starting...";
@@ -67,6 +112,7 @@ public partial class OperationProgressViewModel : ObservableObject
 
         _throughputTracker.Update(report.ProcessedBytes, report.TotalBytes);
         BytesProgressFormatted = _throughputTracker.FormatProgress(report.TotalBytes);
+        TryAddThroughputSample();
 
         if (_throughputTracker.SmoothedSpeedBytesPerSec > 0)
         {
@@ -79,9 +125,37 @@ public partial class OperationProgressViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Samples the tracker's EMA-smoothed speed into the rolling chart buffer, throttled to
+    /// <see cref="_throughputSampleInterval"/>. No point is recorded until the tracker has a
+    /// real speed estimate, so the curve never starts from a spurious zero.
+    /// </summary>
+    private void TryAddThroughputSample()
+    {
+        if (!_telemetryStopwatch.IsRunning)
+            return;
+
+        TimeSpan elapsed = _telemetryStopwatch.Elapsed;
+        if (_lastThroughputSampleElapsed != TimeSpan.MinValue &&
+            elapsed - _lastThroughputSampleElapsed < _throughputSampleInterval)
+        {
+            return;
+        }
+
+        double smoothedBytesPerSec = _throughputTracker.SmoothedSpeedBytesPerSec;
+        if (smoothedBytesPerSec <= 0)
+            return;
+
+        _throughputSeries.Add(elapsed, smoothedBytesPerSec / (1024.0 * 1024.0));
+        _lastThroughputSampleElapsed = elapsed;
+    }
+
     public async Task FinishOperationAsync(bool success, string? message = null)
     {
         _throughputTracker.Reset();
+        _telemetryStopwatch.Reset();
+        _lastThroughputSampleElapsed = TimeSpan.MinValue;
+        _throughputSeries.Clear();
         StatusMessage = message ?? (success ? "Completed successfully." : "Operation cancelled or failed.");
         await Task.Delay(400);
         IsOperationRunning = false;

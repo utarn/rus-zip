@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:RusZip.Desktop.ViewModels"
+             xmlns:charts="using:ProCharts.Avalonia"
              x:Class="RusZip.Desktop.Views.ProgressOverlay"
              x:DataType="vm:OperationProgressViewModel"
              IsVisible="{Binding IsOperationRunning}">
@@ -35,6 +36,23 @@
                              IsIndeterminate="{Binding IsIndeterminate}"
                              Height="8"
                              CornerRadius="4" />
+
+                <!-- Throughput Velocity Chart (ProCharts) -->
+                <Border Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                        BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="8,6">
+                    <charts:ProChartView x:Name="ThroughputChart"
+                                         ChartModel="{Binding ThroughputChartModel}"
+                                         Height="110"
+                                         EnablePanZoom="False"
+                                         ShowToolTips="False"
+                                         ShowCrosshair="False"
+                                         EnableHoverTracking="False"
+                                         EnableKeyboardNavigation="False"
+                                         MinWindowCount="10" />
+                </Border>
 
                 <!-- Metrics Grid: Bytes, Percentage, Speed badge, ETA badge -->
                 <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
