@@ -323,35 +323,36 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     Directory.CreateDirectory(parent);
                 }
 
-                if (entry.DataStream is not null)
+                await using (var outFs = new FileStream(
+                    targetPath,
+                    overwrite ? FileMode.Create : FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    BufferSize,
+                    useAsync: true))
                 {
-                    await using var outFs = new FileStream(
-                        targetPath,
-                        overwrite ? FileMode.Create : FileMode.CreateNew,
-                        FileAccess.Write,
-                        FileShare.None,
-                        BufferSize,
-                        useAsync: true);
-
-                    var buffer = new byte[BufferSize];
-                    int bytesRead;
-
-                    while ((bytesRead = await entry.DataStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                    if (entry.DataStream is not null)
                     {
-                        await outFs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                        totalExtractedBytes += bytesRead;
+                        var buffer = new byte[BufferSize];
+                        int bytesRead;
 
-                        progress?.Report(new DomainProgressReport(
-                            ProcessedBytes: totalExtractedBytes,
-                            TotalBytes: -1,
-                            CurrentFileName: entry.Name,
-                            Percentage: 0,
-                            ProcessedFiles: extractedFiles
-                        ));
+                        while ((bytesRead = await entry.DataStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                        {
+                            await outFs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                            totalExtractedBytes += bytesRead;
+
+                            progress?.Report(new DomainProgressReport(
+                                ProcessedBytes: totalExtractedBytes,
+                                TotalBytes: -1,
+                                CurrentFileName: entry.Name,
+                                Percentage: 0,
+                                ProcessedFiles: extractedFiles
+                            ));
+                        }
                     }
-
-                    extractedFiles++;
                 }
+
+                extractedFiles++;
 
                 File.SetLastWriteTimeUtc(targetPath, entry.ModificationTime.UtcDateTime);
             }
