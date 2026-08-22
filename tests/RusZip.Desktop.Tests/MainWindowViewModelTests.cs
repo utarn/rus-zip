@@ -12,10 +12,16 @@ public class MainWindowViewModelTests
         public Exception? ExceptionToThrow { get; set; }
         public ArchiveCompressionRequest? LastCompressionRequest { get; private set; }
         public ArchiveExtractionRequest? LastExtractionRequest { get; private set; }
+        public Action? OnCompress { get; set; }
 
         public Task CompressAsync(ArchiveCompressionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
         {
+            if (ct.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(ct);
+            }
             if (ExceptionToThrow != null) throw ExceptionToThrow;
+            OnCompress?.Invoke();
             LastCompressionRequest = request;
             progress?.Report(new ProgressReport(100, 100, "compressing", 100.0, 1, 1));
             return Task.CompletedTask;
@@ -23,6 +29,10 @@ public class MainWindowViewModelTests
 
         public Task ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
         {
+            if (ct.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(ct);
+            }
             if (ExceptionToThrow != null) throw ExceptionToThrow;
             LastExtractionRequest = request;
             progress?.Report(new ProgressReport(100, 100, "extracting", 100.0, 1, 1));
@@ -163,11 +173,47 @@ public class MainWindowViewModelTests
             Assert.False(vm.HasOpenArchive);
             Assert.True(vm.IsCompressDialogVisible);
             Assert.Equal(tempFile, vm.Settings.SourcePath);
+            Assert.Equal(tempFile + ".zrus", vm.Settings.DestinationPath);
         }
         finally
         {
             if (File.Exists(tempFile)) File.Delete(tempFile);
         }
+    }
+
+    [Fact]
+    public async Task HandleDroppedPathsAsync_Directory_OpensCompressDialog()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine();
+            var vm = new MainWindowViewModel(fakeEngine);
+
+            await vm.HandleDroppedPathsAsync([tempDir]);
+
+            Assert.False(vm.HasOpenArchive);
+            Assert.True(vm.IsCompressDialogVisible);
+            Assert.Equal(tempDir, vm.Settings.SourcePath);
+            Assert.Equal(tempDir + ".zrus", vm.Settings.DestinationPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task HandleDroppedPathsAsync_EmptyList_DoesNothing()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+
+        await vm.HandleDroppedPathsAsync([]);
+
+        Assert.False(vm.HasOpenArchive);
+        Assert.False(vm.IsCompressDialogVisible);
     }
 
     [Fact]
@@ -188,6 +234,7 @@ public class MainWindowViewModelTests
 
             vm.Settings.SourcePath = tempDir;
             vm.Settings.DestinationPath = tempDest;
+            vm.Settings.CompressionLevel = 15;
             vm.IsCompressDialogVisible = true;
 
             await vm.ExecuteCompressAsync();
@@ -195,12 +242,74 @@ public class MainWindowViewModelTests
             Assert.NotNull(fakeEngine.LastCompressionRequest);
             Assert.Equal(tempDir, fakeEngine.LastCompressionRequest.SourcePath);
             Assert.Equal(tempDest, fakeEngine.LastCompressionRequest.DestinationArchivePath);
+            Assert.Equal(15, fakeEngine.LastCompressionRequest.CompressionLevel);
             Assert.False(vm.IsCompressDialogVisible);
             Assert.True(vm.HasOpenArchive);
         }
         finally
         {
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+            if (File.Exists(tempDest)) File.Delete(tempDest);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteCompressAsync_EmptySourceOrDest_DoesNotExecute()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+
+        vm.Settings.SourcePath = "";
+        vm.Settings.DestinationPath = "";
+
+        await vm.ExecuteCompressAsync();
+
+        Assert.Null(fakeEngine.LastCompressionRequest);
+    }
+
+    [Fact]
+    public async Task ExecuteCompressAsync_WhenEngineThrows_SetsStatusText()
+    {
+        var fakeEngine = new FakeArchiveEngine
+        {
+            ExceptionToThrow = new IOException("Disk full")
+        };
+        var vm = new MainWindowViewModel(fakeEngine);
+
+        vm.Settings.SourcePath = "/path/source";
+        vm.Settings.DestinationPath = "/path/dest.zrus";
+
+        await vm.ExecuteCompressAsync();
+
+        Assert.Contains("Compression failed: Disk full", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task ExecuteCompressAsync_WhenCancelled_SetsStatusTextAndCleansUpFile()
+    {
+        var tempDest = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.zrus");
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+
+        fakeEngine.OnCompress = () =>
+        {
+            File.WriteAllText(tempDest, "partially written file");
+            vm.Progress.CancelCommand.Execute(null);
+            throw new OperationCanceledException();
+        };
+
+        try
+        {
+            vm.Settings.SourcePath = "/path/source";
+            vm.Settings.DestinationPath = tempDest;
+
+            await vm.ExecuteCompressAsync();
+
+            Assert.Equal("Compression cancelled.", vm.StatusText);
+            Assert.False(File.Exists(tempDest));
+        }
+        finally
+        {
             if (File.Exists(tempDest)) File.Delete(tempDest);
         }
     }

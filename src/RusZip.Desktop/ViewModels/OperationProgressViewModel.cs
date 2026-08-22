@@ -30,11 +30,15 @@ public partial class OperationProgressViewModel : ObservableObject
         IsOperationRunning = true;
         ProgressPercentage = 0;
         StatusMessage = "Starting...";
+        SpeedFormatted = "-";
+        EtaFormatted = "-";
+        BytesProgressFormatted = "0 B / 0 B";
+        CurrentFileName = string.Empty;
         return _cts;
     }
 
     [RelayCommand]
-    private void Cancel()
+    public void Cancel()
     {
         if (_cts != null && !_cts.IsCancellationRequested)
         {
@@ -47,6 +51,7 @@ public partial class OperationProgressViewModel : ObservableObject
     {
         CurrentFileName = report.CurrentFileName ?? string.Empty;
         ProgressPercentage = report.Percentage;
+        IsIndeterminate = report.IsIndeterminate;
         BytesProgressFormatted = $"{FormatBytes(report.ProcessedBytes)} / {(report.TotalBytes > 0 ? FormatBytes(report.TotalBytes) : "...")}";
 
         if (_stopwatch != null && _stopwatch.ElapsedMilliseconds > 200 && report.ProcessedBytes > 0)
@@ -57,20 +62,35 @@ public partial class OperationProgressViewModel : ObservableObject
                 ? instantSpeed
                 : (_smoothedSpeedBytesPerSec * 0.7) + (instantSpeed * 0.3);
 
-            SpeedFormatted = $"{FormatBytes((long)_smoothedSpeedBytesPerSec)}/s";
+            SpeedFormatted = FormatSpeed(_smoothedSpeedBytesPerSec);
 
             if (_smoothedSpeedBytesPerSec > 1024 && report.TotalBytes > report.ProcessedBytes)
             {
                 long remainingBytes = report.TotalBytes - report.ProcessedBytes;
                 double secondsLeft = remainingBytes / _smoothedSpeedBytesPerSec;
-                var eta = TimeSpan.FromSeconds(Math.Min(secondsLeft, 86400));
-                EtaFormatted = eta.Hours > 0 ? eta.ToString(@"hh\:mm\:ss") : eta.ToString(@"mm\:ss");
+                EtaFormatted = FormatEta(TimeSpan.FromSeconds(Math.Min(secondsLeft, 86400)));
+            }
+            else if (report.TotalBytes > 0 && report.ProcessedBytes >= report.TotalBytes)
+            {
+                EtaFormatted = "00:00";
             }
             else
             {
                 EtaFormatted = "--:--";
             }
         }
+    }
+
+    public static string FormatSpeed(double bytesPerSec)
+    {
+        if (bytesPerSec <= 0) return "0 B/s";
+        return $"{FormatBytes((long)bytesPerSec)}/s";
+    }
+
+    public static string FormatEta(TimeSpan eta)
+    {
+        if (eta.TotalSeconds <= 0) return "00:00";
+        return eta.Hours > 0 ? eta.ToString(@"hh\:mm\:ss") : eta.ToString(@"mm\:ss");
     }
 
     public async Task FinishOperationAsync(bool success, string? message = null)
@@ -83,12 +103,13 @@ public partial class OperationProgressViewModel : ObservableObject
         _cts = null;
     }
 
-    private static string FormatBytes(long bytes)
+    public static string FormatBytes(long bytes)
     {
+        if (bytes <= 0) return "0 B";
         string[] suffixes = ["B", "KB", "MB", "GB", "TB"];
         int counter = 0;
         decimal number = bytes;
-        while (Math.Round(number / 1024) >= 1)
+        while (Math.Round(number / 1024) >= 1 && counter < suffixes.Length - 1)
         {
             number /= 1024;
             counter++;
