@@ -48,7 +48,7 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
         var destination = settings.DestinationPath ?? (source + ".zrus");
         destination = Path.GetFullPath(destination);
 
-        var compressionLevel = ResolveCompressionLevel(settings.Profile, settings.Level);
+        var compressionLevel = CompressionProfiles.ResolveLevel(settings.Profile, settings.Level);
         var request = new ArchiveCompressionRequest(source, destination, compressionLevel);
 
         var sw = Stopwatch.StartNew();
@@ -113,18 +113,5 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                 AnsiConsole.WriteException(ex);
             return 1;
         }
-    }
-
-    private static int ResolveCompressionLevel(string? profile, int? level)
-    {
-        if (level.HasValue) return level.Value;
-        return profile?.ToLowerInvariant() switch
-        {
-            "fast" => 3,
-            "balanced" => 9,
-            "high" => 15,
-            "ultra" => 22,
-            _ => 9
-        };
     }
 }

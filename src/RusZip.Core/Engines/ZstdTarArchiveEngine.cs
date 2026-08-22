@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Formats.Tar;
 using System.Security;
 using RusZip.Core.Abstractions;
@@ -17,8 +18,8 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(request.CompressionLevel, 1);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(request.CompressionLevel, 22);
+        ArgumentOutOfRangeException.ThrowIfLessThan(request.CompressionLevel, CompressionProfiles.MinLevel);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(request.CompressionLevel, CompressionProfiles.MaxLevel);
 
         var sourcePath = Path.GetFullPath(request.SourcePath);
         var isDir = Directory.Exists(sourcePath);
@@ -85,10 +86,14 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
 
                             if (fsi is DirectoryInfo dirInfo)
                             {
-                                var dirEntry = new PaxTarEntry(TarEntryType.Directory, relPath)
+                                var dirEntry = new PaxTarEntry(TarEntryType.Directory, relPath.TrimEnd('/') + "/")
                                 {
                                     ModificationTime = dirInfo.LastWriteTimeUtc
                                 };
+                                if (!OperatingSystem.IsWindows())
+                                {
+                                    dirEntry.Mode = dirInfo.UnixFileMode;
+                                }
                                 await tarWriter.WriteEntryAsync(dirEntry, ct);
                             }
                             else if (fsi is FileInfo fileInfo)
@@ -121,9 +126,12 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                                 var fileEntry = new PaxTarEntry(TarEntryType.RegularFile, relPath)
                                 {
                                     DataStream = trackingStream,
-                                    ModificationTime = fileInfo.LastWriteTimeUtc,
-                                    Mode = fileInfo.UnixFileMode
+                                    ModificationTime = fileInfo.LastWriteTimeUtc
                                 };
+                                if (!OperatingSystem.IsWindows())
+                                {
+                                    fileEntry.Mode = fileInfo.UnixFileMode;
+                                }
 
                                 await tarWriter.WriteEntryAsync(fileEntry, ct);
                                 Interlocked.Increment(ref processedFiles);
@@ -163,9 +171,12 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                         var fileEntry = new PaxTarEntry(TarEntryType.RegularFile, fileName)
                         {
                             DataStream = trackingStream,
-                            ModificationTime = fileInfo.LastWriteTimeUtc,
-                            Mode = fileInfo.UnixFileMode
+                            ModificationTime = fileInfo.LastWriteTimeUtc
                         };
+                        if (!OperatingSystem.IsWindows())
+                        {
+                            fileEntry.Mode = fileInfo.UnixFileMode;
+                        }
 
                         await tarWriter.WriteEntryAsync(fileEntry, ct);
                         Interlocked.Increment(ref processedFiles);
@@ -198,6 +209,10 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         var destinationDir = Path.GetFullPath(request.DestinationDirectory);
         Directory.CreateDirectory(destinationDir);
 
+        var normalizedDestDir = destinationDir.EndsWith(Path.DirectorySeparatorChar)
+            ? destinationDir
+            : destinationDir + Path.DirectorySeparatorChar;
+
         // Pre-scan uncompressed total size
         long totalBytes = 0;
         try
@@ -212,6 +227,9 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
 
         long totalExtractedBytes = 0;
         int extractedFiles = 0;
+        var extractedDirectories = new List<(string TargetPath, DateTimeOffset ModTime, UnixFileMode Mode)>();
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
 
         try
         {
@@ -231,8 +249,11 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             {
                 ct.ThrowIfCancellationRequested();
 
-                var targetPath = Path.GetFullPath(Path.Combine(destinationDir, entry.Name));
-                if (!targetPath.StartsWith(destinationDir, StringComparison.OrdinalIgnoreCase))
+                var entryName = entry.Name.Replace('\\', '/');
+                var targetPath = Path.GetFullPath(Path.Combine(destinationDir, entryName));
+
+                if (!targetPath.StartsWith(normalizedDestDir, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(targetPath, destinationDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
                 {
                     throw new SecurityException($"Malicious path traversal detected in archive entry: {entry.Name}");
                 }
@@ -240,6 +261,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                 if (entry.EntryType is TarEntryType.Directory)
                 {
                     Directory.CreateDirectory(targetPath);
+                    extractedDirectories.Add((targetPath, entry.ModificationTime, entry.Mode));
                     continue;
                 }
 
@@ -251,43 +273,70 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                         Directory.CreateDirectory(parentDir);
                     }
 
-                    if (entry.DataStream is not null)
+                    await using (var outFs = new FileStream(
+                        targetPath,
+                        request.Overwrite ? FileMode.Create : FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None,
+                        BufferSize,
+                        useAsync: true))
                     {
-                        await using var outFs = new FileStream(
-                            targetPath,
-                            request.Overwrite ? FileMode.Create : FileMode.CreateNew,
-                            FileAccess.Write,
-                            FileShare.None,
-                            BufferSize,
-                            useAsync: true);
-
-                        var buffer = new byte[BufferSize];
-                        int bytesRead;
-
-                        while ((bytesRead = await entry.DataStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                        if (entry.DataStream is not null)
                         {
-                            await outFs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                            totalExtractedBytes += bytesRead;
+                            int bytesRead;
+                            while ((bytesRead = await entry.DataStream.ReadAsync(buffer.AsMemory(0, BufferSize), ct)) > 0)
+                            {
+                                await outFs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                                totalExtractedBytes += bytesRead;
 
-                            progress?.Report(new ProgressReport(
-                                ProcessedBytes: totalExtractedBytes,
-                                TotalBytes: totalBytes,
-                                CurrentFileName: entry.Name,
-                                Percentage: totalBytes > 0 ? (double)totalExtractedBytes / totalBytes * 100.0 : 0,
-                                ProcessedFiles: extractedFiles
-                            ));
+                                progress?.Report(new ProgressReport(
+                                    ProcessedBytes: totalExtractedBytes,
+                                    TotalBytes: totalBytes,
+                                    CurrentFileName: entry.Name,
+                                    Percentage: totalBytes > 0 ? (double)totalExtractedBytes / totalBytes * 100.0 : 0,
+                                    ProcessedFiles: extractedFiles
+                                ));
+                            }
                         }
-
-                        extractedFiles++;
                     }
 
+                    extractedFiles++;
+
                     File.SetLastWriteTimeUtc(targetPath, entry.ModificationTime.UtcDateTime);
+                    if (!OperatingSystem.IsWindows() && entry.Mode != 0 && entry.Mode != (UnixFileMode)(-1))
+                    {
+                        File.SetUnixFileMode(targetPath, entry.Mode);
+                    }
+                }
+            }
+
+            // Restore directory modification times and permissions in bottom-up order
+            foreach (var dir in extractedDirectories.OrderByDescending(d => d.TargetPath.Length))
+            {
+                if (Directory.Exists(dir.TargetPath))
+                {
+                    try
+                    {
+                        Directory.SetLastWriteTimeUtc(dir.TargetPath, dir.ModTime.UtcDateTime);
+                        if (!OperatingSystem.IsWindows() && dir.Mode != 0 && dir.Mode != (UnixFileMode)(-1))
+                        {
+                            File.SetUnixFileMode(dir.TargetPath, dir.Mode);
+                        }
+                    }
+                    catch
+                    {
+                        // Best effort for directory timestamps/permissions
+                    }
                 }
             }
         }
-        catch (ZstdException ex)
+        catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
         {
             throw new InvalidDataException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", ex);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 
@@ -330,7 +379,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                 ));
             }
         }
-        catch (ZstdException ex)
+        catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
         {
             throw new InvalidDataException($"Zstandard frame error in '{fullPath}': {ex.Message}", ex);
         }
@@ -365,8 +414,30 @@ internal sealed class ProgressReportingStream(Stream innerStream, long length, A
         return read;
     }
 
+    public override int Read(Span<byte> buffer)
+    {
+        var read = innerStream.Read(buffer);
+        if (read > 0) onBytesRead(read);
+        return read;
+    }
+
     public override void Flush() => innerStream.Flush();
     public override long Seek(long offset, SeekOrigin origin) => innerStream.Seek(offset, origin);
     public override void SetLength(long value) => throw new NotSupportedException();
     public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            innerStream.Dispose();
+        }
+        base.Dispose(disposing);
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        await innerStream.DisposeAsync();
+        await base.DisposeAsync();
+    }
 }
