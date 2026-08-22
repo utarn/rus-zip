@@ -296,6 +296,156 @@ public class SharpCompressArchiveEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Zip_Compress_NonAsciiNames_SetEfsFlag_ThirdPartyReadable()
+    {
+        // F-12: CLI-written zips must set the language-encoding flag (bit 11 / 0x800) so third-party
+        // readers (python zipfile, unzip) decode non-ASCII names as UTF-8 instead of mojibake.
+        var sourceDir = Path.Combine(_testDir, "efs_src");
+        Directory.CreateDirectory(sourceDir);
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "файл_🎉.txt"), "content");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "ascii.txt"), "content");
+
+        var zipPath = Path.Combine(_testDir, "efs.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9));
+
+        var flags = ReadZipCentralDirectoryFlags(zipPath);
+        Assert.True(flags.ContainsKey("файл_🎉.txt"), "Archive must contain the non-ASCII entry name");
+        Assert.True((flags["файл_🎉.txt"] & 0x800) != 0, "EFS flag (bit 11) must be set for non-ASCII names");
+        Assert.True((flags["ascii.txt"] & 0x800) != 0, "EFS flag (bit 11) must be set for all names");
+    }
+
+    [Fact]
+    public async Task Zip_RoundTrip_ExecutableBit_Preserved()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var sourceDir = Path.Combine(_testDir, "exec_src");
+        Directory.CreateDirectory(sourceDir);
+        var execFile = Path.Combine(sourceDir, "run.sh");
+        await File.WriteAllTextAsync(execFile, "#!/bin/sh\necho hi\n");
+
+        var execMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                       UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                       UnixFileMode.OtherRead | UnixFileMode.OtherExecute; // 0755
+        File.SetUnixFileMode(execFile, execMode);
+
+        var zipPath = Path.Combine(_testDir, "exec.zip");
+        var extractDir = Path.Combine(_testDir, "exec_extracted");
+
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9));
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+
+        var extracted = Path.Combine(extractDir, "run.sh");
+        Assert.True(File.Exists(extracted));
+        Assert.Equal(execMode, File.GetUnixFileMode(extracted));
+    }
+
+    [Fact]
+    public async Task Zip_RoundTrip_RegularFileMode644_Preserved()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var sourceDir = Path.Combine(_testDir, "regular_src");
+        Directory.CreateDirectory(sourceDir);
+        var regularFile = Path.Combine(sourceDir, "data.txt");
+        await File.WriteAllTextAsync(regularFile, "plain data");
+
+        var regularMode = UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                          UnixFileMode.GroupRead | UnixFileMode.OtherRead; // 0644
+        File.SetUnixFileMode(regularFile, regularMode);
+
+        var zipPath = Path.Combine(_testDir, "regular.zip");
+        var extractDir = Path.Combine(_testDir, "regular_extracted");
+
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9));
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+
+        var extracted = Path.Combine(extractDir, "data.txt");
+        Assert.True(File.Exists(extracted));
+        Assert.Equal(regularMode, File.GetUnixFileMode(extracted));
+    }
+
+    [Fact]
+    public async Task Zip_Extract_PythonCraftedExecutable_RestoresMode()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        // A python zip created on Unix carries external_attr = (S_IFREG|0o755)<<16 and a Unix
+        // "version made by" byte. The reader must translate that into UnixMode for restoration (F-13).
+        var zipBytes = TestArchiveFixtures.BuildZipWithUnixMode("run.sh", "#!/bin/sh\n", 0x1ED); // 0o755
+        var zipPath = Path.Combine(_testDir, "python_exec.zip");
+        await File.WriteAllBytesAsync(zipPath, zipBytes);
+        var extractDir = Path.Combine(_testDir, "python_exec_extracted");
+
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+
+        var extracted = Path.Combine(extractDir, "run.sh");
+        Assert.True(File.Exists(extracted));
+        Assert.Equal("#!/bin/sh\n", await File.ReadAllTextAsync(extracted));
+
+        var execMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                       UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                       UnixFileMode.OtherRead | UnixFileMode.OtherExecute; // 0755
+        Assert.Equal(execMode, File.GetUnixFileMode(extracted));
+    }
+
+    [Fact]
+    public async Task Zip_Extract_ModeLessZip_UsesDefaultPermissions()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        // A Windows-created zip has DOS external attributes and a DOS "version made by" byte, so no
+        // POSIX mode must be applied — extraction succeeds with the process's default permissions.
+        var zipBytes = TestArchiveFixtures.BuildStoreZip(("win.txt", "win content"));
+        var zipPath = Path.Combine(_testDir, "modeless.zip");
+        await File.WriteAllBytesAsync(zipPath, zipBytes);
+        var extractDir = Path.Combine(_testDir, "modeless_extracted");
+
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+
+        var extracted = Path.Combine(extractDir, "win.txt");
+        Assert.True(File.Exists(extracted));
+        Assert.Equal("win content", await File.ReadAllTextAsync(extracted));
+
+        // No POSIX mode is stored, so extraction must leave the process's default permissions
+        // (umask-derived) intact — not a bogus value decoded from DOS attribute bits.
+        var mode = File.GetUnixFileMode(extracted);
+        Assert.True(mode.HasFlag(UnixFileMode.UserRead));
+        Assert.True(mode.HasFlag(UnixFileMode.UserWrite), "A Windows-created zip must extract writable by default");
+
+        var reference = Path.Combine(_testDir, "reference.txt");
+        await File.WriteAllTextAsync(reference, "ref");
+        Assert.Equal(File.GetUnixFileMode(reference), mode);
+    }
+
+    [Fact]
+    public async Task Zip_Extract_SharpCompressDosZip_DoesNotApplyBogusMode()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        // Pre-fix CLI zips (and other DOS-created zips) carry external_attr = 0x81000000 with a DOS
+        // "version made by" byte. Reading external_attr >> 16 without a create-system check would yield
+        // 0o400; the reader must reject it and fall back to default permissions.
+        var zipBytes = TestArchiveFixtures.BuildZipWithCentralDirectoryMetadata("sc.txt", "sc content", 0x002d, 0x81000000);
+        var zipPath = Path.Combine(_testDir, "sc_dos.zip");
+        await File.WriteAllBytesAsync(zipPath, zipBytes);
+        var extractDir = Path.Combine(_testDir, "sc_dos_extracted");
+
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+
+        var extracted = Path.Combine(extractDir, "sc.txt");
+        Assert.True(File.Exists(extracted));
+        var mode = File.GetUnixFileMode(extracted);
+        Assert.NotEqual((UnixFileMode)0x100, mode); // not 0o400
+        Assert.True(mode.HasFlag(UnixFileMode.UserWrite), "A Windows-created zip must extract writable by default");
+    }
+
+    [Fact]
     public async Task Zip_Compress_Cancellation_ThrowsOperationCanceledException()
     {
         var sourceDir = Path.Combine(_testDir, "cancel_zip_src");
@@ -806,5 +956,46 @@ public class SharpCompressArchiveEngineTests : IDisposable
     private sealed class SyncProgress<T>(Action<T> handler) : IProgress<T>
     {
         public void Report(T value) => handler(value);
+    }
+
+    /// <summary>
+    /// Parses the central directory of a zip and returns each entry name → its general-purpose flag
+    /// bits. Used to assert the UTF-8/Efs flag (bit 11 / 0x800) that third-party readers rely on.
+    /// </summary>
+    private static Dictionary<string, ushort> ReadZipCentralDirectoryFlags(string zipPath)
+    {
+        var bytes = File.ReadAllBytes(zipPath);
+        var result = new Dictionary<string, ushort>(StringComparer.Ordinal);
+
+        int eocd = -1;
+        for (int i = bytes.Length - 22; i >= 0; i--)
+        {
+            if (bytes[i] == 0x50 && bytes[i + 1] == 0x4B && bytes[i + 2] == 0x05 && bytes[i + 3] == 0x06)
+            {
+                eocd = i;
+                break;
+            }
+        }
+        if (eocd < 0)
+            return result;
+
+        int cdOffset = bytes[eocd + 16] | (bytes[eocd + 17] << 8) | (bytes[eocd + 18] << 16) | (bytes[eocd + 19] << 24);
+        int cdSize = bytes[eocd + 12] | (bytes[eocd + 13] << 8) | (bytes[eocd + 14] << 16) | (bytes[eocd + 15] << 24);
+
+        int pos = cdOffset;
+        int end = cdOffset + cdSize;
+        while (pos + 46 <= end &&
+               bytes[pos] == 0x50 && bytes[pos + 1] == 0x4B && bytes[pos + 2] == 0x01 && bytes[pos + 3] == 0x02)
+        {
+            ushort flags = (ushort)(bytes[pos + 8] | (bytes[pos + 9] << 8));
+            int nameLen = bytes[pos + 28] | (bytes[pos + 29] << 8);
+            int extraLen = bytes[pos + 30] | (bytes[pos + 31] << 8);
+            int commentLen = bytes[pos + 32] | (bytes[pos + 33] << 8);
+            string name = Encoding.UTF8.GetString(bytes, pos + 46, nameLen);
+            result[name] = flags;
+            pos += 46 + nameLen + extraLen + commentLen;
+        }
+
+        return result;
     }
 }
