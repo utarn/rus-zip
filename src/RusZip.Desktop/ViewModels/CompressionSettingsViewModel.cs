@@ -1,12 +1,14 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using RusZip.Core.Models;
 using RusZip.Desktop.Models;
 
 namespace RusZip.Desktop.ViewModels;
 
 public partial class CompressionSettingsViewModel : ObservableObject
 {
-    public static readonly IReadOnlyList<string> AvailableFormats = [".zrus", ".zip"];
+    public static readonly IReadOnlyList<string> AvailableFormats =
+        ArchiveFormatRegistry.CompressibleFormats.Select(f => f.PrimaryExtension).ToList();
 
     public static readonly IReadOnlyList<CompressionPreset> PresetProfiles =
     [

@@ -42,9 +42,10 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
             return 2;
         }
 
+        ArchiveFormatDescriptor formatDescriptor;
         try
         {
-            ArchiveFormatDetector.DetectFromPath(archivePath);
+            formatDescriptor = ArchiveFormatRegistry.Detect(archivePath);
         }
         catch (NotSupportedException ex)
         {
@@ -59,9 +60,7 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
         {
             var entries = await _engine.ListEntriesAsync(archivePath);
 
-            string formatStr = archivePath.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
-                ? "tar.gz"
-                : Path.GetExtension(archivePath).TrimStart('.').ToLowerInvariant();
+            string formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
 
             if (settings.Json)
             {

@@ -10,20 +10,9 @@ public partial class MainWindowViewModel : ObservableObject
 {
     private readonly IArchiveEngine _engine;
 
-    private static readonly HashSet<string> SupportedArchiveExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".zrus", ".zip", ".tar", ".gz", ".tgz", ".7z", ".rar", ".tar.gz"
-    };
+    public static IReadOnlyCollection<string> SupportedExtensions => ArchiveFormatRegistry.SupportedExtensions;
 
-    public static IReadOnlyCollection<string> SupportedExtensions => SupportedArchiveExtensions;
-
-    public static bool IsSupportedArchive(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return false;
-        if (path.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)) return true;
-        var ext = Path.GetExtension(path);
-        return !string.IsNullOrEmpty(ext) && SupportedArchiveExtensions.Contains(ext);
-    }
+    public static bool IsSupportedArchive(string? path) => ArchiveFormatRegistry.IsSupportedArchive(path);
 
     [ObservableProperty] private ArchiveBrowserViewModel _browser;
     [ObservableProperty] private CompressionSettingsViewModel _settings;

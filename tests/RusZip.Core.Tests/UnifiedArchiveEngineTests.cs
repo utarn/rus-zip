@@ -138,8 +138,8 @@ public class UnifiedArchiveEngineTests : IDisposable
     }
 
     [Fact]
-    public void ArchiveFormatDetector_UnknownExtension_ThrowsNotSupportedException()
+    public void ArchiveFormatRegistry_UnknownExtension_ThrowsNotSupportedException()
     {
-        Assert.Throws<NotSupportedException>(() => ArchiveFormatDetector.DetectFromPath("file.unknown_extension"));
+        Assert.Throws<NotSupportedException>(() => ArchiveFormatRegistry.Detect("file.unknown_extension"));
     }
 }

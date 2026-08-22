@@ -52,9 +52,19 @@ public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<Extract
             return 2;
         }
 
+        ArchiveFormatDescriptor formatDescriptor;
         try
         {
-            ArchiveFormatDetector.DetectFromPath(archivePath);
+            formatDescriptor = ArchiveFormatRegistry.Detect(archivePath);
+            if (!formatDescriptor.CanDecompress)
+            {
+                var errorMsg = $"Extraction of archive format '{formatDescriptor.Format}' is not supported.";
+                if (settings.Json)
+                    CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", errorMsg);
+                else
+                    AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(errorMsg)}");
+                return 2;
+            }
         }
         catch (NotSupportedException ex)
         {

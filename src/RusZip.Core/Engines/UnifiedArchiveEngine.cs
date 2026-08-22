@@ -19,12 +19,18 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default)
     {
-        var format = ArchiveFormatDetector.DetectFromPath(request.DestinationArchivePath);
-        return format switch
+        var descriptor = ArchiveFormatRegistry.Detect(request.DestinationArchivePath);
+        if (!descriptor.CanCompress)
+        {
+            var supportedCreationFormats = string.Join(", ", ArchiveFormatRegistry.CompressibleFormats.Select(f => f.PrimaryExtension));
+            throw new NotSupportedException($"Creation of '{descriptor.Format}' archive format is not supported. Supported creation formats: {supportedCreationFormats}");
+        }
+
+        return descriptor.Format switch
         {
             ArchiveFormat.Zrus => _zstdEngine.CompressAsync(request, progress, ct),
             ArchiveFormat.Zip => _sharpCompressEngine.CompressAsync(request, progress, ct),
-            _ => throw new NotSupportedException($"Creation of '{format}' archive format is not supported. Supported creation formats: .zrus, .zip")
+            _ => throw new NotSupportedException($"Creation of '{descriptor.Format}' archive format is not supported. Supported creation formats: {string.Join(", ", ArchiveFormatRegistry.CompressibleFormats.Select(f => f.PrimaryExtension))}")
         };
     }
 
@@ -33,8 +39,13 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default)
     {
-        var format = ArchiveFormatDetector.DetectFromPath(request.ArchivePath);
-        return format switch
+        var descriptor = ArchiveFormatRegistry.Detect(request.ArchivePath);
+        if (!descriptor.CanDecompress)
+        {
+            throw new NotSupportedException($"Extraction of '{descriptor.Format}' archive format is not supported.");
+        }
+
+        return descriptor.Format switch
         {
             ArchiveFormat.Zrus => _zstdEngine.ExtractAsync(request, progress, ct),
             _ => _sharpCompressEngine.ExtractAsync(request, progress, ct)
@@ -45,8 +56,8 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
         string archivePath,
         CancellationToken ct = default)
     {
-        var format = ArchiveFormatDetector.DetectFromPath(archivePath);
-        return format switch
+        var descriptor = ArchiveFormatRegistry.Detect(archivePath);
+        return descriptor.Format switch
         {
             ArchiveFormat.Zrus => _zstdEngine.ListEntriesAsync(archivePath, ct),
             _ => _sharpCompressEngine.ListEntriesAsync(archivePath, ct)

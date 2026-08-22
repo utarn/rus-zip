@@ -187,7 +187,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         var destDir = Path.GetFullPath(request.DestinationDirectory);
         Directory.CreateDirectory(destDir);
 
-        var format = ArchiveFormatDetector.DetectFromPath(archivePath);
+        var format = ArchiveFormatRegistry.Detect(archivePath).Format;
 
         if (format == ArchiveFormat.TarGz)
         {
@@ -290,7 +290,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             throw new FileNotFoundException($"Archive not found: {fullPath}");
         }
 
-        var format = ArchiveFormatDetector.DetectFromPath(fullPath);
+        var format = ArchiveFormatRegistry.Detect(fullPath).Format;
 
         if (format == ArchiveFormat.TarGz)
         {

@@ -82,15 +82,18 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
         var destination = settings.DestinationPath ?? (source + ".zrus");
         destination = Path.GetFullPath(destination);
 
+        ArchiveFormatDescriptor formatDescriptor;
         try
         {
-            var format = ArchiveFormatDetector.DetectFromPath(destination);
-            if (format is not (ArchiveFormat.Zrus or ArchiveFormat.Zip))
+            formatDescriptor = ArchiveFormatRegistry.Detect(destination);
+            if (!formatDescriptor.CanCompress)
             {
+                var supportedCreationFormats = string.Join(", ", ArchiveFormatRegistry.CompressibleFormats.Select(f => f.PrimaryExtension));
+                var errorMsg = $"Creation of archive format '{formatDescriptor.Format}' is not supported. Supported creation formats: {supportedCreationFormats}";
                 if (settings.Json)
-                    CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", $"Creation of archive format '{format}' is not supported. Supported creation formats: .zrus, .zip");
+                    CliJsonSerializer.EmitError("UNSUPPORTED_FORMAT", errorMsg);
                 else
-                    AnsiConsole.MarkupLine($"[red]Error:[/] Creation of archive format '{format}' is not supported. Supported creation formats: .zrus, .zip");
+                    AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(errorMsg)}");
                 return 2;
             }
         }
@@ -128,9 +131,7 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
 
             double ratio = uncompressedSize > 0 ? (double)destInfo.Length / uncompressedSize : 1.0;
 
-            string formatStr = destination.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
-                ? "tar.gz"
-                : Path.GetExtension(destination).TrimStart('.').ToLowerInvariant();
+            string formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
 
             if (settings.Json)
             {

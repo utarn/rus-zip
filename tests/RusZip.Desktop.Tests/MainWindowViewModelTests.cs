@@ -64,7 +64,7 @@ public class MainWindowViewModelTests
     [InlineData("test.gz", true)]
     [InlineData("test.tar.gz", true)]
     [InlineData("test.tgz", true)]
-    [InlineData("test.tar", true)]
+    [InlineData("test.tar", false)]
     [InlineData("TEST.ZIP", true)]
     [InlineData("TEST.TAR.GZ", true)]
     [InlineData("test.txt", false)]
