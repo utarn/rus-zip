@@ -37,6 +37,13 @@ public class MainWindowViewModelTests
             return Task.CompletedTask;
         }
 
+        public ArchiveAppendRequest? LastAppendRequest { get; private set; }
+        public ArchiveDeleteRequest? LastDeleteRequest { get; private set; }
+        public Action? OnAppend { get; set; }
+        public Action? OnDelete { get; set; }
+        public AppendResult? AppendResultToReturn { get; set; }
+        public ArchiveDeleteResult? DeleteResultToReturn { get; set; }
+
         public Task<AppendResult> AppendAsync(ArchiveAppendRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
         {
             if (ct.IsCancellationRequested)
@@ -44,7 +51,10 @@ public class MainWindowViewModelTests
                 throw new OperationCanceledException(ct);
             }
             if (ExceptionToThrow != null) throw ExceptionToThrow;
-            return Task.FromResult(new AppendResult(true, request.ArchivePath, "zrus", 0, 0, 0, 0, 0, 0, 0, 1.0, 0));
+            LastAppendRequest = request;
+            OnAppend?.Invoke();
+            progress?.Report(new ProgressReport(100, 100, "appending", 100.0, 1, 1));
+            return Task.FromResult(AppendResultToReturn ?? new AppendResult(true, request.ArchivePath, "zrus", request.SourcePaths.Count, 0, 0, 0, request.SourcePaths.Count, 100, 50, 2.0, 10));
         }
 
         public Task<ArchiveDeleteResult> DeleteEntriesAsync(ArchiveDeleteRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
@@ -54,7 +64,10 @@ public class MainWindowViewModelTests
                 throw new OperationCanceledException(ct);
             }
             if (ExceptionToThrow != null) throw ExceptionToThrow;
-            return Task.FromResult(new ArchiveDeleteResult(true, request.ArchivePath, 0, 0, 0, 0, 0));
+            LastDeleteRequest = request;
+            OnDelete?.Invoke();
+            progress?.Report(new ProgressReport(100, 100, "deleting", 100.0, 1, 1));
+            return Task.FromResult(DeleteResultToReturn ?? new ArchiveDeleteResult(true, request.ArchivePath, request.EntryPaths.Count, 0, 100, 50, 10));
         }
 
         public Task<ExtractionResult> ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
@@ -1073,6 +1086,317 @@ public class MainWindowViewModelTests
         finally
         {
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Theory]
+    [InlineData("test.zrus", true)]
+    [InlineData("test.zip", true)]
+    [InlineData("test.tar.zstd", true)]
+    [InlineData("test.tzstd", true)]
+    [InlineData("test.rar", false)]
+    [InlineData("test.7z", false)]
+    [InlineData("test.gz", false)]
+    [InlineData("test.tar.gz", false)]
+    [InlineData("test.tgz", false)]
+    [InlineData("test.zst", false)]
+    public async Task CanAppendToArchive_ReflectsOpenArchiveMutablility(string archiveName, bool expectedCanAppend)
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), "append_gate_" + Guid.NewGuid().ToString("N") + "_" + archiveName);
+        File.WriteAllBytes(tempFile, [0x01]);
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine();
+            var vm = new MainWindowViewModel(fakeEngine);
+
+            Assert.False(vm.CanAppendToArchive);
+
+            await vm.OpenArchiveAsync(tempFile);
+            Assert.Equal(expectedCanAppend, vm.CanAppendToArchive);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task CanDeleteFromArchive_GatedOnOpenArchiveCanCompressAndSelection()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), "del_gate_" + Guid.NewGuid().ToString("N") + ".zrus");
+        File.WriteAllBytes(tempFile, [0x01]);
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine
+            {
+                EntriesToReturn = [new ArchiveEntry("file1.txt", 100, 50, null, false)]
+            };
+            var vm = new MainWindowViewModel(fakeEngine);
+
+            Assert.False(vm.CanDeleteFromArchive);
+
+            await vm.OpenArchiveAsync(tempFile);
+            Assert.True(vm.HasOpenArchive);
+            Assert.False(vm.CanDeleteFromArchive); // no item selected yet
+
+            var item = vm.Browser.FindItemByPath("file1.txt");
+            Assert.NotNull(item);
+            vm.Browser.SelectedItem = item;
+            Assert.True(vm.CanDeleteFromArchive);
+
+            // Clearing selection
+            vm.Browser.SelectedItem = null;
+            Assert.False(vm.CanDeleteFromArchive);
+
+            // Multi-selection
+            vm.Browser.SetSelectedItems([item]);
+            Assert.True(vm.CanDeleteFromArchive);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task AppendFilesCommand_WhenPathsProvided_CallsEngineAppendAndRefreshesArchive()
+    {
+        var tempArchive = Path.Combine(Path.GetTempPath(), "test_append_" + Guid.NewGuid().ToString("N") + ".zrus");
+        var tempFile = Path.Combine(Path.GetTempPath(), "file_to_add_" + Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllBytes(tempArchive, [0x01]);
+        File.WriteAllText(tempFile, "hello");
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine
+            {
+                EntriesToReturn = [new ArchiveEntry("existing.txt", 10, 5, null, false)]
+            };
+            var vm = new MainWindowViewModel(fakeEngine);
+            await vm.OpenArchiveAsync(tempArchive);
+
+            vm.RequestAppendSourcePaths = () => Task.FromResult<IReadOnlyList<string>?>([tempFile]);
+
+            // Update EntriesToReturn so refresh reflects new file
+            fakeEngine.OnAppend = () =>
+            {
+                fakeEngine.EntriesToReturn =
+                [
+                    new ArchiveEntry("existing.txt", 10, 5, null, false),
+                    new ArchiveEntry("file_to_add.txt", 5, 5, null, false)
+                ];
+            };
+
+            await vm.AppendFilesCommand.ExecuteAsync(null);
+
+            Assert.NotNull(fakeEngine.LastAppendRequest);
+            Assert.Equal(tempArchive, fakeEngine.LastAppendRequest.ArchivePath);
+            Assert.Single(fakeEngine.LastAppendRequest.SourcePaths);
+            Assert.Equal(tempFile, fakeEngine.LastAppendRequest.SourcePaths[0]);
+
+            // Archive tree refreshed
+            Assert.Equal(2, vm.Browser.TotalEntries);
+            Assert.Contains("Added 1 file", vm.StatusText);
+        }
+        finally
+        {
+            if (File.Exists(tempArchive)) File.Delete(tempArchive);
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task AppendFilesCommand_WhenPickerCancelled_DoesNotCallEngine()
+    {
+        var tempArchive = Path.Combine(Path.GetTempPath(), "test_append_cancel_" + Guid.NewGuid().ToString("N") + ".zrus");
+        File.WriteAllBytes(tempArchive, [0x01]);
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine();
+            var vm = new MainWindowViewModel(fakeEngine);
+            await vm.OpenArchiveAsync(tempArchive);
+
+            vm.RequestAppendSourcePaths = () => Task.FromResult<IReadOnlyList<string>?>(null);
+
+            await vm.AppendFilesCommand.ExecuteAsync(null);
+
+            Assert.Null(fakeEngine.LastAppendRequest);
+        }
+        finally
+        {
+            if (File.Exists(tempArchive)) File.Delete(tempArchive);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteSelectedCommand_WhenConfirmed_CallsEngineDeleteAndRefreshesArchive()
+    {
+        var tempArchive = Path.Combine(Path.GetTempPath(), "test_del_" + Guid.NewGuid().ToString("N") + ".zip");
+        File.WriteAllBytes(tempArchive, [0x01]);
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine
+            {
+                EntriesToReturn =
+                [
+                    new ArchiveEntry("fileA.txt", 100, 50, null, false),
+                    new ArchiveEntry("fileB.txt", 200, 100, null, false)
+                ]
+            };
+            var vm = new MainWindowViewModel(fakeEngine);
+            await vm.OpenArchiveAsync(tempArchive);
+
+            var itemA = vm.Browser.FindItemByPath("fileA.txt")!;
+            vm.Browser.SelectedItem = itemA;
+
+            int confirmedCount = 0;
+            IReadOnlyList<string>? confirmedPaths = null;
+            vm.ConfirmDeleteAsync = (count, paths) =>
+            {
+                confirmedCount = count;
+                confirmedPaths = paths;
+                return Task.FromResult(true);
+            };
+
+            fakeEngine.OnDelete = () =>
+            {
+                fakeEngine.EntriesToReturn = [new ArchiveEntry("fileB.txt", 200, 100, null, false)];
+            };
+
+            await vm.DeleteSelectedCommand.ExecuteAsync(null);
+
+            Assert.Equal(1, confirmedCount);
+            Assert.NotNull(confirmedPaths);
+            Assert.Equal("fileA.txt", confirmedPaths[0]);
+
+            Assert.NotNull(fakeEngine.LastDeleteRequest);
+            Assert.Equal(tempArchive, fakeEngine.LastDeleteRequest.ArchivePath);
+            Assert.Single(fakeEngine.LastDeleteRequest.EntryPaths);
+            Assert.Equal("fileA.txt", fakeEngine.LastDeleteRequest.EntryPaths[0]);
+
+            // Archive tree refreshed
+            Assert.Equal(1, vm.Browser.TotalEntries);
+            Assert.Contains("Deleted 1 entry", vm.StatusText);
+        }
+        finally
+        {
+            if (File.Exists(tempArchive)) File.Delete(tempArchive);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteSelectedCommand_WhenCancelled_DoesNotCallEngine()
+    {
+        var tempArchive = Path.Combine(Path.GetTempPath(), "test_del_cancel_" + Guid.NewGuid().ToString("N") + ".zip");
+        File.WriteAllBytes(tempArchive, [0x01]);
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine
+            {
+                EntriesToReturn = [new ArchiveEntry("fileA.txt", 100, 50, null, false)]
+            };
+            var vm = new MainWindowViewModel(fakeEngine);
+            await vm.OpenArchiveAsync(tempArchive);
+
+            var itemA = vm.Browser.FindItemByPath("fileA.txt")!;
+            vm.Browser.SelectedItem = itemA;
+
+            vm.ConfirmDeleteAsync = (count, paths) => Task.FromResult(false);
+
+            await vm.DeleteSelectedCommand.ExecuteAsync(null);
+
+            Assert.Null(fakeEngine.LastDeleteRequest);
+        }
+        finally
+        {
+            if (File.Exists(tempArchive)) File.Delete(tempArchive);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAppendAsync_OnReadOnlyArchive_RejectsWithoutCallingEngine()
+    {
+        var tempArchive = Path.Combine(Path.GetTempPath(), "test_readonly_" + Guid.NewGuid().ToString("N") + ".7z");
+        File.WriteAllBytes(tempArchive, [0x01]);
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine();
+            var vm = new MainWindowViewModel(fakeEngine);
+            await vm.OpenArchiveAsync(tempArchive);
+
+            await vm.ExecuteAppendAsync(["foo.txt"]);
+
+            Assert.Null(fakeEngine.LastAppendRequest);
+            Assert.Contains("not supported", vm.StatusText);
+        }
+        finally
+        {
+            if (File.Exists(tempArchive)) File.Delete(tempArchive);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteDeleteEntriesAsync_OnReadOnlyArchive_RejectsWithoutCallingEngine()
+    {
+        var tempArchive = Path.Combine(Path.GetTempPath(), "test_readonly_del_" + Guid.NewGuid().ToString("N") + ".7z");
+        File.WriteAllBytes(tempArchive, [0x01]);
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine();
+            var vm = new MainWindowViewModel(fakeEngine);
+            await vm.OpenArchiveAsync(tempArchive);
+
+            await vm.ExecuteDeleteEntriesAsync(["foo.txt"]);
+
+            Assert.Null(fakeEngine.LastDeleteRequest);
+            Assert.Contains("not supported", vm.StatusText);
+        }
+        finally
+        {
+            if (File.Exists(tempArchive)) File.Delete(tempArchive);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteExtractItemsAsync_CallsEngineExtractWithEntryFilter()
+    {
+        var tempArchive = Path.Combine(Path.GetTempPath(), "test_extract_items_" + Guid.NewGuid().ToString("N") + ".zrus");
+        File.WriteAllBytes(tempArchive, [0x01]);
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine
+            {
+                EntriesToReturn =
+                [
+                    new ArchiveEntry("a.txt", 10, 5, null, false),
+                    new ArchiveEntry("b.txt", 20, 10, null, false)
+                ]
+            };
+            var vm = new MainWindowViewModel(fakeEngine);
+            await vm.OpenArchiveAsync(tempArchive);
+
+            var itemA = vm.Browser.FindItemByPath("a.txt")!;
+            var itemB = vm.Browser.FindItemByPath("b.txt")!;
+
+            await vm.ExecuteExtractItemsAsync([itemA, itemB], "/tmp/extracted");
+
+            Assert.NotNull(fakeEngine.LastExtractionRequest);
+            Assert.Equal(tempArchive, fakeEngine.LastExtractionRequest.ArchivePath);
+            Assert.Equal("/tmp/extracted", fakeEngine.LastExtractionRequest.DestinationDirectory);
+            Assert.NotNull(fakeEngine.LastExtractionRequest.Entries);
+            Assert.Equal(2, fakeEngine.LastExtractionRequest.Entries.Count);
+            Assert.Contains("a.txt", fakeEngine.LastExtractionRequest.Entries);
+            Assert.Contains("b.txt", fakeEngine.LastExtractionRequest.Entries);
+        }
+        finally
+        {
+            if (File.Exists(tempArchive)) File.Delete(tempArchive);
         }
     }
 }

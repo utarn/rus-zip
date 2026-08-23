@@ -1,0 +1,83 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RusZip.Desktop.ViewModels"
+        x:Class="RusZip.Desktop.Views.DeleteConfirmationDialog"
+        x:DataType="vm:DeleteConfirmationViewModel"
+        Title="Confirm Deletion - rus-zip"
+        Width="480" Height="320"
+        MinWidth="420" MinHeight="260"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="40"
+        WindowDecorations="Full"
+        Background="Transparent">
+
+    <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource SolidBackgroundFillColorBase}">
+        <!-- Custom Title Bar Area -->
+        <Border Grid.Row="0"
+                Background="{DynamicResource CardBackgroundFillColorDefault}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="0,0,0,1"
+                Padding="16,10">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Data="{StaticResource Icon.Alert}"
+                          Width="18" Height="18"
+                          Foreground="{DynamicResource SystemFillColorCritical}" />
+                <TextBlock Text="Delete Confirmation"
+                           FontWeight="SemiBold"
+                           FontSize="14"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <!-- Content Area -->
+        <Grid Grid.Row="1" RowDefinitions="Auto,*" Margin="20,16">
+            <TextBlock Grid.Row="0"
+                       Text="{Binding Message}"
+                       TextWrapping="Wrap"
+                       FontSize="13"
+                       Margin="0,0,0,12" />
+
+            <!-- Items preview -->
+            <Border Grid.Row="1"
+                    Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                    BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="8">
+                <ScrollViewer>
+                    <ItemsControl ItemsSource="{Binding EntryPaths}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="x:String">
+                                <StackPanel Orientation="Horizontal" Spacing="6" Margin="4,2">
+                                    <PathIcon Data="{StaticResource Icon.FileGeneric}" Width="12" Height="12" Foreground="{DynamicResource TextFillColorTertiary}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- Actions Toolbar -->
+        <Border Grid.Row="2"
+                Background="{DynamicResource CardBackgroundFillColorDefault}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="0,1,0,0"
+                Padding="16,12">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                <Button Command="{Binding CancelCommand}"
+                        Content="Cancel"
+                        Padding="16,7"
+                        CornerRadius="6" />
+                <Button Command="{Binding ConfirmCommand}"
+                        Content="Delete"
+                        Classes="accent"
+                        Padding="20,7"
+                        CornerRadius="6" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

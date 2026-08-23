@@ -49,6 +49,24 @@
                         </StackPanel>
                     </Button>
 
+                    <Button Command="{Binding AppendFilesCommand}"
+                            IsEnabled="{Binding CanAppendToArchive}"
+                            Padding="12,8">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource Icon.NewArchive}" Width="16" Height="16" />
+                            <TextBlock Text="Add to Archive" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+
+                    <Button Command="{Binding DeleteSelectedCommand}"
+                            IsEnabled="{Binding CanDeleteFromArchive}"
+                            Padding="12,8">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource Icon.Close}" Width="16" Height="16" />
+                            <TextBlock Text="Delete Selected" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+
                     <Button Command="{Binding CloseArchiveCommand}"
                             IsEnabled="{Binding HasOpenArchive}"
                             Padding="12,8">

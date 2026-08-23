@@ -2,6 +2,8 @@ using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Controls.DataGridHierarchical;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.LogicalTree;
 using RusZip.Core.Models;
 using RusZip.Desktop.ViewModels;
 using RusZip.Desktop.Views;
@@ -185,21 +187,25 @@ public class ArchiveBrowserViewModelTests
         Assert.NotNull(menu);
 
         var menuItems = menu.Items.OfType<MenuItem>().ToList();
-        Assert.Equal(2, menuItems.Count);
+        Assert.Equal(4, menuItems.Count);
 
         // Simulate a right-click on row B: every item receives B as CommandParameter (F-40).
         var itemB = browser.FindItemByPath("fileB.txt")!;
         view.SetContextMenuTarget(itemB);
 
-        Assert.Same(itemB, menuItems[0].CommandParameter);
-        Assert.Same(itemB, menuItems[1].CommandParameter);
+        foreach (var item in menuItems)
+        {
+            Assert.Same(itemB, item.CommandParameter);
+        }
 
         // Keyboard invocation (no pointer target) falls back to the selected row.
         browser.SelectedItem = browser.FindItemByPath("fileA.txt");
         view.SetContextMenuTarget(null);
         view.ApplyContextMenuFallbackToSelection();
-        Assert.Same(browser.SelectedItem, menuItems[0].CommandParameter);
-        Assert.Same(browser.SelectedItem, menuItems[1].CommandParameter);
+        foreach (var item in menuItems)
+        {
+            Assert.Same(browser.SelectedItem, item.CommandParameter);
+        }
     }
 
     [Fact]
@@ -1286,5 +1292,245 @@ public class ArchiveBrowserViewModelTests
         Assert.Equal(2, browser.Breadcrumbs.Count);
         Assert.Equal("folder", browser.Breadcrumbs[1].Name);
         Assert.True(browser.Breadcrumbs[1].IsLast);
+    }
+
+    [Theory]
+    [InlineData("archive.zrus", true)]
+    [InlineData("archive.zip", true)]
+    [InlineData("archive.tar.zstd", true)]
+    [InlineData("archive.tzstd", true)]
+    [InlineData("archive.rar", false)]
+    [InlineData("archive.7z", false)]
+    [InlineData("archive.gz", false)]
+    [InlineData("archive.tar.gz", false)]
+    [InlineData("archive.tgz", false)]
+    [InlineData("archive.zst", false)]
+    public void CanCompress_SetBasedOnArchiveFormat(string archivePath, bool expectedCanCompress)
+    {
+        var browser = new ArchiveBrowserViewModel();
+        browser.LoadEntries(archivePath, [new ArchiveEntry("file.txt", 10, 5, null, false)]);
+
+        Assert.Equal(expectedCanCompress, browser.CanCompress);
+    }
+
+    [Fact]
+    public void SetSelectedItems_UpdatesSelectedItemsAndCommandStates()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        browser.LoadEntries("test.zrus",
+        [
+            new ArchiveEntry("a.txt", 10, 5, null, false),
+            new ArchiveEntry("b.txt", 20, 10, null, false)
+        ]);
+
+        var itemA = browser.FindItemByPath("a.txt")!;
+        var itemB = browser.FindItemByPath("b.txt")!;
+
+        Assert.Empty(browser.SelectedItems);
+        Assert.False(browser.DeleteSelectedCommand.CanExecute(null));
+
+        browser.SetSelectedItems([itemA, itemB]);
+
+        Assert.Equal(2, browser.SelectedItems.Count);
+        Assert.Contains(itemA, browser.SelectedItems);
+        Assert.Contains(itemB, browser.SelectedItems);
+        Assert.True(browser.DeleteSelectedCommand.CanExecute(null));
+
+        var effective = browser.GetEffectiveSelectedItems();
+        Assert.Equal(2, effective.Count);
+    }
+
+    [Fact]
+    public async Task AppendFilesCommand_WhenExecuted_InvokesAppendRequested()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        browser.LoadEntries("test.zrus", [new ArchiveEntry("file.txt", 10, 5, null, false)]);
+
+        bool appendRequested = false;
+        browser.AppendRequested += () =>
+        {
+            appendRequested = true;
+            return Task.CompletedTask;
+        };
+
+        Assert.True(browser.CanExecuteAppend());
+        await browser.AppendFilesCommand.ExecuteAsync(null);
+
+        Assert.True(appendRequested);
+    }
+
+    [Fact]
+    public void DeleteSelectedCommand_CanExecute_GatedOnCanCompressAndSelection()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        browser.LoadEntries("read_only.7z", [new ArchiveEntry("file.txt", 10, 5, null, false)]);
+
+        var item = browser.FindItemByPath("file.txt")!;
+        browser.SelectedItem = item;
+
+        Assert.False(browser.CanCompress);
+        Assert.False(browser.DeleteSelectedCommand.CanExecute(null));
+        Assert.False(browser.DeleteSelectedCommand.CanExecute(item));
+
+        // Now test mutable format
+        browser.LoadEntries("mutable.zip", [new ArchiveEntry("file.txt", 10, 5, null, false)]);
+        Assert.True(browser.CanCompress);
+        Assert.False(browser.DeleteSelectedCommand.CanExecute(null)); // no item selected yet
+
+        var zipItem = browser.FindItemByPath("file.txt")!;
+        browser.SelectedItem = zipItem;
+        Assert.True(browser.DeleteSelectedCommand.CanExecute(null));
+        Assert.True(browser.DeleteSelectedCommand.CanExecute(zipItem));
+    }
+
+    [Fact]
+    public async Task DeleteSelectedCommand_WithConfirmation_Confirmed_InvokesDeleteRequested()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        browser.LoadEntries("test.zrus",
+        [
+            new ArchiveEntry("a.txt", 10, 5, null, false),
+            new ArchiveEntry("b.txt", 20, 10, null, false)
+        ]);
+
+        var itemA = browser.FindItemByPath("a.txt")!;
+        var itemB = browser.FindItemByPath("b.txt")!;
+        browser.SetSelectedItems([itemA, itemB]);
+
+        int confirmedCount = 0;
+        IReadOnlyList<string>? confirmedPaths = null;
+        browser.ConfirmDeleteAsync = (count, paths) =>
+        {
+            confirmedCount = count;
+            confirmedPaths = paths;
+            return Task.FromResult(true);
+        };
+
+        IReadOnlyList<ArchiveItemViewModel>? deletedItems = null;
+        browser.DeleteRequested += items =>
+        {
+            deletedItems = items;
+            return Task.CompletedTask;
+        };
+
+        await browser.DeleteSelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, confirmedCount);
+        Assert.NotNull(confirmedPaths);
+        Assert.Equal(2, confirmedPaths.Count);
+        Assert.NotNull(deletedItems);
+        Assert.Equal(2, deletedItems.Count);
+    }
+
+    [Fact]
+    public async Task DeleteSelectedCommand_WithConfirmation_Cancelled_DoesNotInvokeDeleteRequested()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        browser.LoadEntries("test.zrus", [new ArchiveEntry("a.txt", 10, 5, null, false)]);
+
+        var itemA = browser.FindItemByPath("a.txt")!;
+        browser.SelectedItem = itemA;
+
+        browser.ConfirmDeleteAsync = (count, paths) => Task.FromResult(false);
+
+        bool deleteRequested = false;
+        browser.DeleteRequested += _ =>
+        {
+            deleteRequested = true;
+            return Task.CompletedTask;
+        };
+
+        await browser.DeleteSelectedCommand.ExecuteAsync(null);
+
+        Assert.False(deleteRequested);
+    }
+
+    [Fact]
+    public async Task ExtractSelectedItemCommand_MultipleItemsSelected_InvokesExtractItemsRequested()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        browser.LoadEntries("test.zip",
+        [
+            new ArchiveEntry("a.txt", 10, 5, null, false),
+            new ArchiveEntry("b.txt", 20, 10, null, false)
+        ]);
+
+        var itemA = browser.FindItemByPath("a.txt")!;
+        var itemB = browser.FindItemByPath("b.txt")!;
+        browser.SetSelectedItems([itemA, itemB]);
+
+        IReadOnlyList<ArchiveItemViewModel>? extractedItems = null;
+        browser.ExtractItemsRequested += items =>
+        {
+            extractedItems = items;
+            return Task.CompletedTask;
+        };
+
+        await browser.ExtractSelectedItemCommand.ExecuteAsync(null);
+
+        Assert.NotNull(extractedItems);
+        Assert.Equal(2, extractedItems.Count);
+    }
+
+    [AvaloniaFact]
+    public void ArchiveGrid_SelectionMode_ConfiguredAsExtended()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var view = new ArchiveBrowserView { DataContext = browser };
+        var grid = view.FindControl<DataGrid>("ArchiveGrid");
+        Assert.NotNull(grid);
+        Assert.Equal(DataGridSelectionMode.Extended, grid.SelectionMode);
+    }
+
+    [AvaloniaFact]
+    public void ArchiveBrowserView_Toolbar_ContainsAppendAndDeleteButtons()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        var view = new ArchiveBrowserView { DataContext = browser };
+
+        var buttons = view.GetLogicalDescendants()
+            .OfType<Button>()
+            .ToList();
+
+        var appendBtn = buttons.FirstOrDefault(b => b.Command == browser.AppendFilesCommand);
+        Assert.NotNull(appendBtn);
+
+        var deleteBtn = buttons.FirstOrDefault(b => b.Command == browser.DeleteSelectedCommand);
+        Assert.NotNull(deleteBtn);
+    }
+
+    [AvaloniaFact]
+    public void KeyboardShortcut_Delete_InvokesDeleteSelectedCommand()
+    {
+        var browser = new ArchiveBrowserViewModel();
+        browser.LoadEntries("test.zrus",
+        [
+            new ArchiveEntry("a.txt", 10, 5, null, false),
+            new ArchiveEntry("b.txt", 20, 10, null, false)
+        ]);
+
+        var itemA = browser.FindItemByPath("a.txt")!;
+        browser.SelectedItem = itemA;
+
+        bool deleteRequested = false;
+        browser.DeleteRequested += _ =>
+        {
+            deleteRequested = true;
+            return Task.CompletedTask;
+        };
+
+        var view = new ArchiveBrowserView { DataContext = browser };
+        var grid = view.FindControl<DataGrid>("ArchiveGrid");
+        Assert.NotNull(grid);
+
+        var keyEventArgs = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.Delete
+        };
+        grid.RaiseEvent(keyEventArgs);
+
+        Assert.True(keyEventArgs.Handled);
+        Assert.True(deleteRequested);
     }
 }
