@@ -530,14 +530,71 @@ public partial class CompressionSettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public void RemoveSelected(StagedSourceItemViewModel? item = null)
+    public void RemoveSelected(object? parameter = null)
     {
-        var target = item ?? SelectedItem;
-        if (target == null)
+        if (parameter is IEnumerable<StagedSourceItemViewModel> items)
         {
+            RemoveSelectedItems(items);
             return;
         }
 
+        if (parameter is StagedSourceItemViewModel single)
+        {
+            RemoveSingleItem(single);
+            return;
+        }
+
+        if (SelectedItem != null)
+        {
+            RemoveSingleItem(SelectedItem);
+        }
+    }
+
+    public void RemoveSelectedItems(IEnumerable<StagedSourceItemViewModel> items)
+    {
+        var list = items.ToList();
+        if (list.Count == 0) return;
+
+        bool rootsRemoved = false;
+        foreach (var target in list)
+        {
+            if (target.Parent == null)
+            {
+                UnhookItem(target);
+                StagedItems.Remove(target);
+                if (ReferenceEquals(SelectedItem, target))
+                {
+                    SelectedItem = null;
+                }
+                rootsRemoved = true;
+            }
+            else
+            {
+                target.SetExcluded(true);
+            }
+        }
+
+        if (rootsRemoved)
+        {
+            _isInternalSourcePathSync = true;
+            try
+            {
+                SourcePath = StagedItems.Count > 0 ? StagedItems[0].FullPath : string.Empty;
+            }
+            finally
+            {
+                _isInternalSourcePathSync = false;
+            }
+
+            UpdateDerivedDestinationPath();
+            RebuildGridSource();
+        }
+
+        RecalculateMetrics();
+    }
+
+    private void RemoveSingleItem(StagedSourceItemViewModel target)
+    {
         if (target.Parent == null)
         {
             // Root item un-stages

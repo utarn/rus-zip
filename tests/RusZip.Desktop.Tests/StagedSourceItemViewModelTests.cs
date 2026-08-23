@@ -206,4 +206,30 @@ public class StagedSourceItemViewModelTests : IDisposable
         Assert.Contains(nameof(StagedSourceItemViewModel.LastModified), changedProps);
         Assert.Contains(nameof(StagedSourceItemViewModel.FormattedLastModified), changedProps);
     }
+
+    [Fact]
+    public void IsIncluded_GetterAndSetter_SynchronizedWithIsExcluded()
+    {
+        var vm = new StagedSourceItemViewModel();
+        var changedProps = new List<string>();
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != null) changedProps.Add(e.PropertyName);
+        };
+
+        Assert.True(vm.IsIncluded);
+        Assert.False(vm.IsExcluded);
+
+        vm.IsIncluded = false;
+        Assert.False(vm.IsIncluded);
+        Assert.True(vm.IsExcluded);
+        Assert.Contains(nameof(StagedSourceItemViewModel.IsIncluded), changedProps);
+        Assert.Contains(nameof(StagedSourceItemViewModel.IsExcluded), changedProps);
+
+        changedProps.Clear();
+        vm.IsExcluded = false;
+        Assert.True(vm.IsIncluded);
+        Assert.False(vm.IsExcluded);
+        Assert.Contains(nameof(StagedSourceItemViewModel.IsIncluded), changedProps);
+    }
 }
