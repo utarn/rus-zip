@@ -1,11 +1,14 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using RusZip.Core.Abstractions;
 using RusZip.Core.Engines;
 using RusZip.Desktop.Models;
+using RusZip.Desktop.Services;
 using RusZip.Desktop.ViewModels;
 using RusZip.Desktop.Views;
 
@@ -38,6 +41,7 @@ public partial class App : Application
         var services = new ServiceCollection();
 
         services.AddSingleton<IArchiveEngine, UnifiedArchiveEngine>();
+        services.AddSingleton<ISingleInstanceCoordinator, SingleInstanceCoordinator>();
         services.AddTransient<MainWindowViewModel>();
         services.AddTransient<QuickExtractViewModel>();
 
@@ -57,10 +61,41 @@ public partial class App : Application
             }
             else
             {
-                desktop.MainWindow = new MainWindow
+                var mainWindowVm = Services.GetRequiredService<MainWindowViewModel>();
+                var mainWindow = new MainWindow
                 {
-                    DataContext = Services.GetRequiredService<MainWindowViewModel>()
+                    DataContext = mainWindowVm
                 };
+                desktop.MainWindow = mainWindow;
+
+                var coordinator = Services.GetRequiredService<ISingleInstanceCoordinator>();
+                coordinator.StartListening(receivedPath =>
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (mainWindow.WindowState == WindowState.Minimized)
+                        {
+                            mainWindow.WindowState = WindowState.Normal;
+                        }
+                        mainWindow.Activate();
+
+                        if (!string.IsNullOrEmpty(receivedPath) && File.Exists(receivedPath))
+                        {
+                            _ = mainWindowVm.OpenArchiveAsync(receivedPath);
+                        }
+                    });
+                });
+
+                desktop.Exit += (_, _) =>
+                {
+                    coordinator.Dispose();
+                };
+
+                var initialPath = Program.ExtractArchiveArgument(desktop.Args);
+                if (!string.IsNullOrEmpty(initialPath) && File.Exists(initialPath))
+                {
+                    _ = mainWindowVm.OpenArchiveAsync(initialPath);
+                }
             }
         }
 
