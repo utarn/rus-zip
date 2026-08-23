@@ -13,17 +13,65 @@ public partial class CompressionSettingsView : UserControl
         StagedGrid.KeyDown += OnStagedGridKeyDown;
     }
 
+    private static StagedSourceItemViewModel? ExtractStagedItem(object? obj)
+    {
+        if (obj is StagedSourceItemViewModel item)
+        {
+            return item;
+        }
+        if (obj != null)
+        {
+            var prop = obj.GetType().GetProperty("Item");
+            if (prop?.GetValue(obj) is StagedSourceItemViewModel unwrapped)
+            {
+                return unwrapped;
+            }
+        }
+        return null;
+    }
+
     private void OnStagedGridKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key is Key.Delete or Key.Back && DataContext is CompressionSettingsViewModel vm)
         {
-            if (vm.SelectedItem != null)
+            var selectedItems = StagedGrid.SelectedItems
+                .OfType<object>()
+                .Select(ExtractStagedItem)
+                .Where(x => x != null)
+                .Select(x => x!)
+                .Distinct()
+                .ToList();
+
+            if (selectedItems.Count > 0)
             {
-                vm.RemoveSelectedCommand.Execute(vm.SelectedItem);
+                vm.RemoveSelectedItems(selectedItems);
+                e.Handled = true;
+            }
+            else if (vm.SelectedItem != null)
+            {
+                vm.RemoveSelected(vm.SelectedItem);
                 e.Handled = true;
             }
         }
     }
+
+    public static FilePickerOpenOptions CreateSourceFilesPickerOptions() => new()
+    {
+        Title = "Select File(s) to Compress",
+        AllowMultiple = true
+    };
+
+    public static FilePickerOpenOptions CreateSingleSourceFilePickerOptions() => new()
+    {
+        Title = "Select File to Compress",
+        AllowMultiple = false
+    };
+
+    public static FolderPickerOpenOptions CreateSourceFolderPickerOptions() => new()
+    {
+        Title = "Select Folder to Compress",
+        AllowMultiple = false
+    };
 
     public static FilePickerSaveOptions CreateSaveFilePickerOptions(CompressionSettingsViewModel vm)
     {
@@ -78,11 +126,7 @@ public partial class CompressionSettingsView : UserControl
             {
                 var topLevel = TopLevel.GetTopLevel(this);
                 if (topLevel == null) return null;
-                var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-                {
-                    Title = "Select File(s) to Compress",
-                    AllowMultiple = true
-                });
+                var files = await topLevel.StorageProvider.OpenFilePickerAsync(CreateSourceFilesPickerOptions());
                 return files.Select(f => f.TryGetLocalPath()).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!).ToList();
             };
 
@@ -90,11 +134,7 @@ public partial class CompressionSettingsView : UserControl
             {
                 var topLevel = TopLevel.GetTopLevel(this);
                 if (topLevel == null) return null;
-                var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-                {
-                    Title = "Select File to Compress",
-                    AllowMultiple = false
-                });
+                var files = await topLevel.StorageProvider.OpenFilePickerAsync(CreateSingleSourceFilePickerOptions());
                 return files.Count > 0 ? files[0].TryGetLocalPath() : null;
             };
 
@@ -102,11 +142,7 @@ public partial class CompressionSettingsView : UserControl
             {
                 var topLevel = TopLevel.GetTopLevel(this);
                 if (topLevel == null) return null;
-                var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-                {
-                    Title = "Select Folder to Compress",
-                    AllowMultiple = false
-                });
+                var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(CreateSourceFolderPickerOptions());
                 return folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
             };
 

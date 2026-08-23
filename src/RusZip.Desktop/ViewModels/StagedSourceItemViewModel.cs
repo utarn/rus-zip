@@ -36,8 +36,16 @@ public partial class StagedSourceItemViewModel : ObservableObject
     private DateTimeOffset? _lastModified;
 
     [ObservableProperty] private string _attributes = string.Empty;
-    [ObservableProperty] private bool _isExcluded;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsIncluded))]
+    private bool _isExcluded;
     [ObservableProperty] private bool _isExpanded;
+
+    public bool IsIncluded
+    {
+        get => !IsExcluded;
+        set => SetExcluded(!value);
+    }
 
     public ObservableCollection<StagedSourceItemViewModel> Children { get; } = [];
     public StagedSourceItemViewModel? Parent { get; set; }

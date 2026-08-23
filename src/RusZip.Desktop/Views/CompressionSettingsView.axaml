@@ -5,6 +5,16 @@
              x:Class="RusZip.Desktop.Views.CompressionSettingsView"
              x:DataType="vm:CompressionSettingsViewModel">
 
+    <UserControl.Styles>
+        <Style Selector="TextBlock.excluded">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiary}" />
+            <Setter Property="TextDecorations" Value="Strikethrough" />
+        </Style>
+        <Style Selector="PathIcon.excluded">
+            <Setter Property="Opacity" Value="0.4" />
+        </Style>
+    </UserControl.Styles>
+
     <StackPanel Spacing="12" Margin="16">
         <!-- Staged Sources Tree Header & Summary Metrics -->
         <Grid ColumnDefinitions="*,Auto">
@@ -53,7 +63,7 @@
                                     ToolTip.Tip="Add directory folder to stage">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <PathIcon Data="{StaticResource Icon.OpenFolder}" Width="12" Height="12" />
-                                    <TextBlock Text="Add Folder..." VerticalAlignment="Center" />
+                                    <TextBlock Text="Add Folder(s)..." VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
                             <Button Command="{Binding RemoveSelectedCommand}"
@@ -62,7 +72,7 @@
                                     ToolTip.Tip="Un-stage root item or exclude selected child">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <PathIcon Data="{StaticResource Icon.Close}" Width="12" Height="12" />
-                                    <TextBlock Text="Remove / Exclude" VerticalAlignment="Center" />
+                                    <TextBlock Text="Remove Selected" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
                             <Button Command="{Binding ToggleExclusionCommand}"
@@ -93,19 +103,19 @@
                 <!-- Hierarchical DataGrid -->
                 <DataGrid x:Name="StagedGrid"
                           Grid.Row="1"
-                          Height="160"
+                          Height="180"
                           HierarchicalRowsEnabled="True"
                           HierarchicalModel="{Binding GridSource}"
                           CanUserResizeColumns="True"
                           CanUserSortColumns="True"
                           HeadersVisibility="Column"
-                          SelectionMode="Single"
+                          SelectionMode="Extended"
                           SelectionUnit="FullRow"
                           SelectedItem="{Binding SelectedItem}">
                     <DataGrid.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="Toggle Exclusion" Command="{Binding ToggleExclusionCommand}" />
-                            <MenuItem Header="Remove / Exclude Selected" Command="{Binding RemoveSelectedCommand}" />
+                            <MenuItem Header="Remove Selected" Command="{Binding RemoveSelectedCommand}" />
                             <MenuItem Header="Clear All" Command="{Binding ClearAllCommand}" />
                         </ContextMenu>
                     </DataGrid.ContextMenu>
@@ -120,14 +130,14 @@
                             <DataGridHierarchicalColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                        <CheckBox IsChecked="{Binding !IsExcluded}"
+                                        <CheckBox IsChecked="{Binding IsIncluded}"
                                                   Margin="0,0,4,0"
                                                   VerticalAlignment="Center"
                                                   ToolTip.Tip="Check to include in archive, uncheck to exclude" />
-                                        <PathIcon Data="{Binding IconGeometry}" Width="16" Height="16" VerticalAlignment="Center" />
+                                        <PathIcon Data="{Binding IconGeometry}" Classes.excluded="{Binding IsExcluded}" Width="16" Height="16" VerticalAlignment="Center" />
                                         <TextBlock Text="{Binding Name}"
-                                                   VerticalAlignment="Center"
-                                                   Opacity="{Binding IsExcluded, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
+                                                   Classes.excluded="{Binding IsExcluded}"
+                                                   VerticalAlignment="Center" />
                                     </StackPanel>
                                 </DataTemplate>
                             </DataGridHierarchicalColumn.CellTemplate>
@@ -143,6 +153,7 @@
                                 <DataTemplate>
                                     <TextBlock DataContext="{Binding Item}"
                                                Text="{Binding FormattedSize}"
+                                               Classes.excluded="{Binding IsExcluded}"
                                                TextAlignment="Right"
                                                VerticalAlignment="Center"
                                                Margin="0,0,8,0" />
@@ -160,6 +171,7 @@
                                 <DataTemplate>
                                     <TextBlock DataContext="{Binding Item}"
                                                Text="{Binding FormattedLastModified}"
+                                               Classes.excluded="{Binding IsExcluded}"
                                                VerticalAlignment="Center" />
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
@@ -175,12 +187,13 @@
                                 <DataTemplate>
                                     <TextBlock DataContext="{Binding Item}"
                                                Text="{Binding Attributes}"
+                                               Classes.excluded="{Binding IsExcluded}"
                                                VerticalAlignment="Center" />
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
 
-                        <DataGridTemplateColumn Header="Source Path"
+                        <DataGridTemplateColumn Header="Path"
                                                 Width="150"
                                                 CanUserSort="True"
                                                 CanUserResize="True"
@@ -190,6 +203,7 @@
                                 <DataTemplate>
                                     <TextBlock DataContext="{Binding Item}"
                                                Text="{Binding FullPath}"
+                                               Classes.excluded="{Binding IsExcluded}"
                                                TextTrimming="CharacterEllipsis"
                                                VerticalAlignment="Center" />
                                 </DataTemplate>

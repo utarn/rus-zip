@@ -206,7 +206,10 @@
         <Grid Grid.Row="0" Grid.RowSpan="3" Background="#7F000000" IsVisible="{Binding IsCompressDialogVisible}">
             <Border HorizontalAlignment="Center"
                     VerticalAlignment="Center"
-                    Width="680"
+                    Width="780"
+                    Height="580"
+                    MinWidth="680"
+                    MinHeight="480"
                     Background="{DynamicResource CardBackgroundFillColorDefault}"
                     BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
                     BorderThickness="1"
@@ -214,10 +217,20 @@
                     BoxShadow="0 16 48 #50000000">
                 <Grid RowDefinitions="Auto,*,Auto">
                     <Border Grid.Row="0" Padding="20,14" BorderBrush="{DynamicResource SurfaceStrokeColorDefault}" BorderThickness="0,0,0,1">
-                        <TextBlock Text="Create Archive" FontSize="16" FontWeight="SemiBold" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource Icon.NewArchive}" Width="18" Height="18" VerticalAlignment="Center" />
+                                <TextBlock Text="Create Archive" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Command="{Binding CloseCompressDialogCommand}" Padding="8,4">
+                                <PathIcon Data="{StaticResource Icon.Close}" Width="12" Height="12" />
+                            </Button>
+                        </Grid>
                     </Border>
 
-                    <views:CompressionSettingsView Grid.Row="1" DataContext="{Binding Settings}" />
+                    <ScrollViewer Grid.Row="1">
+                        <views:CompressionSettingsView DataContext="{Binding Settings}" />
+                    </ScrollViewer>
 
                     <Border Grid.Row="2" Padding="20,14" Background="{DynamicResource CardBackgroundFillColorSecondary}" BorderBrush="{DynamicResource SurfaceStrokeColorDefault}" BorderThickness="0,1,0,0" CornerRadius="0,0,12,12">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">

@@ -619,6 +619,48 @@ public class CompressionSettingsViewModelTests
     }
 
     [Fact]
+    public void RemoveSelectedCommand_MultipleMixedItems_ExcludesChildrenAndUnstagesRoots()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "remove_mixed_test_" + Guid.NewGuid().ToString("N"));
+        var subDir = Path.Combine(tempDir, "sub");
+        Directory.CreateDirectory(subDir);
+        var file1 = Path.Combine(tempDir, "file1.txt");
+        var file2 = Path.Combine(subDir, "file2.txt");
+        var file3 = Path.Combine(tempDir, "standalone.txt");
+        File.WriteAllText(file1, "12345"); // 5 bytes
+        File.WriteAllText(file2, "12345"); // 5 bytes
+        File.WriteAllText(file3, "12345"); // 5 bytes
+
+        try
+        {
+            var vm = new CompressionSettingsViewModel();
+            vm.StageSources([subDir, file3]);
+
+            Assert.Equal(2, vm.StagedItems.Count);
+            Assert.Equal(2, vm.TotalFilesCount);
+            Assert.Equal(10, vm.TotalStagedBytes);
+
+            var rootFolder = vm.StagedItems[0];
+            var childInFolder = rootFolder.Children[0];
+            var standaloneRoot = vm.StagedItems[1];
+
+            vm.RemoveSelectedCommand.Execute(new StagedSourceItemViewModel[] { childInFolder, standaloneRoot });
+
+            Assert.Single(vm.StagedItems); // standaloneRoot was unstaged, rootFolder remains
+            Assert.True(childInFolder.IsExcluded); // childInFolder is excluded
+            Assert.Equal(1, vm.TotalFilesCount);
+            Assert.Equal(1, vm.ExcludedFilesCount);
+            Assert.Equal(0, vm.TotalStagedBytes);
+            Assert.Single(vm.ExclusionPaths);
+            Assert.Equal(childInFolder.FullPath, vm.ExclusionPaths[0]);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void ClearAllCommand_ResetsAllStagingStateAndMetrics()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "clear_all_test_" + Guid.NewGuid().ToString("N"));
