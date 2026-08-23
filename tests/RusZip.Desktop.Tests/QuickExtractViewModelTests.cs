@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using RusZip.Core.Abstractions;
 using RusZip.Core.Models;
 using RusZip.Desktop.Models;
@@ -479,5 +480,190 @@ public class QuickExtractViewModelTests : IDisposable
 
         Assert.True(vm.IsSuccess);
         Assert.Equal("New Content From Archive", await File.ReadAllTextAsync(Path.Combine(destDir, "conflict.txt")));
+    }
+
+    [Fact]
+    public void CreateProcessStartInfoForPlatform_Windows_LaunchesExplorerWithUnquotedFolder()
+    {
+        var folder = @"C:\Users\test\Extracted";
+        var psi = QuickExtractViewModel.CreateProcessStartInfoForPlatform(folder, isWindows: true, isMac: false, isLinux: false);
+
+        Assert.NotNull(psi);
+        Assert.Equal("explorer.exe", psi.FileName);
+        Assert.Equal(folder, psi.Arguments);
+        Assert.True(psi.UseShellExecute);
+    }
+
+    [Fact]
+    public void CreateProcessStartInfoForPlatform_MacOS_LaunchesOpenWithUnquotedFolder()
+    {
+        var folder = "/Users/test/Extracted Folder";
+        var psi = QuickExtractViewModel.CreateProcessStartInfoForPlatform(folder, isWindows: false, isMac: true, isLinux: false);
+
+        Assert.NotNull(psi);
+        Assert.Equal("open", psi.FileName);
+        Assert.Equal(folder, psi.Arguments);
+        Assert.False(psi.UseShellExecute);
+    }
+
+    [Fact]
+    public void CreateProcessStartInfoForPlatform_Linux_LaunchesXdgOpenWithUnquotedFolder()
+    {
+        var folder = "/home/test/Extracted Folder";
+        var psi = QuickExtractViewModel.CreateProcessStartInfoForPlatform(folder, isWindows: false, isMac: false, isLinux: true);
+
+        Assert.NotNull(psi);
+        Assert.Equal("xdg-open", psi.FileName);
+        Assert.Equal(folder, psi.Arguments);
+        Assert.False(psi.UseShellExecute);
+    }
+
+    [Fact]
+    public void OpenFolderInFileManager_WithExistingDirectory_InvokesProcessStarterWithCorrectArguments()
+    {
+        var targetDir = Path.Combine(_tempDir, "open_test_dir");
+        Directory.CreateDirectory(targetDir);
+
+        ProcessStartInfo? capturedPsi = null;
+        QuickExtractViewModel.ProcessStarter = psi => capturedPsi = psi;
+
+        try
+        {
+            QuickExtractViewModel.OpenFolderInFileManager(targetDir);
+
+            Assert.NotNull(capturedPsi);
+            Assert.Equal(targetDir, capturedPsi.Arguments);
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.Equal("explorer.exe", capturedPsi.FileName);
+                Assert.True(capturedPsi.UseShellExecute);
+            }
+            else if (OperatingSystem.IsMacOS())
+            {
+                Assert.Equal("open", capturedPsi.FileName);
+                Assert.False(capturedPsi.UseShellExecute);
+            }
+            else if (OperatingSystem.IsLinux())
+            {
+                Assert.Equal("xdg-open", capturedPsi.FileName);
+                Assert.False(capturedPsi.UseShellExecute);
+            }
+        }
+        finally
+        {
+            QuickExtractViewModel.ProcessStarter = null;
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void OpenFolderInFileManager_WithNullOrEmptyPath_DoesNotInvokeProcessStarter(string? invalidPath)
+    {
+        bool wasCalled = false;
+        QuickExtractViewModel.ProcessStarter = _ => wasCalled = true;
+
+        try
+        {
+            QuickExtractViewModel.OpenFolderInFileManager(invalidPath!);
+            Assert.False(wasCalled);
+        }
+        finally
+        {
+            QuickExtractViewModel.ProcessStarter = null;
+        }
+    }
+
+    [Fact]
+    public void OpenFolderInFileManager_WithNonExistentPath_DoesNotInvokeProcessStarter()
+    {
+        var nonExistentPath = Path.Combine(_tempDir, "does_not_exist_folder_" + Guid.NewGuid().ToString("N"));
+        bool wasCalled = false;
+        QuickExtractViewModel.ProcessStarter = _ => wasCalled = true;
+
+        try
+        {
+            QuickExtractViewModel.OpenFolderInFileManager(nonExistentPath);
+            Assert.False(wasCalled);
+        }
+        finally
+        {
+            QuickExtractViewModel.ProcessStarter = null;
+        }
+    }
+
+    [Fact]
+    public void OpenFolderInFileManager_WhenProcessStarterThrows_FailsGracefullyWithoutCrashing()
+    {
+        var targetDir = Path.Combine(_tempDir, "error_test_dir");
+        Directory.CreateDirectory(targetDir);
+
+        QuickExtractViewModel.ProcessStarter = _ => throw new InvalidOperationException("Failed to launch file manager");
+
+        try
+        {
+            // Must not throw an unhandled exception
+            var exception = Record.Exception(() => QuickExtractViewModel.OpenFolderInFileManager(targetDir));
+            Assert.Null(exception);
+        }
+        finally
+        {
+            QuickExtractViewModel.ProcessStarter = null;
+        }
+    }
+
+    [Fact]
+    public async Task OpenFolderCommand_WhenOpenFolderHandlerIsNull_DelegatesToOpenFolderInFileManager()
+    {
+        var targetDir = Path.Combine(_tempDir, "command_target_dir");
+        Directory.CreateDirectory(targetDir);
+
+        ProcessStartInfo? capturedPsi = null;
+        QuickExtractViewModel.ProcessStarter = psi => capturedPsi = psi;
+
+        try
+        {
+            var engine = new FakeArchiveEngine();
+            var vm = new QuickExtractViewModel(engine)
+            {
+                DestinationDirectory = targetDir,
+                OpenFolderHandler = null
+            };
+
+            await vm.OpenFolderCommand.ExecuteAsync(null);
+
+            Assert.NotNull(capturedPsi);
+            Assert.Equal(targetDir, capturedPsi.Arguments);
+        }
+        finally
+        {
+            QuickExtractViewModel.ProcessStarter = null;
+        }
+    }
+
+    [Fact]
+    public async Task OpenFolderCommand_WhenDestinationDirectoryIsEmpty_DoesNotInvokeProcess()
+    {
+        bool wasCalled = false;
+        QuickExtractViewModel.ProcessStarter = _ => wasCalled = true;
+
+        try
+        {
+            var engine = new FakeArchiveEngine();
+            var vm = new QuickExtractViewModel(engine)
+            {
+                DestinationDirectory = string.Empty,
+                OpenFolderHandler = null
+            };
+
+            await vm.OpenFolderCommand.ExecuteAsync(null);
+
+            Assert.False(wasCalled);
+        }
+        finally
+        {
+            QuickExtractViewModel.ProcessStarter = null;
+        }
     }
 }
