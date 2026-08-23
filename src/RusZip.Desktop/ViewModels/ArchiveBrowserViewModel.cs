@@ -227,6 +227,50 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     }
 
     [RelayCommand]
+    public void SelectAll()
+    {
+        var allItems = GetAllFlatItems(RootItems);
+        SelectedItems.Clear();
+        foreach (var item in allItems)
+        {
+            SelectedItems.Add(item);
+        }
+        if (allItems.Count > 0)
+        {
+            SelectedItem = allItems[0];
+        }
+        NotifySelectionCommands();
+    }
+
+    [RelayCommand]
+    public void InvertSelection()
+    {
+        var allItems = GetAllFlatItems(RootItems);
+        var currentlySelected = SelectedItems.ToHashSet();
+        SelectedItems.Clear();
+        foreach (var item in allItems)
+        {
+            if (!currentlySelected.Contains(item))
+            {
+                SelectedItems.Add(item);
+            }
+        }
+        SelectedItem = SelectedItems.FirstOrDefault();
+        NotifySelectionCommands();
+    }
+
+    public static List<ArchiveItemViewModel> GetAllFlatItems(IEnumerable<ArchiveItemViewModel> items)
+    {
+        var list = new List<ArchiveItemViewModel>();
+        foreach (var item in items)
+        {
+            list.Add(item);
+            list.AddRange(GetAllFlatItems(item.Children));
+        }
+        return list;
+    }
+
+    [RelayCommand]
     public void ExpandAll()
     {
         SetExpandedRecursive(RootItems, true);

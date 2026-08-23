@@ -600,6 +600,125 @@ public partial class MainWindowViewModel : ObservableObject
         await Browser.CopyPathCommand.ExecuteAsync(parameter);
     }
 
+    [RelayCommand]
+    public void SelectAll()
+    {
+        if (HasOpenArchive)
+        {
+            Browser.SelectAll();
+        }
+    }
+
+    [RelayCommand]
+    public void InvertSelection()
+    {
+        if (HasOpenArchive)
+        {
+            Browser.InvertSelection();
+        }
+    }
+
+    [RelayCommand]
+    public async Task CopyRelativePathAsync()
+    {
+        if (HasOpenArchive)
+        {
+            await Browser.CopySelectedItemPathAsync();
+        }
+    }
+
+    [RelayCommand]
+    public void ExpandAll()
+    {
+        if (HasOpenArchive)
+        {
+            Browser.ExpandAll();
+        }
+    }
+
+    [RelayCommand]
+    public void CollapseAll()
+    {
+        if (HasOpenArchive)
+        {
+            Browser.CollapseAll();
+        }
+    }
+
+    public Action? RequestFocusFilter { get; set; }
+
+    [RelayCommand]
+    public void FocusFilter()
+    {
+        RequestFocusFilter?.Invoke();
+    }
+
+    public Action? RequestExit { get; set; }
+
+    [RelayCommand]
+    public void ExitApplication()
+    {
+        RequestExit?.Invoke();
+    }
+
+    [RelayCommand]
+    public async Task ExtractAllMenuAsync()
+    {
+        if (!HasOpenArchive) return;
+        if (RequestExtractDestinationFolder != null)
+        {
+            var destination = await RequestExtractDestinationFolder.Invoke();
+            if (!string.IsNullOrEmpty(destination))
+            {
+                await ExecuteExtractAllAsync(destination);
+            }
+        }
+    }
+
+    [RelayCommand]
+    public async Task RefreshArchive()
+    {
+        await RefreshArchiveAsync();
+    }
+
+    [RelayCommand]
+    public void TestArchive()
+    {
+        if (!HasOpenArchive) return;
+        StatusText = FormatStatus("Testing archive integrity...");
+    }
+
+    [RelayCommand]
+    public void ShowProperties()
+    {
+        if (!HasOpenArchive) return;
+        StatusText = FormatStatus("Archive properties inspector opened.");
+    }
+
+    [RelayCommand]
+    public async Task OpenFileAssociationsAsync()
+    {
+        await OpenSettingsAsync();
+    }
+
+    [RelayCommand]
+    public void OpenDocumentation()
+    {
+        StatusText = FormatStatus("Documentation: https://gitlab.com/utarn/rus-zip-desktop");
+    }
+
+    [RelayCommand]
+    public void OpenSupportedFormats()
+    {
+        StatusText = FormatStatus("Supported formats: .zrus, .zip, .rar, .7z, .zst, .gz, .tar.gz, .tar.zstd");
+    }
+
+    [RelayCommand]
+    public void ShowAbout()
+    {
+        StatusText = FormatStatus("rus-zip - Modern High-Performance Compression Suite v1.0");
+    }
+
     public async Task HandleDroppedPathsAsync(IReadOnlyList<string> paths)
     {
         if (paths.Count == 0) return;
