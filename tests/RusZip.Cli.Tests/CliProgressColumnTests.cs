@@ -93,4 +93,34 @@ public sealed class CliProgressColumnTests
         Assert.True(task.IsIndeterminate);
         Assert.Contains("unknown.tar", task.Description);
     }
+
+    [Fact]
+    public void TrackerEtaColumn_RenderAndColumnWidth_ReturnsExpected()
+    {
+        var tracker = new ThroughputTracker();
+        var etaColumn = new TrackerEtaColumn(tracker);
+        var speedColumn = new TrackerSpeedColumn(tracker);
+        var task = new ProgressTask(0, "TestOp", 100);
+
+        var width = etaColumn.GetColumnWidth(new Spectre.Console.Rendering.RenderOptions(new DummyCapabilities(), new Size(80, 24)));
+        Assert.Equal(8, width);
+
+        var etaRenderable = etaColumn.Render(new Spectre.Console.Rendering.RenderOptions(new DummyCapabilities(), new Size(80, 24)), task, TimeSpan.Zero);
+        Assert.NotNull(etaRenderable);
+
+        var speedRenderable = speedColumn.Render(new Spectre.Console.Rendering.RenderOptions(new DummyCapabilities(), new Size(80, 24)), task, TimeSpan.Zero);
+        Assert.NotNull(speedRenderable);
+    }
+
+    private sealed class DummyCapabilities : IReadOnlyCapabilities
+    {
+        public ColorSystem ColorSystem => ColorSystem.Standard;
+        public bool Ansi => false;
+        public bool Links => false;
+        public bool Legacy => false;
+        public bool LegacyConsole => false;
+        public bool IsTerminal => false;
+        public bool Interactive => false;
+        public bool Unicode => true;
+    }
 }

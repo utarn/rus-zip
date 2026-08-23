@@ -104,3 +104,26 @@ The desktop workflow for adding or updating entries in an open `.zrus` or `.zip`
 ### Atomic Archive Deletion Pipeline
 The atomic rewrite mechanism in `RusZip.Core` (`DeleteEntriesAsync`) that removes specified entries from a `.zrus` or `.zip` archive by streaming all non-deleted entries into a temporary archive file (`<ARCHIVE>.tmp.<GUID>`) and replacing the original upon completion.
 
+### Recent Archives History (MRU)
+The persistent collection of recently opened archive filesystem paths stored in user preferences, accessible via menu and empty-state quick launch.
+
+### Archive Preview Session
+The transient extraction and system launcher workflow that materializes a single archive entry into a sandboxed temporary directory for immediate inspection in the OS default viewer.
+
+### Archive Integrity Test
+A non-materializing stream verification pass executing full decompression and checksum/header validation across all archive entries without filesystem writes.
+
+### Segmented Status Bar
+The multi-compartment footer interface presenting operational status, selection metrics, container format capabilities (Read-Write vs Read-Only), and active safety guardrails.
+
+### Archive & Entry Properties Inspector
+The modal view inspecting container format, compression ratios, total file/directory counts, and per-entry POSIX octal modes, attributes, and uncompressed/compressed sizes.
+
+### Smart Category Filter
+The query and classification engine in `ArchiveBrowserView` filtering entries via wildcard globs and MIME/type category chips (`Documents`, `Images`, `Code`, `Media`, `Archives`).
+
+### Interactive Format Matrix
+The Help/About inspector displaying live engine capabilities, supported read/write formats, compression profiles, and system diagnostic data.
+
+
+
