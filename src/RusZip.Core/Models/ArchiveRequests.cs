@@ -6,13 +6,20 @@ public sealed record ArchiveCompressionRequest(
     IReadOnlyList<string> SourcePaths,
     string DestinationArchivePath,
     int CompressionLevel = 9,
-    string? BaseDirectory = null
+    string? BaseDirectory = null,
+    IReadOnlyCollection<string>? ExcludedPaths = null
 )
 {
-    public ArchiveCompressionRequest(string sourcePath, string destinationArchivePath, int compressionLevel = 9)
-        : this([sourcePath], destinationArchivePath, compressionLevel) { }
+    public ArchiveCompressionRequest(
+        string sourcePath,
+        string destinationArchivePath,
+        int compressionLevel = 9,
+        string? BaseDirectory = null,
+        IReadOnlyCollection<string>? ExcludedPaths = null)
+        : this([sourcePath], destinationArchivePath, compressionLevel, BaseDirectory, ExcludedPaths) { }
 
     public string SourcePath => SourcePaths.Count > 0 ? SourcePaths[0] : string.Empty;
+    public IReadOnlyCollection<string> ExcludedPaths { get; init; } = ExcludedPaths ?? Array.Empty<string>();
 }
 public sealed record ArchiveAppendRequest(
     string ArchivePath,

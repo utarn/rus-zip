@@ -59,22 +59,61 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             Directory.CreateDirectory(destDir);
         }
 
+        var isSingleDir = resolvedSources.Count == 1 && resolvedSources[0].IsDir;
+        var exclusionFilter = new CompressionExclusionFilter(request.ExcludedPaths, request.BaseDirectory);
+
         // Calculate total uncompressed bytes & total files
         long totalBytes = 0;
         int totalFiles = 0;
 
-        foreach (var (fullPath, _, isDir) in resolvedSources)
+        void CountFiles(DirectoryInfo dir, string rootPath, string dirPrefix)
+        {
+            foreach (var subDir in dir.EnumerateDirectories())
+            {
+                var relativeFromDir = Path.GetRelativePath(rootPath, subDir.FullName).Replace('\\', '/');
+                var relPath = string.IsNullOrEmpty(dirPrefix) ? relativeFromDir : dirPrefix + "/" + relativeFromDir;
+                if (!exclusionFilter.IsExcluded(subDir.FullName, relPath, relativeFromDir))
+                {
+                    CountFiles(subDir, rootPath, dirPrefix);
+                }
+            }
+
+            foreach (var fileInfo in dir.EnumerateFiles())
+            {
+                var relativeFromDir = Path.GetRelativePath(rootPath, fileInfo.FullName).Replace('\\', '/');
+                var relPath = string.IsNullOrEmpty(dirPrefix) ? relativeFromDir : dirPrefix + "/" + relativeFromDir;
+                if (!exclusionFilter.IsExcluded(fileInfo.FullName, relPath, relativeFromDir))
+                {
+                    totalFiles++;
+                    totalBytes += fileInfo.Length;
+                }
+            }
+        }
+
+        foreach (var (fullPath, rawPath, isDir) in resolvedSources)
         {
             if (isDir)
             {
-                var files = Directory.GetFiles(fullPath, "*", SearchOption.AllDirectories);
-                totalFiles += files.Length;
-                totalBytes += files.Sum(f => new FileInfo(f).Length);
+                var rootDirInfo = new DirectoryInfo(fullPath);
+                var dirPrefix = isSingleDir
+                    ? string.Empty
+                    : EntryNameSanitizer.SanitizeRelativePath(rawPath, fullPath, request.BaseDirectory);
+
+                if (exclusionFilter.IsExcluded(fullPath, dirPrefix, rawPath))
+                {
+                    continue;
+                }
+
+                CountFiles(rootDirInfo, rootDirInfo.FullName, dirPrefix);
             }
             else
             {
-                totalFiles += 1;
-                totalBytes += new FileInfo(fullPath).Length;
+                var relPath = EntryNameSanitizer.SanitizeRelativePath(rawPath, fullPath, request.BaseDirectory);
+                if (!exclusionFilter.IsExcluded(fullPath, relPath, rawPath))
+                {
+                    totalFiles += 1;
+                    totalBytes += new FileInfo(fullPath).Length;
+                }
             }
         }
 
@@ -82,7 +121,6 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         long processedBytes = 0;
         int processedFiles = 0;
         int entriesWritten = 0;
-        var isSingleDir = resolvedSources.Count == 1 && resolvedSources[0].IsDir;
 
         var descriptor = ArchiveFormatRegistry.Detect(destination);
         if (descriptor.Format == ArchiveFormat.Zst)
@@ -181,6 +219,85 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                 // end-of-archive blocks, so the two zero blocks must be appended below.
                 await using (var tarWriter = new TarWriter(compressionStream, TarEntryFormat.Pax, leaveOpen: true))
                 {
+                    async Task WriteDirectoryTreeAsync(DirectoryInfo dir, string rootPath, string dirPrefix)
+                    {
+                        foreach (var subDir in dir.EnumerateDirectories())
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            var relativeFromDir = Path.GetRelativePath(rootPath, subDir.FullName).Replace('\\', '/');
+                            var relPath = string.IsNullOrEmpty(dirPrefix)
+                                ? relativeFromDir
+                                : dirPrefix + "/" + relativeFromDir;
+
+                            if (!exclusionFilter.IsExcluded(subDir.FullName, relPath, relativeFromDir))
+                            {
+                                var dirEntry = new PaxTarEntry(TarEntryType.Directory, relPath.TrimEnd('/') + "/")
+                                {
+                                    ModificationTime = subDir.LastWriteTimeUtc
+                                };
+                                if (!OperatingSystem.IsWindows())
+                                {
+                                    dirEntry.Mode = subDir.UnixFileMode;
+                                }
+                                await tarWriter.WriteEntryAsync(dirEntry, ct);
+                                entriesWritten++;
+
+                                await WriteDirectoryTreeAsync(subDir, rootPath, dirPrefix);
+                            }
+                        }
+
+                        foreach (var fileInfo in dir.EnumerateFiles())
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            var relativeFromDir = Path.GetRelativePath(rootPath, fileInfo.FullName).Replace('\\', '/');
+                            var relPath = string.IsNullOrEmpty(dirPrefix)
+                                ? relativeFromDir
+                                : dirPrefix + "/" + relativeFromDir;
+
+                            if (!exclusionFilter.IsExcluded(fileInfo.FullName, relPath, relativeFromDir))
+                            {
+                                await using var srcStream = new FileStream(
+                                    fileInfo.FullName,
+                                    FileMode.Open,
+                                    FileAccess.Read,
+                                    FileShare.Read,
+                                    BufferSize,
+                                    useAsync: true);
+
+                                await using var trackingStream = new ProgressReportingStream(
+                                    srcStream,
+                                    fileInfo.Length,
+                                    bytesRead =>
+                                    {
+                                        Interlocked.Add(ref processedBytes, bytesRead);
+                                        var currentTotal = Volatile.Read(ref processedBytes);
+                                        progress?.Report(new ProgressReport(
+                                            ProcessedBytes: currentTotal,
+                                            TotalBytes: totalBytes,
+                                            CurrentFileName: relPath,
+                                            Percentage: totalBytes > 0 ? (double)currentTotal / totalBytes * 100.0 : 0,
+                                            ProcessedFiles: Volatile.Read(ref processedFiles),
+                                            TotalFiles: totalFiles
+                                        ));
+                                    });
+
+                                var fileEntry = new PaxTarEntry(TarEntryType.RegularFile, relPath)
+                                {
+                                    DataStream = trackingStream,
+                                    ModificationTime = fileInfo.LastWriteTimeUtc
+                                };
+                                if (!OperatingSystem.IsWindows())
+                                {
+                                    fileEntry.Mode = fileInfo.UnixFileMode;
+                                }
+
+                                await tarWriter.WriteEntryAsync(fileEntry, ct);
+                                entriesWritten++;
+                                Interlocked.Increment(ref processedFiles);
+                            }
+                        }
+                    }
+
                     foreach (var (fullPath, rawPath, isDir) in resolvedSources)
                     {
                         ct.ThrowIfCancellationRequested();
@@ -191,6 +308,11 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                             var dirPrefix = isSingleDir
                                 ? string.Empty
                                 : EntryNameSanitizer.SanitizeRelativePath(rawPath, fullPath, request.BaseDirectory);
+
+                            if (exclusionFilter.IsExcluded(fullPath, dirPrefix, rawPath))
+                            {
+                                continue;
+                            }
 
                             if (!string.IsNullOrEmpty(dirPrefix))
                             {
@@ -206,74 +328,17 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                                 entriesWritten++;
                             }
 
-                            foreach (var fsi in rootDirInfo.EnumerateFileSystemInfos("*", SearchOption.AllDirectories))
-                            {
-                                ct.ThrowIfCancellationRequested();
-                                var relativeFromDir = Path.GetRelativePath(rootDirInfo.FullName, fsi.FullName).Replace('\\', '/');
-                                var relPath = string.IsNullOrEmpty(dirPrefix)
-                                    ? relativeFromDir
-                                    : dirPrefix + "/" + relativeFromDir;
-
-                                if (fsi is DirectoryInfo dirInfo)
-                                {
-                                    var dirEntry = new PaxTarEntry(TarEntryType.Directory, relPath.TrimEnd('/') + "/")
-                                    {
-                                        ModificationTime = dirInfo.LastWriteTimeUtc
-                                    };
-                                    if (!OperatingSystem.IsWindows())
-                                    {
-                                        dirEntry.Mode = dirInfo.UnixFileMode;
-                                    }
-                                    await tarWriter.WriteEntryAsync(dirEntry, ct);
-                                    entriesWritten++;
-                                }
-                                else if (fsi is FileInfo fileInfo)
-                                {
-                                    await using var srcStream = new FileStream(
-                                        fileInfo.FullName,
-                                        FileMode.Open,
-                                        FileAccess.Read,
-                                        FileShare.Read,
-                                        BufferSize,
-                                        useAsync: true);
-
-                                    await using var trackingStream = new ProgressReportingStream(
-                                        srcStream,
-                                        fileInfo.Length,
-                                        bytesRead =>
-                                        {
-                                            Interlocked.Add(ref processedBytes, bytesRead);
-                                            var currentTotal = Volatile.Read(ref processedBytes);
-                                            progress?.Report(new ProgressReport(
-                                                ProcessedBytes: currentTotal,
-                                                TotalBytes: totalBytes,
-                                                CurrentFileName: relPath,
-                                                Percentage: totalBytes > 0 ? (double)currentTotal / totalBytes * 100.0 : 0,
-                                                ProcessedFiles: Volatile.Read(ref processedFiles),
-                                                TotalFiles: totalFiles
-                                            ));
-                                        });
-
-                                    var fileEntry = new PaxTarEntry(TarEntryType.RegularFile, relPath)
-                                    {
-                                        DataStream = trackingStream,
-                                        ModificationTime = fileInfo.LastWriteTimeUtc
-                                    };
-                                    if (!OperatingSystem.IsWindows())
-                                    {
-                                        fileEntry.Mode = fileInfo.UnixFileMode;
-                                    }
-
-                                    await tarWriter.WriteEntryAsync(fileEntry, ct);
-                                    entriesWritten++;
-                                    Interlocked.Increment(ref processedFiles);
-                                }
-                            }
+                            await WriteDirectoryTreeAsync(rootDirInfo, rootDirInfo.FullName, dirPrefix);
                         }
                         else
                         {
                             var fileInfo = new FileInfo(fullPath);
                             var relPath = EntryNameSanitizer.SanitizeRelativePath(rawPath, fullPath, request.BaseDirectory);
+
+                            if (exclusionFilter.IsExcluded(fullPath, relPath, rawPath))
+                            {
+                                continue;
+                            }
 
                             await using var srcStream = new FileStream(
                                 fileInfo.FullName,
