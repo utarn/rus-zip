@@ -8,6 +8,8 @@ public class ArchiveItemViewModelTests
 {
     [Theory]
     [InlineData("archive.zrus", "📦")]
+    [InlineData("archive.tar.zstd", "📦")]
+    [InlineData("archive.tzstd", "📦")]
     [InlineData("archive.zip", "📦")]
     [InlineData("archive.rar", "📦")]
     [InlineData("archive.7z", "📦")]
@@ -209,6 +211,8 @@ public class ArchiveItemViewModelTests
     [InlineData("test.heic", "Icon.FileImage")]
     // Archive
     [InlineData("test.zrus", "Icon.FileArchive")]
+    [InlineData("test.tar.zstd", "Icon.FileArchive")]
+    [InlineData("test.tzstd", "Icon.FileArchive")]
     [InlineData("test.zip", "Icon.FileArchive")]
     [InlineData("test.ZIP", "Icon.FileArchive")]
     [InlineData("test.tar", "Icon.FileArchive")]

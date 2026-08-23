@@ -6,9 +6,9 @@ public static class ArchiveFormatRegistry
 {
     public static readonly ArchiveFormatDescriptor Zrus = new(
         Format: ArchiveFormat.Zrus,
-        DisplayName: "Zstandard TAR Archive (.zrus)",
+        DisplayName: "Zstandard TAR Archive (.zrus, .tar.zstd, .tzstd)",
         PrimaryExtension: ".zrus",
-        Extensions: [".zrus"],
+        Extensions: [".zrus", ".tar.zstd", ".tzstd"],
         CanCompress: true,
         CanDecompress: true,
         MinCompressionLevel: 1,

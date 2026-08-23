@@ -68,6 +68,8 @@ public class MainWindowViewModelTests
 
     [Theory]
     [InlineData("test.zrus", true)]
+    [InlineData("test.tar.zstd", true)]
+    [InlineData("test.tzstd", true)]
     [InlineData("test.zip", true)]
     [InlineData("test.rar", true)]
     [InlineData("test.7z", true)]
@@ -77,6 +79,8 @@ public class MainWindowViewModelTests
     [InlineData("test.tar", false)]
     [InlineData("TEST.ZIP", true)]
     [InlineData("TEST.TAR.GZ", true)]
+    [InlineData("TEST.TAR.ZSTD", true)]
+    [InlineData("TEST.TZSTD", true)]
     [InlineData("test.txt", false)]
     [InlineData("test.exe", false)]
     [InlineData("test.pdf", false)]

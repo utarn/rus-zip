@@ -13,16 +13,24 @@ public class ArchiveFormatRegistryTests
     [InlineData("stream.gz", ArchiveFormat.Gz, false, true)]
     [InlineData("package.tar.gz", ArchiveFormat.TarGz, false, true)]
     [InlineData("bundle.tgz", ArchiveFormat.TarGz, false, true)]
+    [InlineData("backup.tar.zstd", ArchiveFormat.Zrus, true, true)]
+    [InlineData("backup.tzstd", ArchiveFormat.Zrus, true, true)]
     [InlineData("UPPER.ZRUS", ArchiveFormat.Zrus, true, true)]
     [InlineData("TEST.TAR.GZ", ArchiveFormat.TarGz, false, true)]
+    [InlineData("UPPER.TAR.ZSTD", ArchiveFormat.Zrus, true, true)]
+    [InlineData("UPPER.TZSTD", ArchiveFormat.Zrus, true, true)]
     [InlineData(".zrus", ArchiveFormat.Zrus, true, true)]
     [InlineData(".zip", ArchiveFormat.Zip, true, true)]
     [InlineData(".tar.gz", ArchiveFormat.TarGz, false, true)]
     [InlineData(".tgz", ArchiveFormat.TarGz, false, true)]
+    [InlineData(".tar.zstd", ArchiveFormat.Zrus, true, true)]
+    [InlineData(".tzstd", ArchiveFormat.Zrus, true, true)]
     [InlineData("zrus", ArchiveFormat.Zrus, true, true)]
     [InlineData("zip", ArchiveFormat.Zip, true, true)]
     [InlineData("tar.gz", ArchiveFormat.TarGz, false, true)]
     [InlineData("tgz", ArchiveFormat.TarGz, false, true)]
+    [InlineData("tar.zstd", ArchiveFormat.Zrus, true, true)]
+    [InlineData("tzstd", ArchiveFormat.Zrus, true, true)]
     public void Detect_ResolvesCorrectFormatAndCapabilities(string path, ArchiveFormat expectedFormat, bool canCompress, bool canDecompress)
     {
         var descriptor = ArchiveFormatRegistry.Detect(path);
@@ -51,11 +59,15 @@ public class ArchiveFormatRegistryTests
     [InlineData("test.zip", true, ArchiveFormat.Zip)]
     [InlineData("test.tar.gz", true, ArchiveFormat.TarGz)]
     [InlineData("test.tgz", true, ArchiveFormat.TarGz)]
+    [InlineData("test.tar.zstd", true, ArchiveFormat.Zrus)]
+    [InlineData("test.tzstd", true, ArchiveFormat.Zrus)]
     [InlineData("test.7z", true, ArchiveFormat.SevenZip)]
     [InlineData("test.rar", true, ArchiveFormat.Rar)]
     [InlineData("test.gz", true, ArchiveFormat.Gz)]
     [InlineData("TEST.ZRUS", true, ArchiveFormat.Zrus)]
     [InlineData("archive.TAR.GZ", true, ArchiveFormat.TarGz)]
+    [InlineData("archive.TAR.ZSTD", true, ArchiveFormat.Zrus)]
+    [InlineData("archive.TZSTD", true, ArchiveFormat.Zrus)]
     [InlineData("test.pdf", false, null)]
     [InlineData("test.tar", false, null)]
     [InlineData("", false, null)]
@@ -82,6 +94,8 @@ public class ArchiveFormatRegistryTests
     [InlineData("test.zip", true)]
     [InlineData("test.tar.gz", true)]
     [InlineData("test.tgz", true)]
+    [InlineData("test.tar.zstd", true)]
+    [InlineData("test.tzstd", true)]
     [InlineData("test.7z", true)]
     [InlineData("test.rar", true)]
     [InlineData("test.gz", true)]
@@ -121,13 +135,15 @@ public class ArchiveFormatRegistryTests
         var extensions = ArchiveFormatRegistry.SupportedExtensions;
 
         Assert.Contains(".zrus", extensions);
+        Assert.Contains(".tar.zstd", extensions);
+        Assert.Contains(".tzstd", extensions);
         Assert.Contains(".zip", extensions);
         Assert.Contains(".tar.gz", extensions);
         Assert.Contains(".tgz", extensions);
         Assert.Contains(".7z", extensions);
         Assert.Contains(".rar", extensions);
         Assert.Contains(".gz", extensions);
-        Assert.Equal(7, extensions.Count);
+        Assert.Equal(9, extensions.Count);
     }
 
     [Fact]
@@ -139,6 +155,9 @@ public class ArchiveFormatRegistryTests
 
         var zrus = Assert.Single(formats, f => f.Format == ArchiveFormat.Zrus);
         Assert.Equal(".zrus", zrus.PrimaryExtension);
+        Assert.Contains(".zrus", zrus.Extensions);
+        Assert.Contains(".tar.zstd", zrus.Extensions);
+        Assert.Contains(".tzstd", zrus.Extensions);
         Assert.Equal(1, zrus.MinCompressionLevel);
         Assert.Equal(22, zrus.MaxCompressionLevel);
         Assert.Equal(9, zrus.DefaultCompressionLevel);
@@ -164,8 +183,14 @@ public class ArchiveFormatRegistryTests
     {
         var zrus = ArchiveFormatRegistry.Zrus;
         Assert.True(zrus.MatchesExtension(".zrus"));
+        Assert.True(zrus.MatchesExtension(".tar.zstd"));
+        Assert.True(zrus.MatchesExtension(".tzstd"));
         Assert.True(zrus.MatchesExtension("zrus"));
+        Assert.True(zrus.MatchesExtension("tar.zstd"));
+        Assert.True(zrus.MatchesExtension("tzstd"));
         Assert.True(zrus.MatchesExtension("folder/file.zrus"));
+        Assert.True(zrus.MatchesExtension("/path/to/archive.tar.zstd"));
+        Assert.True(zrus.MatchesExtension("/path/to/archive.tzstd"));
         Assert.False(zrus.MatchesExtension(".zip"));
 
         var tarGz = ArchiveFormatRegistry.TarGz;

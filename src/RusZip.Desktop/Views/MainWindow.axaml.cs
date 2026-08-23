@@ -88,11 +88,11 @@ public partial class MainWindow : Window
                     AllowMultiple = false,
                     FileTypeFilter =
                     [
-                        new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz, *.tgz)")
+                        new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz, *.tgz, *.tar.zstd, *.tzstd)")
                         {
-                            Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz", "*.tar"]
+                            Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz", "*.tar", "*.tar.zstd", "*.tzstd"]
                         },
-                        new FilePickerFileType("Zstandard Tar Archives (*.zrus)") { Patterns = ["*.zrus"] },
+                        new FilePickerFileType("Zstandard Tar Archives (*.zrus, *.tar.zstd, *.tzstd)") { Patterns = ["*.zrus", "*.tar.zstd", "*.tzstd"] },
                         new FilePickerFileType("Zip Archives (*.zip)") { Patterns = ["*.zip"] },
                         new FilePickerFileType("7-Zip Archives (*.7z)") { Patterns = ["*.7z"] },
                         new FilePickerFileType("RAR Archives (*.rar)") { Patterns = ["*.rar"] },
@@ -180,11 +180,11 @@ public partial class MainWindow : Window
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz, *.tgz)")
+                new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz, *.tgz, *.tar.zstd, *.tzstd)")
                 {
-                    Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz", "*.tar"]
+                    Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz", "*.tar", "*.tar.zstd", "*.tzstd"]
                 },
-                new FilePickerFileType("Zstandard Tar Archives (*.zrus)") { Patterns = ["*.zrus"] },
+                new FilePickerFileType("Zstandard Tar Archives (*.zrus, *.tar.zstd, *.tzstd)") { Patterns = ["*.zrus", "*.tar.zstd", "*.tzstd"] },
                 new FilePickerFileType("Zip Archives (*.zip)") { Patterns = ["*.zip"] },
                 new FilePickerFileType("7-Zip Archives (*.7z)") { Patterns = ["*.7z"] },
                 new FilePickerFileType("RAR Archives (*.rar)") { Patterns = ["*.rar"] },

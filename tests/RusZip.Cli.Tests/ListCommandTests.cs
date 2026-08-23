@@ -34,6 +34,50 @@ public sealed class ListCommandTests : CliTestBase
     }
 
     [Fact]
+    public async Task List_TarZstdArchive_JsonMode_ReturnsExitCode0_AndValidJson()
+    {
+        // Arrange
+        var sourceDir = CreateTempDirectory("list_tarzstd_dir", fileCount: 3);
+        var archivePath = Path.Combine(TempDirectory, "test_list.tar.zstd");
+        await RunCliAsync("compress", sourceDir, archivePath, "--json");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("list", archivePath, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+
+        var result = ParseJson<ListResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(Path.GetFullPath(archivePath), result.ArchivePath);
+        Assert.Equal("zrus", result.Format);
+        Assert.True(result.TotalEntries >= 3);
+        Assert.NotEmpty(result.Entries);
+    }
+
+    [Fact]
+    public async Task List_TzstdArchive_JsonMode_ReturnsExitCode0_AndValidJson()
+    {
+        // Arrange
+        var sourceDir = CreateTempDirectory("list_tzstd_dir", fileCount: 2);
+        var archivePath = Path.Combine(TempDirectory, "test_list.tzstd");
+        await RunCliAsync("compress", sourceDir, archivePath, "--json");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("list", archivePath, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+
+        var result = ParseJson<ListResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(Path.GetFullPath(archivePath), result.ArchivePath);
+        Assert.Equal("zrus", result.Format);
+        Assert.True(result.TotalEntries >= 2);
+        Assert.NotEmpty(result.Entries);
+    }
+
+    [Fact]
     public async Task List_ZipArchive_JsonMode_ReturnsExitCode0()
     {
         // Arrange

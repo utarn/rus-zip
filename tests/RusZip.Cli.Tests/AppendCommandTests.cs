@@ -44,6 +44,68 @@ public sealed class AppendCommandTests : CliTestBase
         Assert.True(File.Exists(Path.Combine(extractDir, "appended.txt")));
     }
 
+    [Fact]
+    public async Task Append_FilesToTarZstd_ReturnsExitCode0_AndValidJson()
+    {
+        // Arrange - Create base archive with 1 file
+        var file1 = CreateTempFile("initial_tz.txt", "Initial file content for tar.zstd");
+        var archivePath = Path.Combine(TempDirectory, "archive.tar.zstd");
+        var (cExit, _) = await RunCliAsync("compress", file1, "-o", archivePath);
+        Assert.Equal(0, cExit);
+
+        // Create new file to append
+        var file2 = CreateTempFile("appended_tz.txt", "Appended file content for tar.zstd");
+
+        // Act - Append
+        var (exitCode, stdout) = await RunCliAsync("append", archivePath, file2, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<AppendResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal("zrus", result.Format);
+        Assert.Equal(1, result.AddedFiles);
+        Assert.Equal(2, result.TotalFiles);
+
+        // Verify extraction
+        var extractDir = Path.Combine(TempDirectory, "extracted_append_tz");
+        var (xExit, _) = await RunCliAsync("extract", archivePath, "-o", extractDir);
+        Assert.Equal(0, xExit);
+        Assert.True(File.Exists(Path.Combine(extractDir, "initial_tz.txt")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "appended_tz.txt")));
+    }
+
+    [Fact]
+    public async Task Append_FilesToTzstd_ReturnsExitCode0_AndValidJson()
+    {
+        // Arrange - Create base archive with 1 file
+        var file1 = CreateTempFile("initial_tzs.txt", "Initial file content for tzstd");
+        var archivePath = Path.Combine(TempDirectory, "archive.tzstd");
+        var (cExit, _) = await RunCliAsync("compress", file1, "-o", archivePath);
+        Assert.Equal(0, cExit);
+
+        // Create new file to append
+        var file2 = CreateTempFile("appended_tzs.txt", "Appended file content for tzstd");
+
+        // Act - Append
+        var (exitCode, stdout) = await RunCliAsync("append", archivePath, file2, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<AppendResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal("zrus", result.Format);
+        Assert.Equal(1, result.AddedFiles);
+        Assert.Equal(2, result.TotalFiles);
+
+        // Verify extraction
+        var extractDir = Path.Combine(TempDirectory, "extracted_append_tzs");
+        var (xExit, _) = await RunCliAsync("extract", archivePath, "-o", extractDir);
+        Assert.Equal(0, xExit);
+        Assert.True(File.Exists(Path.Combine(extractDir, "initial_tzs.txt")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "appended_tzs.txt")));
+    }
+
     [Theory]
     [InlineData("a")]
     [InlineData("add")]

@@ -62,6 +62,50 @@ public class UnifiedArchiveEngineTests : IDisposable
     }
 
     [Theory]
+    [InlineData("test.tar.zstd")]
+    [InlineData("test.tzstd")]
+    public async Task UnifiedEngine_RoutesTarZstdAliasesCorrectly(string archiveFileName)
+    {
+        // Arrange
+        var sourceDir = Path.Combine(_testDir, "data_" + Path.GetExtension(archiveFileName).TrimStart('.'));
+        Directory.CreateDirectory(sourceDir);
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "info.json"), "{\"app\":\"rus-zip-alias\"}");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "extra.txt"), "extra payload");
+
+        var archivePath = Path.Combine(_testDir, archiveFileName);
+
+        // Act - Compress
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, archivePath, 9));
+        Assert.True(File.Exists(archivePath));
+
+        // Act - List
+        var entries = await _engine.ListEntriesAsync(archivePath);
+        Assert.Contains(entries, e => e.RelativePath == "info.json");
+        Assert.Contains(entries, e => e.RelativePath == "extra.txt");
+
+        // Act - Append
+        var appendFile = Path.Combine(_testDir, "appended_" + Path.GetExtension(archiveFileName).TrimStart('.') + ".txt");
+        await File.WriteAllTextAsync(appendFile, "appended content");
+        var appendResult = await _engine.AppendAsync(new ArchiveAppendRequest(archivePath, [appendFile], 9));
+        Assert.True(appendResult.Success);
+        Assert.Equal(3, appendResult.TotalFiles);
+
+        // Act - List after append
+        var entriesAfterAppend = await _engine.ListEntriesAsync(archivePath);
+        Assert.Contains(entriesAfterAppend, e => e.RelativePath == Path.GetFileName(appendFile));
+
+        // Act - Extract
+        var extractDir = Path.Combine(_testDir, "extract_" + Path.GetExtension(archiveFileName).TrimStart('.'));
+        var extractResult = await _engine.ExtractAsync(new ArchiveExtractionRequest(archivePath, extractDir));
+        Assert.Equal(3, extractResult.FilesExtracted);
+        Assert.True(extractResult.BytesExtracted > 0);
+        Assert.True(File.Exists(Path.Combine(extractDir, "info.json")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "extra.txt")));
+        Assert.True(File.Exists(Path.Combine(extractDir, Path.GetFileName(appendFile))));
+        Assert.Equal("{\"app\":\"rus-zip-alias\"}", await File.ReadAllTextAsync(Path.Combine(extractDir, "info.json")));
+    }
+
+    [Theory]
     [InlineData("output.rar")]
     [InlineData("output.7z")]
     [InlineData("output.gz")]

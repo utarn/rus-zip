@@ -58,6 +58,54 @@ public sealed class CompressCommandTests : CliTestBase
     }
 
     [Fact]
+    public async Task Compress_SingleFileToTarZstd_JsonMode_ReturnsExitCode0_AndValidJson()
+    {
+        // Arrange
+        var sourceFile = CreateTempFile("sample_tarzstd.txt", "Hello rus-zip compress tar.zstd test");
+        var destArchive = Path.Combine(TempDirectory, "output.tar.zstd");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", sourceFile, "-o", destArchive, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(destArchive));
+
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(Path.GetFullPath(sourceFile), result.SourcePath);
+        Assert.Equal(Path.GetFullPath(destArchive), result.ArchivePath);
+        Assert.Equal("zrus", result.Format);
+        Assert.Equal(1, result.TotalFiles);
+        Assert.True(result.UncompressedBytes > 0);
+        Assert.True(result.CompressedBytes > 0);
+    }
+
+    [Fact]
+    public async Task Compress_SingleFileToTzstd_JsonMode_ReturnsExitCode0_AndValidJson()
+    {
+        // Arrange
+        var sourceFile = CreateTempFile("sample_tzstd.txt", "Hello rus-zip compress tzstd test");
+        var destArchive = Path.Combine(TempDirectory, "output.tzstd");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", sourceFile, "-o", destArchive, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(destArchive));
+
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(Path.GetFullPath(sourceFile), result.SourcePath);
+        Assert.Equal(Path.GetFullPath(destArchive), result.ArchivePath);
+        Assert.Equal("zrus", result.Format);
+        Assert.Equal(1, result.TotalFiles);
+        Assert.True(result.UncompressedBytes > 0);
+        Assert.True(result.CompressedBytes > 0);
+    }
+
+    [Fact]
     public async Task Compress_ToZip_JsonMode_ReturnsExitCode0()
     {
         // Arrange
@@ -462,6 +510,50 @@ public sealed class CompressCommandTests : CliTestBase
         Assert.True(result.Success);
         Assert.Equal(2, result.SourcePaths.Count);
         Assert.Equal("zip", result.Format);
+        Assert.Equal(2, result.TotalFiles);
+    }
+
+    [Fact]
+    public async Task Compress_MultiSource_PositionalDestination_TarZstd_ReturnsExitCode0()
+    {
+        var file1 = CreateTempFile("pos_tz_1.txt", "Positional tarzstd 1");
+        var file2 = CreateTempFile("pos_tz_2.txt", "Positional tarzstd 2");
+        var destArchive = Path.Combine(TempDirectory, "pos_out.tar.zstd");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", file1, file2, destArchive, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(destArchive));
+
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(2, result.SourcePaths.Count);
+        Assert.Equal(Path.GetFullPath(destArchive), result.ArchivePath);
+        Assert.Equal("zrus", result.Format);
+        Assert.Equal(2, result.TotalFiles);
+    }
+
+    [Fact]
+    public async Task Compress_MultiSource_PositionalDestination_Tzstd_ReturnsExitCode0()
+    {
+        var file1 = CreateTempFile("pos_tzs_1.txt", "Positional tzstd 1");
+        var file2 = CreateTempFile("pos_tzs_2.txt", "Positional tzstd 2");
+        var destArchive = Path.Combine(TempDirectory, "pos_out.tzstd");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", file1, file2, destArchive, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(destArchive));
+
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(2, result.SourcePaths.Count);
+        Assert.Equal(Path.GetFullPath(destArchive), result.ArchivePath);
+        Assert.Equal("zrus", result.Format);
         Assert.Equal(2, result.TotalFiles);
     }
 
