@@ -17,6 +17,9 @@ public sealed class LinuxAssociationService : IFileAssociationService
     public static readonly IReadOnlyList<string> ManagedExtensions =
     [
         ".zrus",
+        ".tar.zstd",
+        ".tzstd",
+        ".zst",
         ".zip",
         ".tar.gz",
         ".tgz",
@@ -28,6 +31,9 @@ public sealed class LinuxAssociationService : IFileAssociationService
     public static readonly IReadOnlyDictionary<string, string> ExtensionToMimeType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         { ".zrus", "application/x-zstd-tar" },
+        { ".tar.zstd", "application/x-zstd-tar" },
+        { ".tzstd", "application/x-zstd-tar" },
+        { ".zst", "application/zstd" },
         { ".zip", "application/zip" },
         { ".tar.gz", "application/gzip" },
         { ".tgz", "application/gzip" },
@@ -58,7 +64,8 @@ public sealed class LinuxAssociationService : IFileAssociationService
         "application/gzip",
         "application/x-7z-compressed",
         "application/vnd.rar",
-        "application/x-zstd-tar"
+        "application/x-zstd-tar",
+        "application/zstd"
     ];
 
     public static string GenerateDesktopFileContent(string executablePath, IEnumerable<string>? extensions = null)

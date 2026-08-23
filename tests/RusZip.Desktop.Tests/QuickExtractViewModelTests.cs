@@ -169,6 +169,49 @@ public class QuickExtractViewModelTests : IDisposable
         Assert.True(vm.IsSuccess);
     }
 
+    [Theory]
+    [InlineData("myarchive.tar.zstd", "myarchive")]
+    [InlineData("myarchive.tzstd", "myarchive")]
+    [InlineData("myarchive.zst", "myarchive")]
+    [InlineData("myarchive.zrus", "myarchive")]
+    public async Task StartExtractionAsync_ExtractToDir_ZstandardFormats_ResolvesBaseNameCleanly(string archiveFileName, string expectedBaseName)
+    {
+        var archiveFile = Path.Combine(_tempDir, archiveFileName);
+        await File.WriteAllBytesAsync(archiveFile, [0x01, 0x02]);
+
+        var engine = new FakeArchiveEngine();
+        var options = new QuickExtractOptions(QuickExtractMode.ExtractToDir, archiveFile);
+        var vm = new QuickExtractViewModel(engine, options);
+
+        await vm.StartExtractionAsync();
+
+        var expectedDir = Path.Combine(_tempDir, expectedBaseName);
+        Assert.NotNull(engine.LastExtractionRequest);
+        Assert.Equal(expectedDir, engine.LastExtractionRequest.DestinationDirectory);
+        Assert.True(vm.IsSuccess);
+    }
+
+    [Theory]
+    [InlineData("archive.tar.zstd")]
+    [InlineData("archive.tzstd")]
+    [InlineData("archive.zst")]
+    public async Task StartExtractionAsync_ExtractHere_ZstandardFormats_SetsParentDirectory(string archiveFileName)
+    {
+        var archiveFile = Path.Combine(_tempDir, archiveFileName);
+        await File.WriteAllBytesAsync(archiveFile, [0x01, 0x02]);
+
+        var engine = new FakeArchiveEngine();
+        var options = new QuickExtractOptions(QuickExtractMode.ExtractHere, archiveFile);
+        var vm = new QuickExtractViewModel(engine, options);
+
+        await vm.StartExtractionAsync();
+
+        Assert.NotNull(engine.LastExtractionRequest);
+        Assert.Equal(archiveFile, engine.LastExtractionRequest.ArchivePath);
+        Assert.Equal(_tempDir, engine.LastExtractionRequest.DestinationDirectory);
+        Assert.True(vm.IsSuccess);
+    }
+
     [Fact]
     public async Task StartExtractionAsync_NonExistentArchive_SetsErrorState()
     {

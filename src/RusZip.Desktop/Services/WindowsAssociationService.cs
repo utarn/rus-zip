@@ -14,6 +14,9 @@ public sealed class WindowsAssociationService : IFileAssociationService
     public static readonly IReadOnlyList<string> ManagedExtensions =
     [
         ".zrus",
+        ".tar.zstd",
+        ".tzstd",
+        ".zst",
         ".zip",
         ".tar.gz",
         ".tgz",

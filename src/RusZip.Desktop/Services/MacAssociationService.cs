@@ -17,6 +17,9 @@ public sealed class MacAssociationService : IFileAssociationService
     public static readonly IReadOnlyList<string> ManagedExtensions =
     [
         ".zrus",
+        ".tar.zstd",
+        ".tzstd",
+        ".zst",
         ".zip",
         ".tar.gz",
         ".tgz",
@@ -28,6 +31,9 @@ public sealed class MacAssociationService : IFileAssociationService
     public static readonly IReadOnlyDictionary<string, string> ExtensionToUti = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         { ".zrus", "org.zstd.tar-archive" },
+        { ".tar.zstd", "org.zstd.tar-archive" },
+        { ".tzstd", "org.zstd.tar-archive" },
+        { ".zst", "org.zstd.zstandard-archive" },
         { ".zip", "public.zip-archive" },
         { ".tar.gz", "org.gnu.gnu-zip-tar-archive" },
         { ".tgz", "org.gnu.gnu-zip-tar-archive" },

@@ -426,4 +426,32 @@ public class CompressionSettingsViewModelTests
 
         Assert.Equal("/existing/output.zrus", vm.DestinationPath);
     }
+
+    [Theory]
+    [InlineData(".zst")]
+    [InlineData(".tar.zstd")]
+    [InlineData(".tzstd")]
+    [InlineData(".7z")]
+    [InlineData(".rar")]
+    [InlineData(".tar.gz")]
+    [InlineData(".invalid")]
+    public void SelectedFormat_WhenSetToUnsupportedFormat_FallsBackToDefault(string unsupportedFormat)
+    {
+        var vm = new CompressionSettingsViewModel();
+        Assert.Equal(".zrus", vm.SelectedFormat);
+
+        vm.SelectedFormat = unsupportedFormat;
+
+        Assert.Equal(".zrus", vm.SelectedFormat);
+    }
+
+    [Fact]
+    public void AvailableFormats_StrictlyRestrictedToZrusAndZip()
+    {
+        var vm = new CompressionSettingsViewModel();
+
+        Assert.Equal(2, CompressionSettingsViewModel.AvailableFormats.Count);
+        Assert.Equal([".zrus", ".zip"], CompressionSettingsViewModel.AvailableFormats);
+        Assert.Equal(CompressionSettingsViewModel.AvailableFormats, vm.Formats);
+    }
 }

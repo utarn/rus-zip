@@ -185,6 +185,12 @@ public partial class CompressionSettingsViewModel : ObservableObject
 
     partial void OnSelectedFormatChanged(string? oldValue, string newValue)
     {
+        if (!AvailableFormats.Contains(newValue, StringComparer.OrdinalIgnoreCase))
+        {
+            SelectedFormat = AvailableFormats[0];
+            return;
+        }
+
         if (string.IsNullOrEmpty(DestinationPath))
         {
             if (!string.IsNullOrEmpty(SourcePath))

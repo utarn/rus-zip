@@ -53,4 +53,48 @@ public class CompressionSettingsViewTests
         Assert.Equal("/tmp/single.txt", vm.SourcePath);
         Assert.Equal("/tmp/single.txt.zrus", vm.DestinationPath);
     }
+
+    [Fact]
+    public void CreateSaveFilePickerOptions_ForZrus_RestrictsChoicesToZrusAndAllFiles()
+    {
+        var vm = new CompressionSettingsViewModel
+        {
+            SourcePath = "/path/to/myfolder",
+            SelectedFormat = ".zrus"
+        };
+
+        var options = CompressionSettingsView.CreateSaveFilePickerOptions(vm);
+
+        Assert.Equal("Save Archive As", options.Title);
+        Assert.Equal("zrus", options.DefaultExtension);
+        Assert.Equal("myfolder.zrus", options.SuggestedFileName);
+        Assert.NotNull(options.FileTypeChoices);
+        Assert.Equal(2, options.FileTypeChoices.Count);
+        Assert.Equal("ZRUS Archive (*.zrus)", options.FileTypeChoices[0].Name);
+        Assert.Equal(["*.zrus"], options.FileTypeChoices[0].Patterns);
+        Assert.Equal("All Files (*.*)", options.FileTypeChoices[1].Name);
+        Assert.Equal(["*.*"], options.FileTypeChoices[1].Patterns);
+    }
+
+    [Fact]
+    public void CreateSaveFilePickerOptions_ForZip_RestrictsChoicesToZipAndAllFiles()
+    {
+        var vm = new CompressionSettingsViewModel
+        {
+            SourcePath = "/path/to/myfolder",
+            SelectedFormat = ".zip"
+        };
+
+        var options = CompressionSettingsView.CreateSaveFilePickerOptions(vm);
+
+        Assert.Equal("Save Archive As", options.Title);
+        Assert.Equal("zip", options.DefaultExtension);
+        Assert.Equal("myfolder.zip", options.SuggestedFileName);
+        Assert.NotNull(options.FileTypeChoices);
+        Assert.Equal(2, options.FileTypeChoices.Count);
+        Assert.Equal("ZIP Archive (*.zip)", options.FileTypeChoices[0].Name);
+        Assert.Equal(["*.zip"], options.FileTypeChoices[0].Patterns);
+        Assert.Equal("All Files (*.*)", options.FileTypeChoices[1].Name);
+        Assert.Equal(["*.*"], options.FileTypeChoices[1].Patterns);
+    }
 }

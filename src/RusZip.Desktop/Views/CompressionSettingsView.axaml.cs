@@ -11,6 +11,28 @@ public partial class CompressionSettingsView : UserControl
         InitializeComponent();
     }
 
+    public static FilePickerSaveOptions CreateSaveFilePickerOptions(CompressionSettingsViewModel vm)
+    {
+        var isZip = string.Equals(vm.SelectedFormat, ".zip", StringComparison.OrdinalIgnoreCase);
+        var ext = isZip ? "zip" : "zrus";
+        var pattern = isZip ? "*.zip" : "*.zrus";
+        var typeName = isZip ? "ZIP Archive (*.zip)" : "ZRUS Archive (*.zrus)";
+
+        return new FilePickerSaveOptions
+        {
+            Title = "Save Archive As",
+            DefaultExtension = ext,
+            SuggestedFileName = !string.IsNullOrEmpty(vm.SourcePath)
+                ? Path.GetFileName(vm.SourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) + vm.SelectedFormat
+                : $"archive{vm.SelectedFormat}",
+            FileTypeChoices =
+            [
+                new FilePickerFileType(typeName) { Patterns = [pattern] },
+                new FilePickerFileType("All Files (*.*)") { Patterns = ["*.*"] }
+            ]
+        };
+    }
+
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
@@ -44,24 +66,8 @@ public partial class CompressionSettingsView : UserControl
             {
                 var topLevel = TopLevel.GetTopLevel(this);
                 if (topLevel == null) return null;
-                var isZip = string.Equals(vm.SelectedFormat, ".zip", StringComparison.OrdinalIgnoreCase);
-                var ext = isZip ? "zip" : "zrus";
-                var pattern = isZip ? "*.zip" : "*.zrus";
-                var typeName = isZip ? "ZIP Archive (*.zip)" : "ZRUS Archive (*.zrus)";
 
-                var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-                {
-                    Title = "Save Archive As",
-                    DefaultExtension = ext,
-                    SuggestedFileName = !string.IsNullOrEmpty(vm.SourcePath)
-                        ? Path.GetFileName(vm.SourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) + vm.SelectedFormat
-                        : $"archive{vm.SelectedFormat}",
-                    FileTypeChoices =
-                    [
-                        new FilePickerFileType(typeName) { Patterns = [pattern] },
-                        new FilePickerFileType("All Files (*.*)") { Patterns = ["*.*"] }
-                    ]
-                });
+                var file = await topLevel.StorageProvider.SaveFilePickerAsync(CreateSaveFilePickerOptions(vm));
                 return file?.TryGetLocalPath();
             };
         }
