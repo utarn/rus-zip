@@ -1493,4 +1493,387 @@ public class SharpCompressArchiveEngineTests : IDisposable
     }
 
     #endregion
+
+    #region AppendAsync Tests
+
+    [Fact]
+    public async Task Zip_AppendAsync_SingleFile_AppendsToExistingArchive_PreservesExistingAndAddedEntries()
+    {
+        // Arrange - Create base archive with 2 files
+        var initialDir = Path.Combine(_testDir, "zip_append_initial");
+        Directory.CreateDirectory(initialDir);
+        await File.WriteAllTextAsync(Path.Combine(initialDir, "file1.txt"), "Content of File 1");
+        await File.WriteAllTextAsync(Path.Combine(initialDir, "file2.txt"), "Content of File 2");
+
+        var zipPath = Path.Combine(_testDir, "append_test.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(initialDir, zipPath, 9));
+
+        // Create new file to append
+        var newFile = Path.Combine(_testDir, "file3.txt");
+        await File.WriteAllTextAsync(newFile, "Content of File 3 (Appended)");
+
+        // Act - Append new file
+        var appendReq = new ArchiveAppendRequest(zipPath, [newFile], 9);
+        var result = await _engine.AppendAsync(appendReq);
+
+        // Assert - Result metrics
+        Assert.True(result.Success);
+        Assert.Equal("zip", result.Format);
+        Assert.Equal(1, result.AddedFiles);
+        Assert.Equal(0, result.UpdatedFiles);
+        Assert.Equal(2, result.RetainedFiles);
+        Assert.Equal(0, result.SkippedFiles);
+        Assert.Equal(3, result.TotalFiles);
+        Assert.True(result.UncompressedBytes > 0);
+        Assert.True(result.CompressedBytes > 0);
+
+        // Act - Extract and verify all 3 files
+        var extractDir = Path.Combine(_testDir, "zip_append_extracted");
+        var extractResult = await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+        Assert.Equal(3, extractResult.FilesExtracted);
+
+        Assert.Equal("Content of File 1", await File.ReadAllTextAsync(Path.Combine(extractDir, "file1.txt")));
+        Assert.Equal("Content of File 2", await File.ReadAllTextAsync(Path.Combine(extractDir, "file2.txt")));
+        Assert.Equal("Content of File 3 (Appended)", await File.ReadAllTextAsync(Path.Combine(extractDir, "file3.txt")));
+    }
+
+    [Fact]
+    public async Task Zip_AppendAsync_Directory_AppendsSubfolderStructure()
+    {
+        // Arrange - Create base archive
+        var initialDir = Path.Combine(_testDir, "zip_dir_append_initial");
+        Directory.CreateDirectory(initialDir);
+        await File.WriteAllTextAsync(Path.Combine(initialDir, "root.txt"), "Root content");
+
+        var zipPath = Path.Combine(_testDir, "dir_append.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(initialDir, zipPath, 9));
+
+        // Create extra directory structure to append
+        var extraDir = Path.Combine(_testDir, "zip_extra_folder");
+        Directory.CreateDirectory(Path.Combine(extraDir, "nested"));
+        await File.WriteAllTextAsync(Path.Combine(extraDir, "doc.txt"), "Doc content");
+        await File.WriteAllTextAsync(Path.Combine(extraDir, "nested", "inner.txt"), "Inner content");
+
+        // Act
+        var appendReq = new ArchiveAppendRequest(zipPath, [extraDir], 9);
+        var result = await _engine.AppendAsync(appendReq);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.Equal(2, result.AddedFiles);
+        Assert.Equal(1, result.RetainedFiles);
+        Assert.Equal(3, result.TotalFiles);
+
+        var extractDir = Path.Combine(_testDir, "zip_dir_append_extracted");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+
+        Assert.Equal("Root content", await File.ReadAllTextAsync(Path.Combine(extractDir, "root.txt")));
+        Assert.Equal("Doc content", await File.ReadAllTextAsync(Path.Combine(extractDir, "zip_extra_folder", "doc.txt")));
+        Assert.Equal("Inner content", await File.ReadAllTextAsync(Path.Combine(extractDir, "zip_extra_folder", "nested", "inner.txt")));
+    }
+
+    [Fact]
+    public async Task Zip_AppendAsync_CollidingEntry_Default_OverwritesExistingContent()
+    {
+        // Arrange - Create archive with initial content
+        var baseDir = Path.Combine(_testDir, "zip_overwrite_base");
+        Directory.CreateDirectory(baseDir);
+        var baseFile = Path.Combine(baseDir, "data.txt");
+        await File.WriteAllTextAsync(baseFile, "Original Version");
+
+        var zipPath = Path.Combine(_testDir, "overwrite_test.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        // Create updated file with same relative name
+        var updatedDir = Path.Combine(_testDir, "zip_overwrite_new");
+        Directory.CreateDirectory(updatedDir);
+        var updatedFile = Path.Combine(updatedDir, "data.txt");
+        await File.WriteAllTextAsync(updatedFile, "Updated Version 2.0");
+
+        // Act - Append without update-only
+        var appendReq = new ArchiveAppendRequest(zipPath, ["data.txt"], 9, BaseDirectory: updatedDir);
+        var result = await _engine.AppendAsync(appendReq);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.Equal(0, result.AddedFiles);
+        Assert.Equal(1, result.UpdatedFiles);
+        Assert.Equal(0, result.RetainedFiles);
+        Assert.Equal(0, result.SkippedFiles);
+        Assert.Equal(1, result.TotalFiles);
+
+        var extractDir = Path.Combine(_testDir, "zip_overwrite_extracted");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+
+        Assert.Equal("Updated Version 2.0", await File.ReadAllTextAsync(Path.Combine(extractDir, "data.txt")));
+    }
+
+    [Fact]
+    public async Task Zip_AppendAsync_CollidingEntry_UpdateOnly_WhenSourceNewer_OverwritesExisting()
+    {
+        // Arrange - Base archive
+        var baseDir = Path.Combine(_testDir, "zip_update_newer_base");
+        Directory.CreateDirectory(baseDir);
+        var baseFile = Path.Combine(baseDir, "log.txt");
+        await File.WriteAllTextAsync(baseFile, "Old log");
+        var pastTime = DateTime.UtcNow.AddHours(-2);
+        File.SetLastWriteTimeUtc(baseFile, pastTime);
+
+        var zipPath = Path.Combine(_testDir, "update_only_newer.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        // Newer incoming source
+        var newDir = Path.Combine(_testDir, "zip_update_newer_in");
+        Directory.CreateDirectory(newDir);
+        var newFile = Path.Combine(newDir, "log.txt");
+        await File.WriteAllTextAsync(newFile, "New log");
+        var nowTime = DateTime.UtcNow;
+        File.SetLastWriteTimeUtc(newFile, nowTime);
+
+        // Act
+        var appendReq = new ArchiveAppendRequest(zipPath, ["log.txt"], 9, UpdateOnly: true, BaseDirectory: newDir);
+        var result = await _engine.AppendAsync(appendReq);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.Equal(1, result.UpdatedFiles);
+        Assert.Equal(0, result.RetainedFiles);
+        Assert.Equal(0, result.SkippedFiles);
+        Assert.Equal(1, result.TotalFiles);
+
+        var extractDir = Path.Combine(_testDir, "zip_update_newer_extracted");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+        Assert.Equal("New log", await File.ReadAllTextAsync(Path.Combine(extractDir, "log.txt")));
+    }
+
+    [Fact]
+    public async Task Zip_AppendAsync_CollidingEntry_UpdateOnly_WhenSourceOlderOrSame_RetainsExistingAndSkipsSource()
+    {
+        // Arrange - Base archive with newer timestamp
+        var baseDir = Path.Combine(_testDir, "zip_update_older_base");
+        Directory.CreateDirectory(baseDir);
+        var baseFile = Path.Combine(baseDir, "config.json");
+        await File.WriteAllTextAsync(baseFile, "{\"version\": 2}");
+        var newerTime = DateTime.UtcNow;
+        File.SetLastWriteTimeUtc(baseFile, newerTime);
+
+        var zipPath = Path.Combine(_testDir, "update_only_older.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        // Older incoming source
+        var oldDir = Path.Combine(_testDir, "zip_update_older_in");
+        Directory.CreateDirectory(oldDir);
+        var oldFile = Path.Combine(oldDir, "config.json");
+        await File.WriteAllTextAsync(oldFile, "{\"version\": 1}");
+        var olderTime = DateTime.UtcNow.AddHours(-3);
+        File.SetLastWriteTimeUtc(oldFile, olderTime);
+
+        // Act
+        var appendReq = new ArchiveAppendRequest(zipPath, ["config.json"], 9, UpdateOnly: true, BaseDirectory: oldDir);
+        var result = await _engine.AppendAsync(appendReq);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.Equal(0, result.AddedFiles);
+        Assert.Equal(0, result.UpdatedFiles);
+        Assert.Equal(1, result.RetainedFiles);
+        Assert.Equal(1, result.SkippedFiles);
+        Assert.Equal(1, result.TotalFiles);
+
+        var extractDir = Path.Combine(_testDir, "zip_update_older_extracted");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+        Assert.Equal("{\"version\": 2}", await File.ReadAllTextAsync(Path.Combine(extractDir, "config.json")));
+    }
+
+    [Fact]
+    public async Task Zip_AppendAsync_TracksProgressSmoothly_AcrossRetainedAndIncomingEntries()
+    {
+        // Arrange
+        var baseDir = Path.Combine(_testDir, "zip_prog_base");
+        Directory.CreateDirectory(baseDir);
+        var f1 = Path.Combine(baseDir, "existing.bin");
+        var f1Data = new byte[32 * 1024];
+        Random.Shared.NextBytes(f1Data);
+        await File.WriteAllBytesAsync(f1, f1Data);
+
+        var zipPath = Path.Combine(_testDir, "prog_test.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        var f2 = Path.Combine(_testDir, "zip_incoming.bin");
+        var f2Data = new byte[64 * 1024];
+        Random.Shared.NextBytes(f2Data);
+        await File.WriteAllBytesAsync(f2, f2Data);
+
+        var progressReports = new List<ProgressReport>();
+        var progress = new SynchronousProgress<ProgressReport>(r => progressReports.Add(r));
+
+        // Act
+        var appendReq = new ArchiveAppendRequest(zipPath, [f2], 9);
+        var result = await _engine.AppendAsync(appendReq, progress);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.NotEmpty(progressReports);
+        var last = progressReports.Last();
+        Assert.Equal(f1Data.Length + f2Data.Length, last.TotalBytes);
+        Assert.Equal(last.TotalBytes, last.ProcessedBytes);
+        Assert.Equal(100.0, last.Percentage);
+    }
+
+    [Fact]
+    public async Task Zip_AppendAsync_AtomicRollback_WhenErrorOccurs_PreservesOriginalArchiveAndCleansTempFile()
+    {
+        // Arrange
+        var baseDir = Path.Combine(_testDir, "zip_atomic_base");
+        Directory.CreateDirectory(baseDir);
+        var baseFile = Path.Combine(baseDir, "original.txt");
+        await File.WriteAllTextAsync(baseFile, "Original untouched content");
+
+        var zipPath = Path.Combine(_testDir, "atomic_test.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+        var originalBytes = await File.ReadAllBytesAsync(zipPath);
+
+        // Non-existent source triggers failure upfront
+        var missingSource = Path.Combine(_testDir, "does_not_exist_source.txt");
+
+        // Act & Assert
+        var appendReq = new ArchiveAppendRequest(zipPath, [missingSource], 9);
+        await Assert.ThrowsAsync<FileNotFoundException>(() => _engine.AppendAsync(appendReq));
+
+        // Original archive must be identical and no temp files left
+        var currentBytes = await File.ReadAllBytesAsync(zipPath);
+        Assert.Equal(originalBytes, currentBytes);
+
+        var tempFiles = Directory.GetFiles(_testDir, "atomic_test.zip.tmp.*");
+        Assert.Empty(tempFiles);
+    }
+
+    [Fact]
+    public async Task Zip_AppendAsync_PreservesPosixPermissions_ForExistingAndNewEntries()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        // Arrange - Base archive with an executable file
+        var baseDir = Path.Combine(_testDir, "zip_posix_base");
+        Directory.CreateDirectory(baseDir);
+        var execFile = Path.Combine(baseDir, "script.sh");
+        await File.WriteAllTextAsync(execFile, "#!/bin/sh\necho Base");
+        var execMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                       UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                       UnixFileMode.OtherRead | UnixFileMode.OtherExecute; // 0755
+        File.SetUnixFileMode(execFile, execMode);
+
+        var zipPath = Path.Combine(_testDir, "posix_append.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        // New file to append with 0644 mode
+        var regularFile = Path.Combine(_testDir, "readme.txt");
+        await File.WriteAllTextAsync(regularFile, "Readme text");
+        var regularMode = UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                          UnixFileMode.GroupRead | UnixFileMode.OtherRead; // 0644
+        File.SetUnixFileMode(regularFile, regularMode);
+
+        // Act - Append
+        var appendReq = new ArchiveAppendRequest(zipPath, [regularFile], 9);
+        var result = await _engine.AppendAsync(appendReq);
+        Assert.True(result.Success);
+
+        // Act - Extract and verify POSIX modes
+        var extractDir = Path.Combine(_testDir, "zip_posix_extracted");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+
+        var extractedExec = Path.Combine(extractDir, "script.sh");
+        var extractedRegular = Path.Combine(extractDir, "readme.txt");
+
+        Assert.True(File.Exists(extractedExec));
+        Assert.True(File.Exists(extractedRegular));
+        Assert.Equal(execMode, File.GetUnixFileMode(extractedExec));
+        Assert.Equal(regularMode, File.GetUnixFileMode(extractedRegular));
+    }
+
+    [Fact]
+    public async Task Zip_AppendAsync_Level0_Store_CreatesValidArchive()
+    {
+        // Arrange
+        var baseDir = Path.Combine(_testDir, "zip_store_base");
+        Directory.CreateDirectory(baseDir);
+        var baseFile = Path.Combine(baseDir, "base.txt");
+        await File.WriteAllTextAsync(baseFile, "Base store");
+
+        var zipPath = Path.Combine(_testDir, "store_append.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 0));
+
+        var appendFile = Path.Combine(_testDir, "append.txt");
+        await File.WriteAllTextAsync(appendFile, "Append store");
+
+        // Act
+        var result = await _engine.AppendAsync(new ArchiveAppendRequest(zipPath, [appendFile], 0));
+        Assert.True(result.Success);
+
+        // Assert extraction
+        var extractDir = Path.Combine(_testDir, "store_append_extracted");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+
+        Assert.Equal("Base store", await File.ReadAllTextAsync(Path.Combine(extractDir, "base.txt")));
+        Assert.Equal("Append store", await File.ReadAllTextAsync(Path.Combine(extractDir, "append.txt")));
+    }
+
+    [Fact]
+    public async Task Zip_AppendAsync_NonExistentArchive_ThrowsFileNotFoundException()
+    {
+        var missingArchive = Path.Combine(_testDir, "missing.zip");
+        var sourceFile = Path.Combine(_testDir, "some_file.txt");
+        await File.WriteAllTextAsync(sourceFile, "Some content");
+
+        var req = new ArchiveAppendRequest(missingArchive, [sourceFile], 9);
+        await Assert.ThrowsAsync<FileNotFoundException>(() => _engine.AppendAsync(req));
+    }
+
+    [Fact]
+    public async Task Zip_AppendAsync_InvalidCompressionLevel_ThrowsArgumentOutOfRangeException()
+    {
+        var baseDir = Path.Combine(_testDir, "zip_lvl_base");
+        Directory.CreateDirectory(baseDir);
+        var file = Path.Combine(baseDir, "file.txt");
+        await File.WriteAllTextAsync(file, "content");
+
+        var zipPath = Path.Combine(_testDir, "level_test.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        var reqUnder = new ArchiveAppendRequest(zipPath, [file], -1);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _engine.AppendAsync(reqUnder));
+
+        var reqOver = new ArchiveAppendRequest(zipPath, [file], 10);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _engine.AppendAsync(reqOver));
+    }
+
+    [Fact]
+    public async Task Zip_AppendAsync_EmptySources_ThrowsArgumentException()
+    {
+        var baseDir = Path.Combine(_testDir, "zip_empty_src_base");
+        Directory.CreateDirectory(baseDir);
+        var file = Path.Combine(baseDir, "file.txt");
+        await File.WriteAllTextAsync(file, "content");
+
+        var zipPath = Path.Combine(_testDir, "empty_src_test.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        var req = new ArchiveAppendRequest(zipPath, [], 9);
+        await Assert.ThrowsAsync<ArgumentException>(() => _engine.AppendAsync(req));
+    }
+
+    [Fact]
+    public async Task Zip_AppendAsync_UnsupportedFormat_ThrowsNotSupportedException()
+    {
+        var targzFile = Path.Combine(_testDir, "test.tar.gz");
+        await File.WriteAllTextAsync(targzFile, "dummy");
+        var sourceFile = Path.Combine(_testDir, "file.txt");
+        await File.WriteAllTextAsync(sourceFile, "content");
+
+        var req = new ArchiveAppendRequest(targzFile, [sourceFile], 9);
+        await Assert.ThrowsAsync<NotSupportedException>(() => _engine.AppendAsync(req));
+    }
+
+    #endregion
 }

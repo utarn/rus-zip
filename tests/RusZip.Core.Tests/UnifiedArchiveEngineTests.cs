@@ -138,6 +138,63 @@ public class UnifiedArchiveEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task UnifiedEngine_AppendAsync_RoutesZrusAndZipCorrectly()
+    {
+        // Arrange
+        var sourceDir = Path.Combine(_testDir, "append_data");
+        Directory.CreateDirectory(sourceDir);
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "initial.txt"), "Initial content");
+
+        var zrusPath = Path.Combine(_testDir, "unified_append.zrus");
+        var zipPath = Path.Combine(_testDir, "unified_append.zip");
+
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zrusPath, 9));
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9));
+
+        var appendFile = Path.Combine(_testDir, "new_file.txt");
+        await File.WriteAllTextAsync(appendFile, "New content to append");
+
+        // Act - Append to .zrus
+        var zrusAppendResult = await _engine.AppendAsync(new ArchiveAppendRequest(zrusPath, [appendFile], 9));
+        Assert.True(zrusAppendResult.Success);
+        Assert.Equal("zrus", zrusAppendResult.Format);
+        Assert.Equal(2, zrusAppendResult.TotalFiles);
+
+        // Act - Append to .zip
+        var zipAppendResult = await _engine.AppendAsync(new ArchiveAppendRequest(zipPath, [appendFile], 9));
+        Assert.True(zipAppendResult.Success);
+        Assert.Equal("zip", zipAppendResult.Format);
+        Assert.Equal(2, zipAppendResult.TotalFiles);
+
+        // Verify entries
+        var zrusEntries = await _engine.ListEntriesAsync(zrusPath);
+        var zipEntries = await _engine.ListEntriesAsync(zipPath);
+
+        Assert.Contains(zrusEntries, e => e.RelativePath == "new_file.txt");
+        Assert.Contains(zipEntries, e => e.RelativePath == "new_file.txt");
+    }
+
+    [Theory]
+    [InlineData("output.rar")]
+    [InlineData("output.7z")]
+    [InlineData("output.gz")]
+    [InlineData("output.tar.gz")]
+    [InlineData("output.tgz")]
+    public async Task UnifiedEngine_Append_UnsupportedFormat_ThrowsNotSupportedException(string unsupportedArchiveName)
+    {
+        var dummyFile = Path.Combine(_testDir, "dummy_append.txt");
+        await File.WriteAllTextAsync(dummyFile, "dummy");
+
+        var destination = Path.Combine(_testDir, unsupportedArchiveName);
+        await File.WriteAllTextAsync(destination, "dummy archive content");
+
+        var req = new ArchiveAppendRequest(destination, [dummyFile], 9);
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => _engine.AppendAsync(req));
+        Assert.Contains("Appending to", ex.Message);
+    }
+
+    [Fact]
     public void ArchiveFormatRegistry_UnknownExtension_ThrowsNotSupportedException()
     {
         Assert.Throws<NotSupportedException>(() => ArchiveFormatRegistry.Detect("file.unknown_extension"));
