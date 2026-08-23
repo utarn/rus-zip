@@ -8,13 +8,16 @@ Glossary and ubiquitous language for `rus-zip`.
 A cross-platform desktop application and command-line tool for compressing and decompressing archive files across Windows, Linux, and macOS.
 
 ### .zrus
-The default archive format of `rus-zip`. Combines a Tar container structure (preserving multi-file directory trees, POSIX permissions, and timestamps) with Zstandard (`zstd`) compression, supporting configurable compression levels (1–22).
+The default archive format of `rus-zip`. Combines a Tar container structure (preserving multi-file directory trees, POSIX permissions, and timestamps) with Zstandard (`zstd`) compression, supporting configurable compression levels (1–22). Recognized extension aliases include `.tar.zstd` and `.tzstd`.
+
+### .zst
+A single file compressed with Zstandard (`zstd`) streaming compression without a Tar container structure (analogous to `.gz`), supporting decompression across CLI and Desktop, and single-file CLI compression.
 
 ### Core Engine
 The headless library (`RusZip.Core`) providing unified archive abstraction, stream compression, decompression, entry inspection, and progress reporting without UI or CLI dependencies.
 
 ### Archive Format Registry
-The domain registry in `RusZip.Core` (`ArchiveFormatRegistry` and `ArchiveFormatDescriptor`) providing the canonical definitions of all archive formats, extension aliases (`.tar.gz`, `.tgz`), bidirectional capabilities (`CanCompress`, `CanDecompress`), compression level ranges, and MIME types.
+The domain registry in `RusZip.Core` (`ArchiveFormatRegistry` and `ArchiveFormatDescriptor`) providing the canonical definitions of all archive formats, extension aliases (`.tar.gz`, `.tgz`, `.tar.zstd`, `.tzstd`), bidirectional capabilities (`CanCompress`, `CanDecompress`), compression level ranges, and MIME types.
 
 ### Safe Archive Extractor
 The centralized stream-consumer extraction module in `RusZip.Core` (`SafeArchiveExtractor` and `IArchiveExtractionSource`) enforcing path traversal defenses, buffer-pooled streaming, progress reporting, and two-pass bottom-up directory timestamp and POSIX mode restoration.
@@ -30,14 +33,15 @@ The infrastructure seam in `RusZip.Cli` (`CliCommandRunner`) that standardizes e
 
 ### Supported Formats
 The archive formats handled by the engine:
-- **Bi-directional (Compress & Decompress)**: `.zrus` (Tar+Zstd), `.zip`.
-- **Decompress Only**: `.rar`, `.7z`, `.gz`, `.tar.gz`.
+- **Bi-directional (Compress & Decompress)**: `.zrus` (Tar+Zstd, aliases: `.tar.zstd`, `.tzstd`), `.zip`, `.zst` (single-file stream, CLI only for compression).
+- **Decompress Only**: `.rar`, `.7z`, `.gz`, `.tar.gz` (alias: `.tgz`).
+- **GUI Creation Restricted**: The Desktop GUI creation wizard restricts output format selection strictly to `.zrus` and `.zip`.
 
 ### Archive Entry
 A descriptor representing a single file or directory within an archive, encapsulating its relative path, uncompressed size, compressed size, last modified timestamp, and attributes.
 
 ### Compression Level
-An integer value indicating the compression aggressiveness. For Zstandard (`.zrus`), spans levels 1 (fastest) through 22 (maximum ratio, ultra).
+An integer value indicating the compression aggressiveness. For Zstandard (`.zrus`, `.tar.zstd`, `.tzstd`, `.zst`), spans levels 1 (fastest) through 22 (maximum ratio, ultra).
 
 ### Compression Profile
 Standard preset configurations mapping friendly names to compression levels:
@@ -68,7 +72,7 @@ The lightweight, standalone extraction execution workflow displaying real-time p
 The interactive or policy-driven callback mechanism in `RusZip.Core` resolving destination file collisions during extraction via explicit decisions (`Overwrite`, `OverwriteAll`, `Skip`, `SkipAll`, `Abort`).
 
 ### Compound Extension Stripping
-The process of detecting and stripping multi-part extension aliases (e.g. `.tar.gz`, `.tgz`) based on the Archive Format Registry to determine canonical archive base names and prevent redundant nested directory names.
+The process of detecting and stripping multi-part extension aliases (e.g. `.tar.gz`, `.tgz`, `.tar.zstd`, `.tzstd`) based on the Archive Format Registry to determine canonical archive base names and prevent redundant nested directory names.
 
 ### Auto-Suffixed Extraction Directory
 A collision-free destination directory generation strategy that appends an incremental numerical suffix (`_2`, `_3`, ...) when a target folder already exists at the extraction location.
