@@ -11,11 +11,11 @@
                 VerticalAlignment="Center"
                 Width="500"
                 Padding="24"
-                Background="{DynamicResource SolidBackgroundFillColorBase}"
+                Background="{DynamicResource CardBackgroundFillColorDefault}"
                 BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
                 BorderThickness="1"
                 CornerRadius="12"
-                BoxShadow="0 12 40 #50000000">
+                BoxShadow="0 16 48 #50000000">
 
             <StackPanel Spacing="16">
                 <!-- Title & Current File -->

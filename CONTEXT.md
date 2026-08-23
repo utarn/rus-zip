@@ -54,3 +54,24 @@ The safety limits enforced while extracting an untrusted archive: a cap on cumul
 
 ### Progress Report
 A real-time progress model capturing processed bytes, total bytes, current file being processed, percentage completed, and cancellation state.
+
+### File Association Service
+The cross-platform service managing OS-level file extension registrations, ProgIDs, MIME types, and default application queries across Windows, Linux, and macOS.
+
+### Shell Verbs
+The OS shell context menu actions registered for supported archive formats: `Extract here`, `Extract to...`, and `Extract to subfolder`.
+
+### Quick Extract
+The lightweight, standalone extraction execution workflow displaying real-time progress, metrics, throughput, and completion actions without opening the full archive browser interface.
+
+### File Conflict Resolver
+The interactive or policy-driven callback mechanism in `RusZip.Core` resolving destination file collisions during extraction via explicit decisions (`Overwrite`, `OverwriteAll`, `Skip`, `SkipAll`, `Abort`).
+
+### Compound Extension Stripping
+The process of detecting and stripping multi-part extension aliases (e.g. `.tar.gz`, `.tgz`) based on the Archive Format Registry to determine canonical archive base names and prevent redundant nested directory names.
+
+### Auto-Suffixed Extraction Directory
+A collision-free destination directory generation strategy that appends an incremental numerical suffix (`_2`, `_3`, ...) when a target folder already exists at the extraction location.
+
+### Single-Instance IPC Coordinator
+The inter-process communication mechanism that forwards file opening requests to an existing running application window and brings it to the foreground.

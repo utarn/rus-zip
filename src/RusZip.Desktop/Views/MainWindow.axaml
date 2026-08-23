@@ -13,7 +13,7 @@
         TransparencyLevelHint="Mica, AcrylicBlur, Blur"
         Background="Transparent">
 
-    <Grid RowDefinitions="Auto,*,Auto">
+    <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource SolidBackgroundFillColorBase}">
         <!-- Modern Ribbon / Toolbar & Custom Title Bar -->
         <Border Grid.Row="0"
                 x:Name="TitleBarArea"
@@ -180,36 +180,6 @@
             <!-- Mode 2: Archive Browser -->
             <views:ArchiveBrowserView DataContext="{Binding Browser}"
                                       IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasOpenArchive}" />
-
-            <!-- Mode 3: Compress Dialog Overlay -->
-            <Grid Background="#7F000000" IsVisible="{Binding IsCompressDialogVisible}">
-                <Border HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Width="560"
-                        Background="{DynamicResource SolidBackgroundFillColorBase}"
-                        BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        BoxShadow="0 8 32 #40000000">
-                    <Grid RowDefinitions="Auto,*,Auto">
-                        <Border Grid.Row="0" Padding="16,12" BorderBrush="{DynamicResource SurfaceStrokeColorDefault}" BorderThickness="0,0,0,1">
-                            <TextBlock Text="Create Archive" FontSize="16" FontWeight="SemiBold" />
-                        </Border>
-
-                        <views:CompressionSettingsView Grid.Row="1" DataContext="{Binding Settings}" />
-
-                        <Border Grid.Row="2" Padding="16,12" Background="{DynamicResource CardBackgroundFillColorDefault}" BorderBrush="{DynamicResource SurfaceStrokeColorDefault}" BorderThickness="0,1,0,0">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-                                <Button Content="Cancel" Command="{Binding CloseCompressDialogCommand}" Padding="16,6" />
-                                <Button Content="Compress" Command="{Binding ExecuteCompressCommand}" Classes="accent" Padding="20,6" />
-                            </StackPanel>
-                        </Border>
-                    </Grid>
-                </Border>
-            </Grid>
-
-            <!-- Mode 4: Progress Overlay -->
-            <views:ProgressOverlay DataContext="{Binding Progress}" />
         </Grid>
 
         <!-- Status Bar -->
@@ -220,5 +190,35 @@
                 Padding="12,4">
             <TextBlock Text="{Binding StatusText}" FontSize="12" Foreground="{DynamicResource TextFillColorSecondary}" />
         </Border>
+
+        <!-- Mode 3: Compress Dialog Overlay (spans entire window for true modal backdrop and top z-index) -->
+        <Grid Grid.Row="0" Grid.RowSpan="3" Background="#7F000000" IsVisible="{Binding IsCompressDialogVisible}">
+            <Border HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Width="580"
+                    Background="{DynamicResource CardBackgroundFillColorDefault}"
+                    BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    BoxShadow="0 16 48 #50000000">
+                <Grid RowDefinitions="Auto,*,Auto">
+                    <Border Grid.Row="0" Padding="20,14" BorderBrush="{DynamicResource SurfaceStrokeColorDefault}" BorderThickness="0,0,0,1">
+                        <TextBlock Text="Create Archive" FontSize="16" FontWeight="SemiBold" />
+                    </Border>
+
+                    <views:CompressionSettingsView Grid.Row="1" DataContext="{Binding Settings}" />
+
+                    <Border Grid.Row="2" Padding="20,14" Background="{DynamicResource CardBackgroundFillColorSecondary}" BorderBrush="{DynamicResource SurfaceStrokeColorDefault}" BorderThickness="0,1,0,0" CornerRadius="0,0,12,12">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                            <Button Content="Cancel" Command="{Binding CloseCompressDialogCommand}" Padding="16,7" CornerRadius="6" />
+                            <Button Content="Compress" Command="{Binding ExecuteCompressCommand}" Classes="accent" Padding="22,7" CornerRadius="6" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Mode 4: Progress Overlay (spans entire window for true modal backdrop and top z-index) -->
+        <views:ProgressOverlay Grid.Row="0" Grid.RowSpan="3" DataContext="{Binding Progress}" />
     </Grid>
 </Window>

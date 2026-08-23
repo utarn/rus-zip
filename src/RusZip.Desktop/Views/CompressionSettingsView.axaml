@@ -70,7 +70,7 @@
                 BorderThickness="1"
                 CornerRadius="8"
                 Padding="16"
-                Background="{DynamicResource CardBackgroundFillColorDefault}">
+                Background="{DynamicResource CardBackgroundFillColorSecondary}">
             <StackPanel Spacing="12">
                 <Grid ColumnDefinitions="*,Auto">
                     <StackPanel Orientation="Horizontal" Spacing="8">

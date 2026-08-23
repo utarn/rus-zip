@@ -151,4 +151,32 @@ public class MainWindowChromeTests
         window.WindowState = WindowState.Minimized;
         Assert.Equal(WindowState.Minimized, window.WindowState);
     }
+
+    [AvaloniaFact]
+    public void ThemeResources_AllSemanticBrushes_DefinedInApplicationResources()
+    {
+        var app = Application.Current;
+        Assert.NotNull(app);
+
+        string[] requiredKeys =
+        [
+            "SolidBackgroundFillColorBase",
+            "CardBackgroundFillColorDefault",
+            "CardBackgroundFillColorSecondary",
+            "SurfaceStrokeColorDefault",
+            "LayerFillColorDefaultBrush",
+            "TextFillColorPrimary",
+            "TextFillColorSecondary",
+            "TextFillColorTertiary",
+            "SystemFillColorCriticalBackground",
+            "SystemFillColorCriticalBorderBrush",
+            "SystemFillColorCritical"
+        ];
+
+        foreach (var key in requiredKeys)
+        {
+            Assert.True(app.TryFindResource(key, out var resource), $"Expected semantic theme resource '{key}' to be defined.");
+            Assert.NotNull(resource);
+        }
+    }
 }

@@ -8,6 +8,48 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceInclude Source="/Styles/VectorIcons.axaml" />
             </ResourceDictionary.MergedDictionaries>
+
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="SolidBackgroundFillColorBase" Color="#F8F9FA" />
+                    <SolidColorBrush x:Key="CardBackgroundFillColorDefault" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="CardBackgroundFillColorSecondary" Color="#F1F5F9" />
+                    <SolidColorBrush x:Key="SurfaceStrokeColorDefault" Color="#E2E8F0" />
+                    <SolidColorBrush x:Key="LayerFillColorDefaultBrush" Color="#F8FAFC" />
+                    <SolidColorBrush x:Key="TextFillColorPrimary" Color="#0F172A" />
+                    <SolidColorBrush x:Key="TextFillColorSecondary" Color="#475569" />
+                    <SolidColorBrush x:Key="TextFillColorTertiary" Color="#64748B" />
+                    <SolidColorBrush x:Key="SystemFillColorCriticalBackground" Color="#FEF2F2" />
+                    <SolidColorBrush x:Key="SystemFillColorCriticalBorderBrush" Color="#FECACA" />
+                    <SolidColorBrush x:Key="SystemFillColorCritical" Color="#DC2626" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="SolidBackgroundFillColorBase" Color="#F8F9FA" />
+                    <SolidColorBrush x:Key="CardBackgroundFillColorDefault" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="CardBackgroundFillColorSecondary" Color="#F1F5F9" />
+                    <SolidColorBrush x:Key="SurfaceStrokeColorDefault" Color="#E2E8F0" />
+                    <SolidColorBrush x:Key="LayerFillColorDefaultBrush" Color="#F8FAFC" />
+                    <SolidColorBrush x:Key="TextFillColorPrimary" Color="#0F172A" />
+                    <SolidColorBrush x:Key="TextFillColorSecondary" Color="#475569" />
+                    <SolidColorBrush x:Key="TextFillColorTertiary" Color="#64748B" />
+                    <SolidColorBrush x:Key="SystemFillColorCriticalBackground" Color="#FEF2F2" />
+                    <SolidColorBrush x:Key="SystemFillColorCriticalBorderBrush" Color="#FECACA" />
+                    <SolidColorBrush x:Key="SystemFillColorCritical" Color="#DC2626" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="SolidBackgroundFillColorBase" Color="#1E1E1E" />
+                    <SolidColorBrush x:Key="CardBackgroundFillColorDefault" Color="#2A2A2A" />
+                    <SolidColorBrush x:Key="CardBackgroundFillColorSecondary" Color="#333333" />
+                    <SolidColorBrush x:Key="SurfaceStrokeColorDefault" Color="#3E3E42" />
+                    <SolidColorBrush x:Key="LayerFillColorDefaultBrush" Color="#252526" />
+                    <SolidColorBrush x:Key="TextFillColorPrimary" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="TextFillColorSecondary" Color="#CCCCCC" />
+                    <SolidColorBrush x:Key="TextFillColorTertiary" Color="#888888" />
+                    <SolidColorBrush x:Key="SystemFillColorCriticalBackground" Color="#450A0A" />
+                    <SolidColorBrush x:Key="SystemFillColorCriticalBorderBrush" Color="#7F1D1D" />
+                    <SolidColorBrush x:Key="SystemFillColorCritical" Color="#EF4444" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 

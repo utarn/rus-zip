@@ -197,7 +197,7 @@ public class SafeArchiveExtractorTests : IDisposable
 
         var source = new FakeExtractionSource(entries);
         var reports = new List<ProgressReport>();
-        var progress = new Progress<ProgressReport>(reports.Add);
+        var progress = new SyncProgress<ProgressReport>(reports.Add);
 
         await SafeArchiveExtractor.ExtractAllAsync(source, targetDir, overwrite: true, totalBytes: payload.Length, progress);
 
@@ -205,6 +205,11 @@ public class SafeArchiveExtractorTests : IDisposable
         Assert.Equal(payload.Length, reports.Last().ProcessedBytes);
         Assert.False(reports.Last().IsIndeterminate);
         Assert.Equal(100.0, reports.Last().Percentage);
+    }
+
+    private sealed class SyncProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
     }
 
     [Theory]
