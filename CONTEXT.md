@@ -75,3 +75,13 @@ A collision-free destination directory generation strategy that appends an incre
 
 ### Single-Instance IPC Coordinator
 The inter-process communication mechanism that forwards file opening requests to an existing running application window and brings it to the foreground.
+
+### Multi-Source Packaging
+The capability to bundle multiple distinct input files, directories, or globbed paths into a single `.zrus` or `.zip` archive, preserving relative paths or basenames while sanitizing path traversals (`..`).
+
+### Archive Appending
+The process of incrementally adding or updating entries in an existing `.zrus` or `.zip` archive using an atomic rewrite pipeline (`.tmp.uuid`), guaranteeing that interrupted operations leave the original archive intact.
+
+### Entry Collision Policy
+The rule determining how duplicate entry paths are resolved during an archive append operation: default replacement/overwriting of older entries, or conditional updating only when the incoming file has a strictly newer modification timestamp (`--update-only`).
+
