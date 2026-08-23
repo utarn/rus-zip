@@ -139,6 +139,10 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                 var formatDescriptor = ArchiveFormatRegistry.Detect(destination);
                 if (!formatDescriptor.CanCompress)
                 {
+                    if (settings.Append)
+                    {
+                        throw new NotSupportedException($"Appending to archive format '{formatDescriptor.Format}' is not supported.");
+                    }
                     var supportedCreationFormats = string.Join(", ", ArchiveFormatRegistry.CompressibleFormats.Select(f => f.PrimaryExtension));
                     throw new NotSupportedException($"Creation of archive format '{formatDescriptor.Format}' is not supported. Supported creation formats: {supportedCreationFormats}");
                 }

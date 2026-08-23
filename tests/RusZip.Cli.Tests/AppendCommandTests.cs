@@ -1,3 +1,4 @@
+using System.Text.Json;
 using RusZip.Cli.Models;
 using RusZip.Core.Models;
 using Xunit;
@@ -221,21 +222,67 @@ public sealed class AppendCommandTests : CliTestBase
         Assert.Equal("SOURCE_NOT_FOUND", err.Error.Code);
     }
 
-    [Fact]
-    public async Task Append_UnsupportedFormat_ReturnsExitCode2_UnsupportedFormat()
+    [Theory]
+    [InlineData("test.rar")]
+    [InlineData("test.7z")]
+    [InlineData("test.gz")]
+    [InlineData("test.tar.gz")]
+    [InlineData("test.tgz")]
+    public async Task Append_UnsupportedFormat_JsonMode_ReturnsExitCode2_UnsupportedFormat(string archiveFilename)
     {
-        var f1 = CreateTempFile("file.txt", "content");
-        var tarGzPath = Path.Combine(TempDirectory, "test.tar.gz");
-        await File.WriteAllTextAsync(tarGzPath, "dummy tar.gz content");
+        var dummyPath = Path.Combine(TempDirectory, archiveFilename);
+        await File.WriteAllTextAsync(dummyPath, "dummy unsupported archive content");
 
-        var f2 = CreateTempFile("file2.txt", "content2");
+        var sourceFile = CreateTempFile("file_to_append.txt", "content");
 
-        var (exitCode, stdout) = await RunCliAsync("append", tarGzPath, f2, "--json");
+        var (exitCode, stdout) = await RunCliAsync("append", dummyPath, sourceFile, "--json");
 
         Assert.Equal(2, exitCode);
         var err = ParseJson<ErrorResult>(stdout);
         Assert.False(err.Success);
         Assert.Equal("UNSUPPORTED_FORMAT", err.Error.Code);
+        Assert.Contains("not supported", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("test_console.rar")]
+    [InlineData("test_console.7z")]
+    [InlineData("test_console.gz")]
+    [InlineData("test_console.tar.gz")]
+    [InlineData("test_console.tgz")]
+    public async Task Append_UnsupportedFormat_ConsoleMode_ReturnsExitCode2_UnsupportedFormat(string archiveFilename)
+    {
+        var dummyPath = Path.Combine(TempDirectory, archiveFilename);
+        await File.WriteAllTextAsync(dummyPath, "dummy unsupported archive content");
+
+        var sourceFile = CreateTempFile("file_console_append.txt", "content");
+
+        var (exitCode, stdout) = await RunCliAsync("append", dummyPath, sourceFile);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("Error:", stdout);
+        Assert.Contains("not supported", stdout, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("test_compress_append.rar")]
+    [InlineData("test_compress_append.7z")]
+    [InlineData("test_compress_append.gz")]
+    [InlineData("test_compress_append.tar.gz")]
+    public async Task Compress_WithAppendFlag_UnsupportedFormat_ReturnsExitCode2_UnsupportedFormat(string archiveFilename)
+    {
+        var dummyPath = Path.Combine(TempDirectory, archiveFilename);
+        await File.WriteAllTextAsync(dummyPath, "dummy unsupported archive content");
+
+        var sourceFile = CreateTempFile("file_c_append.txt", "content");
+
+        var (exitCode, stdout) = await RunCliAsync("compress", sourceFile, "-o", dummyPath, "--append", "--json");
+
+        Assert.Equal(2, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("UNSUPPORTED_FORMAT", err.Error.Code);
+        Assert.Contains("not supported", err.Error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -438,39 +485,94 @@ public sealed class AppendCommandTests : CliTestBase
         Assert.Equal("Base zip doc", await File.ReadAllTextAsync(Path.Combine(extractDir, "c_u_zip_base.txt")));
     }
 
-    [Fact]
-    public async Task Append_InvalidLevel_ReturnsExitCode2_ArgumentError()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(23)]
+    [InlineData(-1)]
+    [InlineData(100)]
+    public async Task Append_Zrus_InvalidLevel_ReturnsExitCode2_ArgumentError(int invalidLevel)
     {
         var f1 = CreateTempFile("f1.txt", "content");
-        var archivePath = Path.Combine(TempDirectory, "level_cli.zrus");
+        var archivePath = Path.Combine(TempDirectory, $"level_cli_{invalidLevel}.zrus");
         await RunCliAsync("compress", f1, archivePath);
 
         var f2 = CreateTempFile("f2.txt", "content2");
 
-        var (exitCode, stdout) = await RunCliAsync("append", archivePath, f2, "-l", "99", "--json");
+        var (exitCode, stdout) = await RunCliAsync("append", archivePath, f2, "-l", invalidLevel.ToString(), "--json");
 
         Assert.Equal(2, exitCode);
         var err = ParseJson<ErrorResult>(stdout);
         Assert.False(err.Success);
         Assert.Equal("ARGUMENT_ERROR", err.Error.Code);
+        Assert.Contains("Compression level", err.Error.Message);
+        Assert.Contains(".zrus", err.Error.Message);
+        Assert.Contains("1-22", err.Error.Message);
     }
 
-    [Fact]
-    public async Task Append_Zip_InvalidLevel_ReturnsExitCode2_ArgumentError()
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(10)]
+    [InlineData(15)]
+    [InlineData(22)]
+    public async Task Append_Zip_InvalidLevel_ReturnsExitCode2_ArgumentError(int invalidLevel)
     {
         var f1 = CreateTempFile("f1_zip.txt", "content");
-        var archivePath = Path.Combine(TempDirectory, "level_cli.zip");
+        var archivePath = Path.Combine(TempDirectory, $"level_cli_{invalidLevel}.zip");
         await RunCliAsync("compress", f1, archivePath);
 
         var f2 = CreateTempFile("f2_zip.txt", "content2");
 
-        var (exitCode, stdout) = await RunCliAsync("append", archivePath, f2, "-l", "15", "--json");
+        var (exitCode, stdout) = await RunCliAsync("append", archivePath, f2, "-l", invalidLevel.ToString(), "--json");
 
         Assert.Equal(2, exitCode);
         var err = ParseJson<ErrorResult>(stdout);
         Assert.False(err.Success);
         Assert.Equal("ARGUMENT_ERROR", err.Error.Code);
-        Assert.Contains("Compression level 15 is not valid for .zip archives", err.Error.Message);
+        Assert.Contains("Compression level", err.Error.Message);
+        Assert.Contains(".zip", err.Error.Message);
+        Assert.Contains("0-9", err.Error.Message);
+    }
+
+    [Fact]
+    public async Task Append_JsonOutput_MatchesAllRequiredSchemaProperties()
+    {
+        // Arrange
+        var file1 = CreateTempFile("schema1.txt", "Schema test file 1");
+        var archivePath = Path.Combine(TempDirectory, "schema_test.zrus");
+        var (cExit, _) = await RunCliAsync("compress", file1, archivePath);
+        Assert.Equal(0, cExit);
+
+        var file2 = CreateTempFile("schema2.txt", "Schema test file 2");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("append", archivePath, file2, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+
+        using var doc = JsonDocument.Parse(stdout);
+        var root = doc.RootElement;
+
+        // Verify root structure & camelCase property names
+        Assert.True(root.TryGetProperty("success", out var successProp) && successProp.ValueKind == JsonValueKind.True);
+        Assert.True(root.TryGetProperty("archivePath", out var archivePathProp) && archivePathProp.ValueKind == JsonValueKind.String);
+        Assert.True(root.TryGetProperty("format", out var formatProp) && formatProp.ValueKind == JsonValueKind.String);
+        Assert.True(root.TryGetProperty("addedFiles", out var addedProp) && addedProp.ValueKind == JsonValueKind.Number);
+        Assert.True(root.TryGetProperty("updatedFiles", out var updatedProp) && updatedProp.ValueKind == JsonValueKind.Number);
+        Assert.True(root.TryGetProperty("retainedFiles", out var retainedProp) && retainedProp.ValueKind == JsonValueKind.Number);
+        Assert.True(root.TryGetProperty("skippedFiles", out var skippedProp) && skippedProp.ValueKind == JsonValueKind.Number);
+        Assert.True(root.TryGetProperty("totalFiles", out var totalProp) && totalProp.ValueKind == JsonValueKind.Number);
+        Assert.True(root.TryGetProperty("uncompressedBytes", out var uncompressedProp) && uncompressedProp.ValueKind == JsonValueKind.Number);
+        Assert.True(root.TryGetProperty("compressedBytes", out var compressedProp) && compressedProp.ValueKind == JsonValueKind.Number);
+        Assert.True(root.TryGetProperty("compressionRatio", out var ratioProp) && ratioProp.ValueKind == JsonValueKind.Number);
+        Assert.True(root.TryGetProperty("elapsedMilliseconds", out var elapsedProp) && elapsedProp.ValueKind == JsonValueKind.Number);
+
+        Assert.Equal("zrus", formatProp.GetString());
+        Assert.Equal(1, addedProp.GetInt32());
+        Assert.Equal(0, updatedProp.GetInt32());
+        Assert.Equal(1, retainedProp.GetInt32());
+        Assert.Equal(0, skippedProp.GetInt32());
+        Assert.Equal(2, totalProp.GetInt32());
     }
 
     [Fact]
@@ -486,9 +588,16 @@ public sealed class AppendCommandTests : CliTestBase
 
         Assert.Equal(0, exitCode);
         Assert.Contains("Append Summary", stdout);
+        Assert.Contains("Archive Path", stdout);
         Assert.Contains("Added Files", stdout);
+        Assert.Contains("Updated Files", stdout);
         Assert.Contains("Retained Files", stdout);
+        Assert.Contains("Skipped Files", stdout);
         Assert.Contains("Total Files", stdout);
+        Assert.Contains("Uncompressed Size", stdout);
+        Assert.Contains("Compressed Size", stdout);
+        Assert.Contains("Ratio", stdout);
+        Assert.Contains("Time Elapsed", stdout);
     }
 
     [Fact]
@@ -504,8 +613,15 @@ public sealed class AppendCommandTests : CliTestBase
 
         Assert.Equal(0, exitCode);
         Assert.Contains("Append Summary", stdout);
+        Assert.Contains("Archive Path", stdout);
         Assert.Contains("Added Files", stdout);
+        Assert.Contains("Updated Files", stdout);
         Assert.Contains("Retained Files", stdout);
+        Assert.Contains("Skipped Files", stdout);
         Assert.Contains("Total Files", stdout);
+        Assert.Contains("Uncompressed Size", stdout);
+        Assert.Contains("Compressed Size", stdout);
+        Assert.Contains("Ratio", stdout);
+        Assert.Contains("Time Elapsed", stdout);
     }
 }
