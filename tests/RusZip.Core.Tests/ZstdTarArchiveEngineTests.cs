@@ -1284,4 +1284,182 @@ public class ZstdTarArchiveEngineTests : IDisposable
     }
 
     #endregion
+
+    #region Single-File Zstandard Stream (.zst) Tests
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(CompressionProfiles.Fast)]
+    [InlineData(CompressionProfiles.Balanced)]
+    [InlineData(CompressionProfiles.High)]
+    [InlineData(CompressionProfiles.Ultra)]
+    public async Task CompressAndExtract_Zst_SingleFileRoundtrip_PreservesContentAndMetadata(int compressionLevel)
+    {
+        // Arrange
+        var sourceFile = Path.Combine(_testDir, $"data_{compressionLevel}.csv");
+        var content = "id,name,role\n1,Alice,Engineer\n2,Bob,Architect\n3,Charlie,Lead\n";
+        await File.WriteAllTextAsync(sourceFile, content);
+
+        var zstPath = Path.Combine(_testDir, $"data_{compressionLevel}.csv.zst");
+        var extractDir = Path.Combine(_testDir, $"extracted_zst_{compressionLevel}");
+
+        var progressReports = new List<ProgressReport>();
+        var progress = new Progress<ProgressReport>(progressReports.Add);
+
+        // Act - Compress
+        var compressReq = new ArchiveCompressionRequest(sourceFile, zstPath, compressionLevel);
+        await _engine.CompressAsync(compressReq, progress);
+
+        // Assert - Archive created
+        Assert.True(File.Exists(zstPath));
+        Assert.True(new FileInfo(zstPath).Length > 0);
+
+        // Act - List
+        var entries = await _engine.ListEntriesAsync(zstPath);
+        var entry = Assert.Single(entries);
+        Assert.Equal("data_" + compressionLevel + ".csv", entry.RelativePath);
+        Assert.False(entry.IsDirectory);
+        Assert.Equal(Encoding.UTF8.GetByteCount(content), entry.UncompressedSize);
+        Assert.True(entry.CompressedSize > 0);
+
+        // Act - Extract
+        var extractReq = new ArchiveExtractionRequest(zstPath, extractDir);
+        var extractResult = await _engine.ExtractAsync(extractReq, progress);
+
+        // Assert - Extracted properly
+        Assert.Equal(1, extractResult.FilesExtracted);
+        var extractedFile = Path.Combine(extractDir, $"data_{compressionLevel}.csv");
+        Assert.True(File.Exists(extractedFile));
+        Assert.Equal(content, await File.ReadAllTextAsync(extractedFile));
+    }
+
+    [Fact]
+    public async Task Compress_Zst_DirectoryInput_ThrowsArgumentException()
+    {
+        var dir = Path.Combine(_testDir, "zst_invalid_dir");
+        Directory.CreateDirectory(dir);
+        await File.WriteAllTextAsync(Path.Combine(dir, "f.txt"), "content");
+
+        var zstPath = Path.Combine(_testDir, "dir.zst");
+        var req = new ArchiveCompressionRequest(dir, zstPath, 9);
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _engine.CompressAsync(req));
+        Assert.Contains("does not support directory input", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Compress_Zst_MultipleFiles_ThrowsArgumentException()
+    {
+        var file1 = Path.Combine(_testDir, "f1.txt");
+        var file2 = Path.Combine(_testDir, "f2.txt");
+        await File.WriteAllTextAsync(file1, "content1");
+        await File.WriteAllTextAsync(file2, "content2");
+
+        var zstPath = Path.Combine(_testDir, "multi.zst");
+        var req = new ArchiveCompressionRequest([file1, file2], zstPath, 9);
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _engine.CompressAsync(req));
+        Assert.Contains("requires exactly one source file", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Append_Zst_ThrowsNotSupportedException()
+    {
+        var file = Path.Combine(_testDir, "base_for_append.txt");
+        await File.WriteAllTextAsync(file, "content");
+        var zstPath = Path.Combine(_testDir, "base_for_append.txt.zst");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(file, zstPath, 9));
+
+        var appendFile = Path.Combine(_testDir, "another.txt");
+        await File.WriteAllTextAsync(appendFile, "another");
+
+        var req = new ArchiveAppendRequest(zstPath, [appendFile], 9);
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => _engine.AppendAsync(req));
+        Assert.Contains("Appending is not supported for single-file streams", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Extract_Zst_CorruptedPayload_ThrowsArchiveIntegrityException_AndCleansUp()
+    {
+        // Create valid zst first
+        var file = Path.Combine(_testDir, "valid_before_corrupt.bin");
+        var data = new byte[32 * 1024];
+        Random.Shared.NextBytes(data);
+        await File.WriteAllBytesAsync(file, data);
+
+        var zstPath = Path.Combine(_testDir, "corrupted.bin.zst");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(file, zstPath, 9));
+
+        // Corrupt archive bytes after header
+        var zstBytes = await File.ReadAllBytesAsync(zstPath);
+        for (int i = 10; i < Math.Min(50, zstBytes.Length); i++)
+        {
+            zstBytes[i] = (byte)(zstBytes[i] ^ 0xFF);
+        }
+        await File.WriteAllBytesAsync(zstPath, zstBytes);
+
+        var extractDir = Path.Combine(_testDir, "corrupted_zst_extract");
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArchiveIntegrityException>(() =>
+            _engine.ExtractAsync(new ArchiveExtractionRequest(zstPath, extractDir)));
+
+        // Verify cleanup - no partial file left
+        var extractedFile = Path.Combine(extractDir, "corrupted.bin");
+        Assert.False(File.Exists(extractedFile));
+    }
+
+    [Fact]
+    public async Task Extract_Zst_GuardrailMaxBytesExceeded_ThrowsExtractionLimitExceededException_AndCleansUp()
+    {
+        var file = Path.Combine(_testDir, "large_limit.txt");
+        await File.WriteAllTextAsync(file, new string('A', 50_000));
+
+        var zstPath = Path.Combine(_testDir, "large_limit.txt.zst");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(file, zstPath, 9));
+
+        var extractDir = Path.Combine(_testDir, "limit_exceeded_out");
+        var limits = new ExtractionLimits(MaxCumulativeUncompressedBytes: 1000, MaxEntryCount: null); // 1000 bytes cap
+
+        var req = new ArchiveExtractionRequest(zstPath, extractDir, Limits: limits);
+        await Assert.ThrowsAsync<ExtractionLimitExceededException>(() => _engine.ExtractAsync(req));
+
+        // Cleanup verified
+        Assert.False(File.Exists(Path.Combine(extractDir, "large_limit.txt")));
+    }
+
+    [Fact]
+    public async Task Extract_Zst_EntryFilter_SelectiveExtraction()
+    {
+        var file = Path.Combine(_testDir, "filter_test.log");
+        await File.WriteAllTextAsync(file, "log content");
+
+        var zstPath = Path.Combine(_testDir, "filter_test.log.zst");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(file, zstPath, 9));
+
+        var extractDir = Path.Combine(_testDir, "filter_extract_out");
+
+        // Matching filter
+        var matchReq = new ArchiveExtractionRequest(zstPath, extractDir, Entries: ["filter_test.log"]);
+        var matchResult = await _engine.ExtractAsync(matchReq);
+        Assert.Equal(1, matchResult.FilesExtracted);
+        Assert.True(File.Exists(Path.Combine(extractDir, "filter_test.log")));
+
+        // Non-matching filter throws InvalidOperationException with NoMatchMessage
+        var nonMatchDir = Path.Combine(_testDir, "non_match_out");
+        var nonMatchReq = new ArchiveExtractionRequest(zstPath, nonMatchDir, Entries: ["other_file.txt"]);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _engine.ExtractAsync(nonMatchReq));
+        Assert.Equal(EntryFilter.NoMatchMessage, ex.Message);
+    }
+
+    [Fact]
+    public async Task List_Zst_CorruptedPayload_ThrowsArchiveIntegrityException()
+    {
+        var zstPath = Path.Combine(_testDir, "invalid_header.zst");
+        await File.WriteAllBytesAsync(zstPath, [0x00, 0x01, 0x02, 0x03, 0x04]);
+
+        await Assert.ThrowsAsync<ArchiveIntegrityException>(() => _engine.ListEntriesAsync(zstPath));
+    }
+
+    #endregion
 }

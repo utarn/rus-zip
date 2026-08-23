@@ -88,11 +88,12 @@ public partial class MainWindow : Window
                     AllowMultiple = false,
                     FileTypeFilter =
                     [
-                        new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz, *.tgz, *.tar.zstd, *.tzstd)")
+                        new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz, *.tgz, *.tar.zstd, *.tzstd, *.zst)")
                         {
-                            Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz", "*.tar", "*.tar.zstd", "*.tzstd"]
+                            Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz", "*.tar", "*.tar.zstd", "*.tzstd", "*.zst"]
                         },
                         new FilePickerFileType("Zstandard Tar Archives (*.zrus, *.tar.zstd, *.tzstd)") { Patterns = ["*.zrus", "*.tar.zstd", "*.tzstd"] },
+                        new FilePickerFileType("Zstandard Compressed Files (*.zst)") { Patterns = ["*.zst"] },
                         new FilePickerFileType("Zip Archives (*.zip)") { Patterns = ["*.zip"] },
                         new FilePickerFileType("7-Zip Archives (*.7z)") { Patterns = ["*.7z"] },
                         new FilePickerFileType("RAR Archives (*.rar)") { Patterns = ["*.rar"] },

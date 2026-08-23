@@ -61,6 +61,11 @@ public sealed class AppendCommand(IArchiveEngine engine) : AsyncCommand<AppendSe
                 }
 
                 var formatDescriptor = ArchiveFormatRegistry.Detect(archivePath);
+                if (formatDescriptor.Format == ArchiveFormat.Zst)
+                {
+                    throw new NotSupportedException("Appending is not supported for single-file streams.");
+                }
+
                 if (!formatDescriptor.CanCompress)
                 {
                     throw new NotSupportedException($"Appending to archive format '{formatDescriptor.Format}' is not supported.");

@@ -12,7 +12,7 @@ namespace RusZip.Cli.Commands;
 public sealed class ListSettings : JsonCommandSettings
 {
     [CommandArgument(0, "<ARCHIVE>")]
-    [Description("Path to the archive file (.zrus, .zip, .rar, .7z, .gz, .tar.gz).")]
+    [Description("Path to the archive file (.zrus, .zip, .rar, .7z, .gz, .tar.gz, .zst).")]
     public string ArchivePath { get; init; } = string.Empty;
 }
 

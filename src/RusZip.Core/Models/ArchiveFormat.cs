@@ -7,5 +7,6 @@ public enum ArchiveFormat
     Rar,
     SevenZip,
     Gz,
-    TarGz
+    TarGz,
+    Zst
 }

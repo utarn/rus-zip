@@ -288,6 +288,7 @@ public sealed class AppendCommandTests : CliTestBase
     [InlineData("test.rar")]
     [InlineData("test.7z")]
     [InlineData("test.gz")]
+    [InlineData("test.zst")]
     [InlineData("test.tar.gz")]
     [InlineData("test.tgz")]
     public async Task Append_UnsupportedFormat_JsonMode_ReturnsExitCode2_UnsupportedFormat(string archiveFilename)
@@ -310,6 +311,7 @@ public sealed class AppendCommandTests : CliTestBase
     [InlineData("test_console.rar")]
     [InlineData("test_console.7z")]
     [InlineData("test_console.gz")]
+    [InlineData("test_console.zst")]
     [InlineData("test_console.tar.gz")]
     [InlineData("test_console.tgz")]
     public async Task Append_UnsupportedFormat_ConsoleMode_ReturnsExitCode2_UnsupportedFormat(string archiveFilename)
@@ -330,6 +332,7 @@ public sealed class AppendCommandTests : CliTestBase
     [InlineData("test_compress_append.rar")]
     [InlineData("test_compress_append.7z")]
     [InlineData("test_compress_append.gz")]
+    [InlineData("test_compress_append.zst")]
     [InlineData("test_compress_append.tar.gz")]
     public async Task Compress_WithAppendFlag_UnsupportedFormat_ReturnsExitCode2_UnsupportedFormat(string archiveFilename)
     {

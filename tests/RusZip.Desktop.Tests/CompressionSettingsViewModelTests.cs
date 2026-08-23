@@ -15,8 +15,10 @@ public class CompressionSettingsViewModelTests
         Assert.Equal("Balanced", vm.ProfileName);
         Assert.Equal("#0078D4", vm.ProfileBadgeColor);
         Assert.Equal(".zrus", vm.SelectedFormat);
+        Assert.Equal(2, vm.Formats.Count);
         Assert.Contains(".zrus", vm.Formats);
         Assert.Contains(".zip", vm.Formats);
+        Assert.DoesNotContain(".zst", vm.Formats);
         Assert.Equal(string.Empty, vm.SourcePath);
         Assert.Equal(string.Empty, vm.DestinationPath);
         Assert.Contains("Level 6–11", vm.ProfileDescription);

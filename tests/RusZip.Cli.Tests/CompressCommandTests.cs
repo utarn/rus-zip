@@ -599,6 +599,110 @@ public sealed class CompressCommandTests : CliTestBase
 
     #endregion
 
+    #region Single-File Zstandard Stream (.zst) Tests
+
+    [Fact]
+    public async Task Compress_SingleFileToZst_JsonMode_ReturnsExitCode0_AndValidJson()
+    {
+        // Arrange
+        var sourceFile = CreateTempFile("report.json", "{\"status\":\"ok\",\"values\":[1,2,3]}");
+        var destArchive = Path.Combine(TempDirectory, "report.json.zst");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", sourceFile, "-o", destArchive, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(destArchive));
+
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(Path.GetFullPath(sourceFile), result.SourcePath);
+        Assert.Equal(Path.GetFullPath(destArchive), result.ArchivePath);
+        Assert.Equal("zst", result.Format);
+        Assert.Equal(1, result.TotalFiles);
+        Assert.True(result.UncompressedBytes > 0);
+        Assert.True(result.CompressedBytes > 0);
+    }
+
+    [Fact]
+    public async Task Compress_SingleFileToZst_Positional_ReturnsExitCode0()
+    {
+        // Arrange
+        var sourceFile = CreateTempFile("plain.txt", "Single file content");
+        var destArchive = Path.Combine(TempDirectory, "plain.txt.zst");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", sourceFile, destArchive, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(destArchive));
+
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal("zst", result.Format);
+        Assert.Equal(1, result.TotalFiles);
+    }
+
+    [Fact]
+    public async Task Compress_DirectoryToZst_ReturnsExitCode2_ArgumentError()
+    {
+        // Arrange
+        var sourceDir = CreateTempDirectory("dir_for_zst", fileCount: 2);
+        var destArchive = Path.Combine(TempDirectory, "dir_invalid.zst");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", sourceDir, "-o", destArchive, "--json");
+
+        // Assert
+        Assert.Equal(2, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("ARGUMENT_ERROR", err.Error.Code);
+        Assert.Contains("directory", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Compress_MultipleFilesToZst_ReturnsExitCode2_ArgumentError()
+    {
+        // Arrange
+        var f1 = CreateTempFile("f1.txt", "one");
+        var f2 = CreateTempFile("f2.txt", "two");
+        var destArchive = Path.Combine(TempDirectory, "multi_invalid.zst");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", f1, f2, "-o", destArchive, "--json");
+
+        // Assert
+        Assert.Equal(2, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("ARGUMENT_ERROR", err.Error.Code);
+        Assert.Contains("exactly one", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Compress_WithAppendToZst_ReturnsExitCode2_UnsupportedFormat()
+    {
+        // Arrange
+        var f1 = CreateTempFile("f1.txt", "one");
+        var destArchive = Path.Combine(TempDirectory, "append_invalid.zst");
+        await File.WriteAllTextAsync(destArchive, "dummy");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", f1, "-o", destArchive, "--append", "--json");
+
+        // Assert
+        Assert.Equal(2, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("UNSUPPORTED_FORMAT", err.Error.Code);
+        Assert.Contains("single-file stream", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    #endregion
+
     /// <summary>
     /// Delegates to the real engine but records the <see cref="ArchiveCompressionRequest.CompressionLevel"/>
     /// it was asked to apply. Used to lock the profile→level mapping end-to-end through CompressCommand.
