@@ -862,4 +862,121 @@ public class ZstdTarArchiveEngineTests : IDisposable
     }
 
     #endregion
+
+    #region Multi-Source Compression Tests
+
+    [Fact]
+    public async Task CompressAsync_MultiSourceFiles_PackagesAllFilesPreservingNamesAndContent()
+    {
+        // Arrange
+        var file1 = Path.Combine(_testDir, "alpha.txt");
+        var file2 = Path.Combine(_testDir, "beta.json");
+        var file3 = Path.Combine(_testDir, "gamma.dat");
+
+        await File.WriteAllTextAsync(file1, "Alpha payload");
+        await File.WriteAllTextAsync(file2, "{\"key\":\"beta\"}");
+        await File.WriteAllBytesAsync(file3, [1, 2, 3, 4, 5]);
+
+        var archivePath = Path.Combine(_testDir, "multi_files.zrus");
+        var extractDir = Path.Combine(_testDir, "multi_files_extracted");
+
+        var progressReports = new List<ProgressReport>();
+        var progress = new Progress<ProgressReport>(progressReports.Add);
+
+        // Act - Compress multi-source
+        var request = new ArchiveCompressionRequest([file1, file2, file3], archivePath, 9);
+        await _engine.CompressAsync(request, progress);
+
+        // Assert - List entries
+        var entries = await _engine.ListEntriesAsync(archivePath);
+        Assert.Equal(3, entries.Count(e => !e.IsDirectory));
+        Assert.Contains(entries, e => e.RelativePath == "alpha.txt");
+        Assert.Contains(entries, e => e.RelativePath == "beta.json");
+        Assert.Contains(entries, e => e.RelativePath == "gamma.dat");
+
+        // Act - Extract
+        var extractResult = await _engine.ExtractAsync(new ArchiveExtractionRequest(archivePath, extractDir));
+        Assert.Equal(3, extractResult.FilesExtracted);
+
+        Assert.Equal("Alpha payload", await File.ReadAllTextAsync(Path.Combine(extractDir, "alpha.txt")));
+        Assert.Equal("{\"key\":\"beta\"}", await File.ReadAllTextAsync(Path.Combine(extractDir, "beta.json")));
+        Assert.Equal(new byte[] { 1, 2, 3, 4, 5 }, await File.ReadAllBytesAsync(Path.Combine(extractDir, "gamma.dat")));
+    }
+
+    [Fact]
+    public async Task CompressAsync_MultiSourceDirectoriesAndFiles_PackagesAllPreservingStructure()
+    {
+        // Arrange
+        var dir1 = Path.Combine(_testDir, "folder_a");
+        Directory.CreateDirectory(Path.Combine(dir1, "sub"));
+        await File.WriteAllTextAsync(Path.Combine(dir1, "doc1.txt"), "Doc 1");
+        await File.WriteAllTextAsync(Path.Combine(dir1, "sub", "doc2.txt"), "Doc 2");
+
+        var file1 = Path.Combine(_testDir, "standalone.txt");
+        await File.WriteAllTextAsync(file1, "Standalone");
+
+        var archivePath = Path.Combine(_testDir, "multi_dir_file.zrus");
+        var extractDir = Path.Combine(_testDir, "multi_dir_file_extracted");
+
+        // Act - Compress directory + file with BaseDirectory
+        var request = new ArchiveCompressionRequest(["folder_a", "standalone.txt"], archivePath, 9, BaseDirectory: _testDir);
+        await _engine.CompressAsync(request);
+
+        // Assert - List entries
+        var entries = await _engine.ListEntriesAsync(archivePath);
+        Assert.Contains(entries, e => e.RelativePath == "folder_a/doc1.txt");
+        Assert.Contains(entries, e => e.RelativePath == "folder_a/sub/doc2.txt");
+        Assert.Contains(entries, e => e.RelativePath == "standalone.txt");
+
+        // Act - Extract
+        var extractResult = await _engine.ExtractAsync(new ArchiveExtractionRequest(archivePath, extractDir));
+        Assert.Equal(3, extractResult.FilesExtracted);
+
+        Assert.Equal("Doc 1", await File.ReadAllTextAsync(Path.Combine(extractDir, "folder_a", "doc1.txt")));
+        Assert.Equal("Doc 2", await File.ReadAllTextAsync(Path.Combine(extractDir, "folder_a", "sub", "doc2.txt")));
+        Assert.Equal("Standalone", await File.ReadAllTextAsync(Path.Combine(extractDir, "standalone.txt")));
+    }
+
+    [Fact]
+    public async Task CompressAsync_MultiSource_SanitizesTraversalTokens()
+    {
+        // Arrange
+        var subDir = Path.Combine(_testDir, "sub_work");
+        Directory.CreateDirectory(subDir);
+        var targetFile = Path.Combine(_testDir, "outside.txt");
+        await File.WriteAllTextAsync(targetFile, "Outside content");
+
+        var archivePath = Path.Combine(_testDir, "sanitized_traversal.zrus");
+
+        // Path with traversal relative to subDir: "../outside.txt"
+        var request = new ArchiveCompressionRequest(["../outside.txt"], archivePath, 9, BaseDirectory: subDir);
+        await _engine.CompressAsync(request);
+
+        // Assert - The entry relative path inside the archive must NOT have '..'
+        var entries = await _engine.ListEntriesAsync(archivePath);
+        var entry = Assert.Single(entries, e => !e.IsDirectory);
+        Assert.Equal("outside.txt", entry.RelativePath);
+    }
+
+    [Fact]
+    public async Task CompressAsync_MultiSource_NonExistentSource_FailsFastWithoutCreatingTempArchive()
+    {
+        // Arrange
+        var validFile = Path.Combine(_testDir, "valid_file.txt");
+        await File.WriteAllTextAsync(validFile, "Valid content");
+        var missingFile = Path.Combine(_testDir, "non_existent_file.txt");
+
+        var archivePath = Path.Combine(_testDir, "fail_fast.zrus");
+
+        // Act & Assert
+        var request = new ArchiveCompressionRequest([validFile, missingFile], archivePath, 9);
+        await Assert.ThrowsAsync<FileNotFoundException>(() => _engine.CompressAsync(request));
+
+        // Ensure archive was not created
+        Assert.False(File.Exists(archivePath));
+        var tempFiles = Directory.GetFiles(_testDir, "fail_fast.zrus.tmp.*");
+        Assert.Empty(tempFiles);
+    }
+
+    #endregion
 }

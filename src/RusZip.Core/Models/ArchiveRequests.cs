@@ -1,10 +1,18 @@
 namespace RusZip.Core.Models;
 
 public sealed record ArchiveCompressionRequest(
-    string SourcePath,
+    IReadOnlyList<string> SourcePaths,
     string DestinationArchivePath,
-    int CompressionLevel = 9
-);
+    int CompressionLevel = 9,
+    string? BaseDirectory = null
+)
+{
+    public ArchiveCompressionRequest(string sourcePath, string destinationArchivePath, int compressionLevel = 9)
+        : this([sourcePath], destinationArchivePath, compressionLevel) { }
+
+    public string SourcePath => SourcePaths.Count > 0 ? SourcePaths[0] : string.Empty;
+}
+
 
 /// <summary>
 /// Request to extract an archive.

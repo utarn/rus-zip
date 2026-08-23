@@ -11,13 +11,26 @@ namespace RusZip.Cli.Commands;
 
 public sealed class CompressSettings : JsonCommandSettings
 {
-    [CommandArgument(0, "<SOURCE>")]
-    [Description("File or directory to compress.")]
-    public string SourcePath { get; init; } = string.Empty;
+    [CommandArgument(0, "<SOURCES>")]
+    [Description("Files or directories to compress.")]
+    public string[] SourcePaths { get; init; } = [];
 
-    [CommandArgument(1, "[DESTINATION]")]
-    [Description("Destination archive path (defaults to <SOURCE>.zrus).")]
-    public string? DestinationPath { get; init; }
+    [CommandOption("-o|--output <PATH>")]
+    [Description("Destination archive path (defaults to <SOURCE>.zrus when single source).")]
+    public string? OutputPath { get; init; }
+
+    // Backwards compatibility properties for direct object initialization:
+    public string SourcePath
+    {
+        get => SourcePaths.Length > 0 ? SourcePaths[0] : string.Empty;
+        init => SourcePaths = string.IsNullOrEmpty(value) ? [] : [value];
+    }
+
+    public string? DestinationPath
+    {
+        get => OutputPath;
+        init => OutputPath = value;
+    }
 
     [CommandOption("-l|--level <LEVEL>")]
     [Description("Compression level (0-9 for .zip where 0 = Store, 1-22 for .zrus). Default: 9.")]
@@ -39,15 +52,69 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
             settings.Json,
             async (progress, ct) =>
             {
-                if (string.IsNullOrWhiteSpace(settings.SourcePath))
+                if (settings.SourcePaths is null or { Length: 0 })
                 {
-                    throw new ArgumentException("Source path cannot be empty.");
+                    throw new ArgumentException("At least one source path must be specified.");
                 }
 
-                var source = Path.GetFullPath(settings.SourcePath);
-                if (!File.Exists(source) && !Directory.Exists(source))
+                string destination;
+                IReadOnlyList<string> sourceArgs;
+
+                if (!string.IsNullOrWhiteSpace(settings.OutputPath))
                 {
-                    throw new FileNotFoundException($"Source path '{settings.SourcePath}' does not exist.", source);
+                    destination = settings.OutputPath;
+                    sourceArgs = settings.SourcePaths;
+                }
+                else if (settings.SourcePaths.Length == 1)
+                {
+                    var single = settings.SourcePaths[0];
+                    if (string.IsNullOrWhiteSpace(single))
+                    {
+                        throw new ArgumentException("Source path cannot be empty.");
+                    }
+                    sourceArgs = [single];
+                    destination = single + ".zrus";
+                }
+                else if (settings.SourcePaths.Length == 2)
+                {
+                    destination = settings.SourcePaths[1];
+                    sourceArgs = [settings.SourcePaths[0]];
+                }
+                else
+                {
+                    var lastArg = settings.SourcePaths[^1];
+                    var isLastCompressible = ArchiveFormatRegistry.TryDetect(lastArg, out var detected) && detected.CanCompress;
+                    if (isLastCompressible)
+                    {
+                        destination = lastArg;
+                        sourceArgs = settings.SourcePaths[..^1];
+                    }
+                    else
+                    {
+                        throw new ArgumentException(
+                            "When specifying multiple source paths, the destination archive path must be specified via -o/--output or as the last argument ending in .zrus or .zip.");
+                    }
+                }
+
+                if (sourceArgs.Count == 0)
+                {
+                    throw new ArgumentException("At least one source path must be specified.");
+                }
+
+                var resolvedSources = new List<string>();
+                foreach (var s in sourceArgs)
+                {
+                    if (string.IsNullOrWhiteSpace(s))
+                    {
+                        throw new ArgumentException("Source path cannot be empty.");
+                    }
+
+                    var fullSource = Path.GetFullPath(s);
+                    if (!File.Exists(fullSource) && !Directory.Exists(fullSource))
+                    {
+                        throw new FileNotFoundException($"Source path '{s}' does not exist.", fullSource);
+                    }
+                    resolvedSources.Add(fullSource);
                 }
 
                 if (!string.IsNullOrWhiteSpace(settings.Profile))
@@ -59,7 +126,6 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     }
                 }
 
-                var destination = settings.DestinationPath ?? (source + ".zrus");
                 destination = Path.GetFullPath(destination);
 
                 var formatDescriptor = ArchiveFormatRegistry.Detect(destination);
@@ -81,31 +147,43 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                         $"Compression level {compressionLevel} is not valid for .{formatName} archives. Valid range: {formatDescriptor.MinCompressionLevel}-{formatDescriptor.MaxCompressionLevel}{rangeNote}.");
                 }
 
-                var request = new ArchiveCompressionRequest(source, destination, compressionLevel);
+                var request = new ArchiveCompressionRequest(sourceArgs, destination, compressionLevel);
 
                 await _engine.CompressAsync(request, progress, ct);
 
                 var destInfo = new FileInfo(destination);
-                long uncompressedSize = Directory.Exists(source)
-                    ? Directory.GetFiles(source, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length)
-                    : new FileInfo(source).Length;
-                int fileCount = Directory.Exists(source)
-                    ? Directory.GetFiles(source, "*", SearchOption.AllDirectories).Length
-                    : 1;
+                long uncompressedSize = 0;
+                int fileCount = 0;
+
+                foreach (var source in resolvedSources)
+                {
+                    if (Directory.Exists(source))
+                    {
+                        var files = Directory.GetFiles(source, "*", SearchOption.AllDirectories);
+                        fileCount += files.Length;
+                        uncompressedSize += files.Sum(f => new FileInfo(f).Length);
+                    }
+                    else
+                    {
+                        fileCount += 1;
+                        uncompressedSize += new FileInfo(source).Length;
+                    }
+                }
 
                 double ratio = uncompressedSize > 0 ? (double)destInfo.Length / uncompressedSize : 1.0;
                 string formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
 
                 return new CompressResult(
                     Success: true,
-                    SourcePath: source,
+                    SourcePaths: resolvedSources,
                     ArchivePath: destination,
                     Format: formatStr,
                     TotalFiles: fileCount,
                     UncompressedBytes: uncompressedSize,
                     CompressedBytes: destInfo.Length,
                     CompressionRatio: Math.Round(ratio, 4),
-                    ElapsedMilliseconds: 0
+                    ElapsedMilliseconds: 0,
+                    SourcePath: resolvedSources.Count == 1 ? resolvedSources[0] : resolvedSources[0]
                 );
             },
             renderConsoleSummary: (result, elapsedMs) =>
@@ -127,3 +205,4 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
         );
     }
 }
+

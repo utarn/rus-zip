@@ -359,6 +359,153 @@ public sealed class CompressCommandTests : CliTestBase
         Assert.Equal(expectedLevel, receivedLevel);
     }
 
+    #region Multi-Source Compression Tests
+
+    [Fact]
+    public async Task Compress_MultiSource_WithOutputOption_Zrus_JsonMode_ReturnsExitCode0_AndAggregatesMetrics()
+    {
+        // Arrange
+        var file1 = CreateTempFile("multi_cli_1.txt", "Multi source file 1 content");
+        var file2 = CreateTempFile("multi_cli_2.txt", "Multi source file 2 content (longer payload)");
+        var destArchive = Path.Combine(TempDirectory, "multi_cli_out.zrus");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", file1, file2, "-o", destArchive, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(destArchive));
+
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(2, result.SourcePaths.Count);
+        Assert.Equal(Path.GetFullPath(file1), result.SourcePaths[0]);
+        Assert.Equal(Path.GetFullPath(file2), result.SourcePaths[1]);
+        Assert.Equal(Path.GetFullPath(destArchive), result.ArchivePath);
+        Assert.Equal("zrus", result.Format);
+        Assert.Equal(2, result.TotalFiles);
+
+        long expectedUncompressed = new FileInfo(file1).Length + new FileInfo(file2).Length;
+        Assert.Equal(expectedUncompressed, result.UncompressedBytes);
+        Assert.True(result.CompressedBytes > 0);
+        Assert.True(result.CompressionRatio > 0);
+
+        // Roundtrip extract to verify
+        var extractDir = Path.Combine(TempDirectory, "multi_cli_zrus_extracted");
+        var (extractCode, _) = await RunCliAsync("extract", destArchive, "-o", extractDir, "--json");
+        Assert.Equal(0, extractCode);
+        Assert.Equal("Multi source file 1 content", await File.ReadAllTextAsync(Path.Combine(extractDir, "multi_cli_1.txt")));
+        Assert.Equal("Multi source file 2 content (longer payload)", await File.ReadAllTextAsync(Path.Combine(extractDir, "multi_cli_2.txt")));
+    }
+
+    [Fact]
+    public async Task Compress_MultiSource_WithOutputOption_Zip_JsonMode_ReturnsExitCode0()
+    {
+        // Arrange
+        var file1 = CreateTempFile("multi_zip_1.txt", "Zip multi file 1");
+        var file2 = CreateTempFile("multi_zip_2.txt", "Zip multi file 2");
+        var destArchive = Path.Combine(TempDirectory, "multi_zip_out.zip");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", file1, file2, "-o", destArchive, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(destArchive));
+
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(2, result.SourcePaths.Count);
+        Assert.Equal("zip", result.Format);
+        Assert.Equal(2, result.TotalFiles);
+    }
+
+    [Fact]
+    public async Task Compress_MultiSource_PositionalDestination_Zrus_ReturnsExitCode0()
+    {
+        // Arrange (2 sources + positional destination ending in .zrus)
+        var file1 = CreateTempFile("pos_1.txt", "Positional 1");
+        var file2 = CreateTempFile("pos_2.txt", "Positional 2");
+        var destArchive = Path.Combine(TempDirectory, "pos_out.zrus");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", file1, file2, destArchive, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(destArchive));
+
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(2, result.SourcePaths.Count);
+        Assert.Equal(Path.GetFullPath(destArchive), result.ArchivePath);
+        Assert.Equal(2, result.TotalFiles);
+    }
+
+    [Fact]
+    public async Task Compress_MultiSource_PositionalDestination_Zip_ReturnsExitCode0()
+    {
+        // Arrange (2 sources + positional destination ending in .zip)
+        var file1 = CreateTempFile("pos_zip_1.txt", "Positional zip 1");
+        var file2 = CreateTempFile("pos_zip_2.txt", "Positional zip 2");
+        var destArchive = Path.Combine(TempDirectory, "pos_out.zip");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", file1, file2, destArchive, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.True(File.Exists(destArchive));
+
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(2, result.SourcePaths.Count);
+        Assert.Equal("zip", result.Format);
+        Assert.Equal(2, result.TotalFiles);
+    }
+
+    [Fact]
+    public async Task Compress_MultiSource_NonExistentSource_ReturnsExitCode2_AndSourceNotFound()
+    {
+        // Arrange
+        var validFile = CreateTempFile("valid_cli.txt", "Valid file");
+        var missingFile = Path.Combine(TempDirectory, "missing_multi_123.txt");
+        var destArchive = Path.Combine(TempDirectory, "missing_multi_out.zrus");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", validFile, missingFile, "-o", destArchive, "--json");
+
+        // Assert
+        Assert.Equal(2, exitCode);
+        Assert.False(File.Exists(destArchive));
+
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("SOURCE_NOT_FOUND", err.Error.Code);
+        Assert.Contains(missingFile, err.Error.Message);
+    }
+
+    [Fact]
+    public async Task Compress_MultiSource_PositionalWithoutOutputOption_NonArchiveLastArg_ReturnsExitCode2_ArgumentError()
+    {
+        // Arrange: 3 positional files without -o where none is a compressible archive (.zrus/.zip)
+        var file1 = CreateTempFile("f1.txt", "Content 1");
+        var file2 = CreateTempFile("f2.txt", "Content 2");
+        var file3 = CreateTempFile("f3.txt", "Content 3");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", file1, file2, file3, "--json");
+
+        // Assert
+        Assert.Equal(2, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("ARGUMENT_ERROR", err.Error.Code);
+        Assert.Contains("destination archive path must be specified", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    #endregion
+
     /// <summary>
     /// Delegates to the real engine but records the <see cref="ArchiveCompressionRequest.CompressionLevel"/>
     /// it was asked to apply. Used to lock the profile→level mapping end-to-end through CompressCommand.
