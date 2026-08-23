@@ -173,6 +173,7 @@ public sealed class CliEndToEndRegressionTests : CliTestBase
     [InlineData("compress", "missing_path_123.txt out.zrus", "SOURCE_NOT_FOUND", 2)]
     [InlineData("extract", "missing_archive_123.zrus -o out", "SOURCE_NOT_FOUND", 2)]
     [InlineData("list", "missing_archive_123.zrus", "SOURCE_NOT_FOUND", 2)]
+    [InlineData("append", "missing_archive_123.zrus file.txt", "SOURCE_NOT_FOUND", 2)]
     public async Task EndToEnd_ErrorPipeline_TranslatesSourceNotFoundCorrectly(string command, string extraArgs, string expectedCode, int expectedExitCode)
     {
         var args = new List<string> { command };
@@ -188,5 +189,45 @@ public sealed class CliEndToEndRegressionTests : CliTestBase
         var err = ParseJson<ErrorResult>(stdout);
         Assert.False(err.Success);
         Assert.Equal(expectedCode, err.Error.Code);
+    }
+
+    [Fact]
+    public async Task EndToEnd_Append_FullCycle_JsonPayloadsAndMetricsValid()
+    {
+        // 1. Create base archive with 2 files
+        var initialDir = CreateTempDirectory("append_e2e_base", fileCount: 2);
+        var archivePath = Path.Combine(TempDirectory, "append_e2e.zrus");
+
+        var (cExit, cOut) = await RunCliAsync("compress", initialDir, archivePath, "--json");
+        Assert.Equal(0, cExit);
+        var cRes = ParseJson<CompressResult>(cOut);
+        Assert.True(cRes.Success);
+        Assert.Equal(2, cRes.TotalFiles);
+
+        // 2. Append new directory with 3 files
+        var appendDir = CreateTempDirectory("append_e2e_new", fileCount: 3);
+        var (aExit, aOut) = await RunCliAsync("append", archivePath, appendDir, "--json");
+        Assert.Equal(0, aExit);
+
+        var aRes = ParseJson<RusZip.Core.Models.AppendResult>(aOut);
+        Assert.True(aRes.Success);
+        Assert.Equal("zrus", aRes.Format);
+        Assert.Equal(3, aRes.AddedFiles);
+        Assert.Equal(0, aRes.UpdatedFiles);
+        Assert.Equal(2, aRes.RetainedFiles);
+        Assert.Equal(0, aRes.SkippedFiles);
+        Assert.Equal(5, aRes.TotalFiles);
+        Assert.True(aRes.UncompressedBytes > 0);
+        Assert.True(aRes.CompressedBytes > 0);
+        Assert.True(aRes.CompressionRatio > 0);
+        Assert.True(aRes.ElapsedMilliseconds >= 0);
+
+        // 3. Extract and verify total 5 files exist
+        var extractDir = Path.Combine(TempDirectory, "append_e2e_extracted");
+        var (xExit, xOut) = await RunCliAsync("extract", archivePath, "-o", extractDir, "--json");
+        Assert.Equal(0, xExit);
+        var xRes = ParseJson<ExtractResult>(xOut);
+        Assert.True(xRes.Success);
+        Assert.Equal(5, xRes.ExtractedFiles);
     }
 }

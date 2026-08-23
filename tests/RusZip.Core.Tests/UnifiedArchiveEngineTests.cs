@@ -194,6 +194,50 @@ public class UnifiedArchiveEngineTests : IDisposable
         Assert.Contains("Appending to", ex.Message);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(23)]
+    [InlineData(-1)]
+    [InlineData(100)]
+    public async Task UnifiedEngine_Append_Zrus_InvalidCompressionLevel_ThrowsArgumentOutOfRangeException(int invalidLevel)
+    {
+        var sourceDir = Path.Combine(_testDir, $"zrus_lvl_{invalidLevel}_dir");
+        Directory.CreateDirectory(sourceDir);
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "initial.txt"), "Initial");
+
+        var zrusPath = Path.Combine(_testDir, $"lvl_test_{invalidLevel}.zrus");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zrusPath, 9));
+
+        var appendFile = Path.Combine(_testDir, $"append_{invalidLevel}.txt");
+        await File.WriteAllTextAsync(appendFile, "Append text");
+
+        var req = new ArchiveAppendRequest(zrusPath, [appendFile], invalidLevel);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _engine.AppendAsync(req));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(10)]
+    [InlineData(15)]
+    [InlineData(22)]
+    public async Task UnifiedEngine_Append_Zip_InvalidCompressionLevel_ThrowsArgumentOutOfRangeException(int invalidLevel)
+    {
+        var sourceDir = Path.Combine(_testDir, $"zip_lvl_{invalidLevel}_dir");
+        Directory.CreateDirectory(sourceDir);
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "initial.txt"), "Initial");
+
+        var zipPath = Path.Combine(_testDir, $"lvl_test_{invalidLevel}.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9));
+
+        var appendFile = Path.Combine(_testDir, $"append_zip_{invalidLevel}.txt");
+        await File.WriteAllTextAsync(appendFile, "Append text");
+
+        var req = new ArchiveAppendRequest(zipPath, [appendFile], invalidLevel);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _engine.AppendAsync(req));
+    }
+
     [Fact]
     public void ArchiveFormatRegistry_UnknownExtension_ThrowsNotSupportedException()
     {
