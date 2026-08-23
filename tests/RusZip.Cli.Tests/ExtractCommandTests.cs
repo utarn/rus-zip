@@ -635,6 +635,128 @@ public sealed class ExtractCommandTests : CliTestBase
         Assert.Equal(0, result.ExtractedFiles);
     }
 
+    #region Conflict Policy Tests
+
+    [Theory]
+    [InlineData("--conflict", "skip")]
+    [InlineData("-c", "skip")]
+    [InlineData("--conflict", "SKIP")]
+    public async Task Extract_ConflictPolicySkip_PreservesConflictingFile_AndExitsZero(string flagName, string policy)
+    {
+        // Arrange
+        var archivePath = Path.Combine(TempDirectory, $"conflict_skip_{policy}.zip");
+        CreateZipWithEntries(
+            archivePath,
+            ("existing.txt", "new archive content"u8.ToArray()),
+            ("new_file.txt", "brand new content"u8.ToArray()));
+
+        var outDir = Path.Combine(TempDirectory, $"extracted_conflict_skip_{policy}");
+        Directory.CreateDirectory(outDir);
+        var existingFilePath = Path.Combine(outDir, "existing.txt");
+        await File.WriteAllTextAsync(existingFilePath, "original untouched content");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, flagName, policy, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<ExtractResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(Path.GetFullPath(archivePath), result.ArchivePath);
+        Assert.Equal(Path.GetFullPath(outDir), result.DestinationPath);
+
+        // Conflicting file must be preserved
+        Assert.Equal("original untouched content", await File.ReadAllTextAsync(existingFilePath));
+        // Non-conflicting file must be extracted
+        Assert.True(File.Exists(Path.Combine(outDir, "new_file.txt")));
+        Assert.Equal("brand new content", await File.ReadAllTextAsync(Path.Combine(outDir, "new_file.txt")));
+    }
+
+    [Theory]
+    [InlineData("--conflict", "abort")]
+    [InlineData("-c", "abort")]
+    [InlineData("--conflict", "ABORT")]
+    public async Task Extract_ConflictPolicyAbort_HaltsOnCollision_AndExitsOne(string flagName, string policy)
+    {
+        // Arrange
+        var archivePath = Path.Combine(TempDirectory, $"conflict_abort_{policy}.zip");
+        CreateZipWithEntries(
+            archivePath,
+            ("first.txt", "first content"u8.ToArray()),
+            ("conflict.txt", "archive conflict content"u8.ToArray()));
+
+        var outDir = Path.Combine(TempDirectory, $"extracted_conflict_abort_{policy}");
+        Directory.CreateDirectory(outDir);
+        var conflictFilePath = Path.Combine(outDir, "conflict.txt");
+        await File.WriteAllTextAsync(conflictFilePath, "pre-existing original content");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, flagName, policy, "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+
+        // Existing file must remain untouched
+        Assert.True(File.Exists(conflictFilePath));
+        Assert.Equal("pre-existing original content", await File.ReadAllTextAsync(conflictFilePath));
+    }
+
+    [Theory]
+    [InlineData("--conflict", "overwrite")]
+    [InlineData("-c", "overwrite")]
+    [InlineData("--conflict", "OVERWRITE")]
+    public async Task Extract_ConflictPolicyOverwrite_OverwritesConflictingFile_AndExitsZero(string flagName, string policy)
+    {
+        // Arrange
+        var archivePath = Path.Combine(TempDirectory, $"conflict_overwrite_{policy}.zip");
+        CreateZipWithEntries(
+            archivePath,
+            ("conflict.txt", "overwritten by archive"u8.ToArray()));
+
+        var outDir = Path.Combine(TempDirectory, $"extracted_conflict_overwrite_{policy}");
+        Directory.CreateDirectory(outDir);
+        var conflictFilePath = Path.Combine(outDir, "conflict.txt");
+        await File.WriteAllTextAsync(conflictFilePath, "old pre-existing content");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, flagName, policy, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<ExtractResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(1, result.ExtractedFiles);
+
+        // Conflicting file must have been overwritten
+        Assert.Equal("overwritten by archive", await File.ReadAllTextAsync(conflictFilePath));
+    }
+
+    [Fact]
+    public async Task Extract_ConflictPolicyInvalid_ReturnsExitCode2_AndArgumentErrorJson()
+    {
+        // Arrange
+        var sourceFile = CreateTempFile("conflict_invalid.txt", "valid content");
+        var archivePath = Path.Combine(TempDirectory, "conflict_invalid.zrus");
+        await RunCliAsync("compress", sourceFile, archivePath, "--json");
+
+        var outDir = Path.Combine(TempDirectory, "extracted_conflict_invalid");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--conflict", "invalid_policy", "--json");
+
+        // Assert
+        Assert.Equal(2, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("ARGUMENT_ERROR", err.Error.Code);
+        Assert.Contains("Invalid conflict policy 'invalid_policy'. Valid policies: overwrite, skip, abort.", err.Error.Message);
+    }
+
+    #endregion
+
     private static void CreateZipWithEntries(string archivePath, params (string Name, byte[] Content)[] entries)
     {
         using var fs = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None);

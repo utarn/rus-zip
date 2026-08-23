@@ -29,6 +29,10 @@ public sealed class ExtractSettings : JsonCommandSettings
     [Description("Do not overwrite existing files; extraction aborts (exit 1) naming the conflicting path if a destination file already exists.")]
     public bool NoOverwrite { get; init; }
 
+    [CommandOption("-c|--conflict <POLICY>")]
+    [Description("File conflict resolution policy: overwrite, skip, abort.")]
+    public string? ConflictPolicy { get; init; }
+
     [CommandOption("--max-uncompressed-size <SIZE>")]
     [Description("Maximum cumulative uncompressed output before extraction aborts. Accepts bytes or human units (e.g. 10GB, 500MB, 1KB); 0 = unlimited. Default: 64GB.")]
     public string? MaxUncompressedSize { get; init; }
@@ -70,11 +74,26 @@ public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<Extract
                     ? Path.GetFullPath(settings.DestinationPath)
                     : Directory.GetCurrentDirectory();
 
+                IFileConflictResolver? conflictResolver = null;
+                if (settings.ConflictPolicy is not null)
+                {
+                    var policy = settings.ConflictPolicy.Trim().ToLowerInvariant();
+                    conflictResolver = policy switch
+                    {
+                        "overwrite" => FixedPolicyConflictResolver.OverwriteAll,
+                        "skip" => FixedPolicyConflictResolver.SkipAll,
+                        "abort" => FixedPolicyConflictResolver.Abort,
+                        _ => throw new ArgumentException(
+                            $"Invalid conflict policy '{settings.ConflictPolicy}'. Valid policies: overwrite, skip, abort.")
+                    };
+                }
+
                 var request = new ArchiveExtractionRequest(
                     archivePath,
                     destination,
                     settings.Overwrite && !settings.NoOverwrite,
-                    BuildLimits(settings));
+                    BuildLimits(settings),
+                    ConflictResolver: conflictResolver);
 
                 var result = await _engine.ExtractAsync(request, progress, ct);
 

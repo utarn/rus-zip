@@ -176,7 +176,7 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                         CompressedBytes: appendResult.CompressedBytes,
                         CompressionRatio: appendResult.CompressionRatio,
                         ElapsedMilliseconds: 0,
-                        SourcePath: resolvedSources.Count == 1 ? resolvedSources[0] : resolvedSources[0]
+                        SourcePath: string.Join(", ", resolvedSources)
                     );
                 }
 
@@ -216,7 +216,7 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     CompressedBytes: destInfo.Length,
                     CompressionRatio: Math.Round(ratio, 4),
                     ElapsedMilliseconds: 0,
-                    SourcePath: resolvedSources.Count == 1 ? resolvedSources[0] : resolvedSources[0]
+                    SourcePath: string.Join(", ", resolvedSources)
                 );
             },
             renderConsoleSummary: (result, elapsedMs) =>
