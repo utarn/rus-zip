@@ -92,4 +92,15 @@ public class FileConflictViewModelTests
 
         Assert.Equal(expected, actualResult);
     }
+
+    [Fact]
+    public void FileConflictResolution_DefaultValue_IsAbort()
+    {
+        Assert.Equal(FileConflictResolution.Abort, default(FileConflictResolution));
+        Assert.Equal(0, (int)FileConflictResolution.Abort);
+        Assert.Equal(1, (int)FileConflictResolution.Overwrite);
+        Assert.Equal(2, (int)FileConflictResolution.OverwriteAll);
+        Assert.Equal(3, (int)FileConflictResolution.Skip);
+        Assert.Equal(4, (int)FileConflictResolution.SkipAll);
+    }
 }
