@@ -42,6 +42,9 @@ public partial class App : Application
 
         services.AddSingleton<IArchiveEngine, UnifiedArchiveEngine>();
         services.AddSingleton<ISingleInstanceCoordinator, SingleInstanceCoordinator>();
+        services.AddSingleton<IFileAssociationService>(_ => FileAssociationServiceFactory.CreateDefault());
+        services.AddTransient<SettingsViewModel>();
+        services.AddTransient<FileAssociationPromptViewModel>();
         services.AddTransient<MainWindowViewModel>();
         services.AddTransient<QuickExtractViewModel>();
 
@@ -96,6 +99,29 @@ public partial class App : Application
                 {
                     _ = mainWindowVm.OpenArchiveAsync(initialPath);
                 }
+
+                // Check file associations and prompt user if any format is unassociated or owned by another app
+                var associationService = Services.GetRequiredService<IFileAssociationService>();
+                _ = Dispatcher.UIThread.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        if (!await associationService.AreAllFormatsAssociatedAsync())
+                        {
+                            var promptVm = new FileAssociationPromptViewModel(associationService);
+                            await promptVm.InitializeAsync();
+                            var promptDialog = new FileAssociationPromptDialog
+                            {
+                                DataContext = promptVm
+                            };
+                            await promptDialog.ShowDialog(mainWindow);
+                        }
+                    }
+                    catch
+                    {
+                        // Ensure startup continues smoothly even if association dialog check fails
+                    }
+                });
             }
         }
 

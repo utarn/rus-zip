@@ -4,11 +4,14 @@ using RusZip.Core.Abstractions;
 using RusZip.Core.Models;
 using RusZip.Desktop.Models;
 
+using RusZip.Desktop.Services;
+
 namespace RusZip.Desktop.ViewModels;
 
 public partial class MainWindowViewModel : ObservableObject
 {
     private readonly IArchiveEngine _engine;
+    private readonly IFileAssociationService _associationService;
 
     public static IReadOnlyCollection<string> SupportedExtensions => ArchiveFormatRegistry.SupportedExtensions;
 
@@ -16,9 +19,11 @@ public partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty] private ArchiveBrowserViewModel _browser;
     [ObservableProperty] private CompressionSettingsViewModel _settings;
+    [ObservableProperty] private SettingsViewModel _settingsViewModel;
     [ObservableProperty] private OperationProgressViewModel _progress;
     [ObservableProperty] private bool _hasOpenArchive;
     [ObservableProperty] private bool _isCompressDialogVisible;
+    [ObservableProperty] private bool _isSettingsDialogVisible;
     [ObservableProperty] private bool _isDragOver;
     [ObservableProperty] private string _statusText = "Ready";
     [ObservableProperty] private ThemeMode _currentTheme = ThemeMode.System;
@@ -63,6 +68,19 @@ public partial class MainWindowViewModel : ObservableObject
         };
     }
 
+    [RelayCommand]
+    public async Task OpenSettingsAsync()
+    {
+        await SettingsViewModel.LoadAssociationsAsync();
+        IsSettingsDialogVisible = true;
+    }
+
+    [RelayCommand]
+    public void CloseSettingsDialog()
+    {
+        IsSettingsDialogVisible = false;
+    }
+
     public Func<Task<string?>>? RequestExtractDestinationFolder { get; set; }
     public Func<Task<string?>>? RequestOpenArchivePicker { get; set; }
 
@@ -73,8 +91,15 @@ public partial class MainWindowViewModel : ObservableObject
     private static string FormatStatus(string message) => EntryNameSanitizer.SingleLine(message);
 
     public MainWindowViewModel(IArchiveEngine engine)
+        : this(engine, FileAssociationServiceFactory.CreateDefault())
+    {
+    }
+
+    public MainWindowViewModel(IArchiveEngine engine, IFileAssociationService associationService)
     {
         _engine = engine;
+        _associationService = associationService;
+        _settingsViewModel = new SettingsViewModel(associationService);
         _browser = new ArchiveBrowserViewModel();
         _settings = new CompressionSettingsViewModel();
         _progress = new OperationProgressViewModel();

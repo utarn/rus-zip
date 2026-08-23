@@ -903,4 +903,22 @@ public class MainWindowViewModelTests
 
         Assert.False(vm.HasOpenArchive);
     }
+
+    [Fact]
+    public async Task OpenSettingsCommand_OpensDialog_AndLoadsAssociations()
+    {
+        var fakeEngine = new FakeArchiveEngine();
+        var vm = new MainWindowViewModel(fakeEngine);
+
+        Assert.False(vm.IsSettingsDialogVisible);
+
+        await vm.OpenSettingsCommand.ExecuteAsync(null);
+
+        Assert.True(vm.IsSettingsDialogVisible);
+        Assert.NotEmpty(vm.SettingsViewModel.Formats);
+
+        vm.CloseSettingsDialogCommand.Execute(null);
+
+        Assert.False(vm.IsSettingsDialogVisible);
+    }
 }

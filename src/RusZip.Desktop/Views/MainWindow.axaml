@@ -59,27 +59,38 @@
                     </Button>
                 </StackPanel>
 
-                <!-- Theme Switcher Toggle -->
-                <Button Grid.Column="1"
-                        Command="{Binding ToggleThemeCommand}"
-                        Padding="10,8"
-                        ToolTip.Tip="Toggle Theme (System / Dark / Light)">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <Panel Width="16" Height="16">
-                            <PathIcon Data="{StaticResource Icon.ThemeDark}"
-                                      Width="16" Height="16"
-                                      IsVisible="{Binding IsDarkTheme}" />
-                            <PathIcon Data="{StaticResource Icon.ThemeLight}"
-                                      Width="16" Height="16"
-                                      IsVisible="{Binding IsLightTheme}" />
-                            <PathIcon Data="{StaticResource Icon.ThemeLight}"
-                                      Width="16" Height="16"
-                                      Opacity="0.7"
-                                      IsVisible="{Binding IsSystemTheme}" />
-                        </Panel>
-                        <TextBlock Text="{Binding ThemeDisplayName}" VerticalAlignment="Center" />
-                    </StackPanel>
-                </Button>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <!-- Settings Button -->
+                    <Button Command="{Binding OpenSettingsCommand}"
+                            Padding="10,8"
+                            ToolTip.Tip="Settings and File Associations">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource Icon.Settings}" Width="16" Height="16" />
+                            <TextBlock Text="Settings" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Theme Switcher Toggle -->
+                    <Button Command="{Binding ToggleThemeCommand}"
+                            Padding="10,8"
+                            ToolTip.Tip="Toggle Theme (System / Dark / Light)">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Panel Width="16" Height="16">
+                                <PathIcon Data="{StaticResource Icon.ThemeDark}"
+                                          Width="16" Height="16"
+                                          IsVisible="{Binding IsDarkTheme}" />
+                                <PathIcon Data="{StaticResource Icon.ThemeLight}"
+                                          Width="16" Height="16"
+                                          IsVisible="{Binding IsLightTheme}" />
+                                <PathIcon Data="{StaticResource Icon.ThemeLight}"
+                                          Width="16" Height="16"
+                                          Opacity="0.7"
+                                          IsVisible="{Binding IsSystemTheme}" />
+                            </Panel>
+                            <TextBlock Text="{Binding ThemeDisplayName}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
             </Grid>
         </Border>
 
@@ -220,5 +231,42 @@
 
         <!-- Mode 4: Progress Overlay (spans entire window for true modal backdrop and top z-index) -->
         <views:ProgressOverlay Grid.Row="0" Grid.RowSpan="3" DataContext="{Binding Progress}" />
+
+        <!-- Mode 5: Settings Dialog Overlay (spans entire window for true modal backdrop and top z-index) -->
+        <Grid Grid.Row="0" Grid.RowSpan="3" Background="#7F000000" IsVisible="{Binding IsSettingsDialogVisible}">
+            <Border HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Width="620"
+                    MaxHeight="540"
+                    Background="{DynamicResource CardBackgroundFillColorDefault}"
+                    BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    BoxShadow="0 16 48 #50000000">
+                <Grid RowDefinitions="Auto,*,Auto">
+                    <Border Grid.Row="0" Padding="20,14" BorderBrush="{DynamicResource SurfaceStrokeColorDefault}" BorderThickness="0,0,0,1">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource Icon.Settings}" Width="18" Height="18" VerticalAlignment="Center" />
+                                <TextBlock Text="Settings" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Command="{Binding CloseSettingsDialogCommand}" Padding="8,4">
+                                <PathIcon Data="{StaticResource Icon.Close}" Width="12" Height="12" />
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="1" Padding="4">
+                        <views:SettingsView DataContext="{Binding SettingsViewModel}" />
+                    </ScrollViewer>
+
+                    <Border Grid.Row="2" Padding="20,12" Background="{DynamicResource CardBackgroundFillColorSecondary}" BorderBrush="{DynamicResource SurfaceStrokeColorDefault}" BorderThickness="0,1,0,0" CornerRadius="0,0,12,12">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                            <Button Content="Close" Command="{Binding CloseSettingsDialogCommand}" Padding="18,6" CornerRadius="6" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>
