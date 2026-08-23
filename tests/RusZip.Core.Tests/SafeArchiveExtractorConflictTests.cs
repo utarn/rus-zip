@@ -460,4 +460,124 @@ public class SafeArchiveExtractorConflictTests : IDisposable
         Assert.Equal(0, result.FilesExtracted);
         Assert.Equal("existing targz file", await File.ReadAllTextAsync(Path.Combine(destDir, "entry.txt")));
     }
+
+    [Fact]
+    public void FileConflictResolution_DefaultIsAbort_AndEnumValuesMatchContract()
+    {
+        Assert.Equal(FileConflictResolution.Abort, default(FileConflictResolution));
+        Assert.Equal(0, (int)FileConflictResolution.Abort);
+        Assert.Equal(1, (int)FileConflictResolution.Overwrite);
+        Assert.Equal(2, (int)FileConflictResolution.OverwriteAll);
+        Assert.Equal(3, (int)FileConflictResolution.Skip);
+        Assert.Equal(4, (int)FileConflictResolution.SkipAll);
+    }
+
+    [Fact]
+    public async Task FixedPolicyConflictResolver_StaticInstances_ReturnExpectedResolutions()
+    {
+        var dummyContext = new FileConflictContext(
+            TargetPath: "/test/file.txt",
+            RelativeEntryPath: "file.txt",
+            EntryUncompressedSize: 100,
+            EntryLastModified: null,
+            ExistingFileSize: 200,
+            ExistingLastModified: DateTimeOffset.UtcNow
+        );
+
+        Assert.Equal(FileConflictResolution.Abort, await FixedPolicyConflictResolver.Abort.ResolveConflictAsync(dummyContext));
+        Assert.Equal(FileConflictResolution.Overwrite, await FixedPolicyConflictResolver.Overwrite.ResolveConflictAsync(dummyContext));
+        Assert.Equal(FileConflictResolution.OverwriteAll, await FixedPolicyConflictResolver.OverwriteAll.ResolveConflictAsync(dummyContext));
+        Assert.Equal(FileConflictResolution.Skip, await FixedPolicyConflictResolver.Skip.ResolveConflictAsync(dummyContext));
+        Assert.Equal(FileConflictResolution.SkipAll, await FixedPolicyConflictResolver.SkipAll.ResolveConflictAsync(dummyContext));
+
+        Assert.Equal(FileConflictResolution.Abort, FixedPolicyConflictResolver.Abort.Resolution);
+        Assert.Equal(FileConflictResolution.OverwriteAll, FixedPolicyConflictResolver.OverwriteAll.Resolution);
+        Assert.Equal(FileConflictResolution.SkipAll, FixedPolicyConflictResolver.SkipAll.Resolution);
+    }
+
+    [Fact]
+    public async Task FixedPolicyConflictResolver_Abort_ThrowsOperationCanceledException_AndCleansUpCreatedFiles()
+    {
+        var targetDir = Path.Combine(_testDir, "fixed_abort_out");
+        Directory.CreateDirectory(targetDir);
+        var existingFile = Path.Combine(targetDir, "existing_file.txt");
+        await File.WriteAllTextAsync(existingFile, "pre-existing content");
+
+        var entries = new List<ExtractionEntry>
+        {
+            new("created_first.txt", false, 4, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("data"u8.ToArray()))),
+            new("existing_file.txt", false, 3, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("new"u8.ToArray())))
+        };
+
+        var source = new FakeExtractionSource(entries);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            SafeArchiveExtractor.ExtractAllAsync(
+                source,
+                targetDir,
+                overwrite: false,
+                totalBytes: 7,
+                progress: null,
+                conflictResolver: FixedPolicyConflictResolver.Abort));
+
+        // Newly created file during session must be cleaned up
+        Assert.False(File.Exists(Path.Combine(targetDir, "created_first.txt")));
+        // Pre-existing file must remain untouched
+        Assert.True(File.Exists(existingFile));
+        Assert.Equal("pre-existing content", await File.ReadAllTextAsync(existingFile));
+    }
+
+    [Fact]
+    public async Task FixedPolicyConflictResolver_OverwriteAll_OverwritesConflictingFiles()
+    {
+        var targetDir = Path.Combine(_testDir, "fixed_overwrite_all_out");
+        Directory.CreateDirectory(targetDir);
+        var existingFile = Path.Combine(targetDir, "existing_file.txt");
+        await File.WriteAllTextAsync(existingFile, "old content");
+
+        var entries = new List<ExtractionEntry>
+        {
+            new("existing_file.txt", false, 11, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("new content"u8.ToArray())))
+        };
+
+        var source = new FakeExtractionSource(entries);
+
+        var result = await SafeArchiveExtractor.ExtractAllAsync(
+            source,
+            targetDir,
+            overwrite: false,
+            totalBytes: 11,
+            progress: null,
+            conflictResolver: FixedPolicyConflictResolver.OverwriteAll);
+
+        Assert.Equal(1, result.FilesExtracted);
+        Assert.Equal("new content", await File.ReadAllTextAsync(existingFile));
+    }
+
+    [Fact]
+    public async Task FixedPolicyConflictResolver_SkipAll_PreservesConflictingFiles()
+    {
+        var targetDir = Path.Combine(_testDir, "fixed_skip_all_out");
+        Directory.CreateDirectory(targetDir);
+        var existingFile = Path.Combine(targetDir, "existing_file.txt");
+        await File.WriteAllTextAsync(existingFile, "original content");
+
+        var entries = new List<ExtractionEntry>
+        {
+            new("existing_file.txt", false, 3, null, null, _ => ValueTask.FromResult<Stream>(new MemoryStream("new"u8.ToArray())))
+        };
+
+        var source = new FakeExtractionSource(entries);
+
+        var result = await SafeArchiveExtractor.ExtractAllAsync(
+            source,
+            targetDir,
+            overwrite: false,
+            totalBytes: 3,
+            progress: null,
+            conflictResolver: FixedPolicyConflictResolver.SkipAll);
+
+        Assert.Equal(0, result.FilesExtracted);
+        Assert.Equal("original content", await File.ReadAllTextAsync(existingFile));
+    }
 }
