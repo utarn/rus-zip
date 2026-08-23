@@ -89,3 +89,18 @@ The process of incrementally adding or updating entries in an existing `.zrus` o
 ### Entry Collision Policy
 The rule determining how duplicate entry paths are resolved during an archive append operation: default replacement/overwriting of older entries, or conditional updating only when the incoming file has a strictly newer modification timestamp (`--update-only`).
 
+### Compression Staging Grid
+The interactive desktop tree data grid allowing users to stage multiple files and directories, inspect their filesystem metadata, manage exclusions, and configure packaging before executing compression.
+
+### Staged Source Item
+A file or directory queued on the Compression Staging Grid with its filesystem metadata, uncompressed size, and inclusion/exclusion state.
+
+### Exclusion Filter
+The set of relative or absolute file and directory paths explicitly excluded from packaging during a multi-source compression operation.
+
+### Archive Appending Session
+The desktop workflow for adding or updating entries in an open `.zrus` or `.zip` archive via `IArchiveEngine.AppendAsync`.
+
+### Atomic Archive Deletion Pipeline
+The atomic rewrite mechanism in `RusZip.Core` (`DeleteEntriesAsync`) that removes specified entries from a `.zrus` or `.zip` archive by streaming all non-deleted entries into a temporary archive file (`<ARCHIVE>.tmp.<GUID>`) and replacing the original upon completion.
+
