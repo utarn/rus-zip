@@ -39,15 +39,29 @@ public partial class App : Application
 
         services.AddSingleton<IArchiveEngine, UnifiedArchiveEngine>();
         services.AddTransient<MainWindowViewModel>();
+        services.AddTransient<QuickExtractViewModel>();
 
         Services = services.BuildServiceProvider();
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow
+            var quickExtractOptions = QuickExtractCommandLineParser.Parse(desktop.Args);
+            if (quickExtractOptions != null)
             {
-                DataContext = Services.GetRequiredService<MainWindowViewModel>()
-            };
+                var quickExtractVm = Services.GetRequiredService<QuickExtractViewModel>();
+                quickExtractVm.Initialize(quickExtractOptions);
+                desktop.MainWindow = new QuickExtractWindow
+                {
+                    DataContext = quickExtractVm
+                };
+            }
+            else
+            {
+                desktop.MainWindow = new MainWindow
+                {
+                    DataContext = Services.GetRequiredService<MainWindowViewModel>()
+                };
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
