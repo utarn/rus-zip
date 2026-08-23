@@ -45,7 +45,7 @@ public partial class SettingsViewModel : ObservableObject
                     DisplayName = a.FormatDisplayName,
                     CurrentHandler = a.CurrentHandler ?? string.Empty,
                     IsAssociated = a.IsAssociated,
-                    IsSelected = !a.IsAssociated || true
+                    IsSelected = true
                 });
             }
 
@@ -103,6 +103,9 @@ public partial class SettingsViewModel : ObservableObject
             IsBusy = false;
         }
     }
+
+    [RelayCommand]
+    public Task ReapplyAllDefaultsAsync() => ReapplyAllAssociationsAsync();
 
     [RelayCommand]
     public void SelectAll()

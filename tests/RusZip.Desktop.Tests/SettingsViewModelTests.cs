@@ -135,4 +135,113 @@ public class SettingsViewModelTests
         vm.SelectAllCommand.Execute(null);
         Assert.All(vm.Formats, f => Assert.True(f.IsSelected));
     }
+
+    [Fact]
+    public async Task LoadAssociationsAsync_InitializesAllFormatsWithIsSelectedTrue()
+    {
+        var service = new FakeFileAssociationService();
+        var vm = new SettingsViewModel(service);
+
+        await vm.LoadAssociationsAsync();
+
+        Assert.NotEmpty(vm.Formats);
+        Assert.All(vm.Formats, f => Assert.True(f.IsSelected));
+    }
+
+    [Fact]
+    public async Task ReapplyAllDefaultsCommand_RegistersAllFormats()
+    {
+        var service = new FakeFileAssociationService();
+        var vm = new SettingsViewModel(service);
+        await vm.LoadAssociationsAsync();
+
+        await vm.ReapplyAllDefaultsCommand.ExecuteAsync(null);
+
+        Assert.Equal("All supported formats associated with rus-zip.", vm.StatusMessage);
+        Assert.Equal(3, service.RegisteredExtensions.Count);
+        Assert.True(vm.AllFormatsAssociated);
+        Assert.All(vm.Formats, f => Assert.True(f.IsAssociated));
+    }
+
+    [Fact]
+    public async Task ApplyAssociationsCommand_WhenServiceThrows_SetsErrorMessage()
+    {
+        var service = new ThrowingFileAssociationService();
+        var vm = new SettingsViewModel(service);
+        await vm.LoadAssociationsAsync();
+
+        await vm.ApplyAssociationsCommand.ExecuteAsync(null);
+
+        Assert.StartsWith("Failed to apply associations:", vm.StatusMessage);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task ReapplyAllAssociationsCommand_WhenServiceThrows_SetsErrorMessage()
+    {
+        var service = new ThrowingFileAssociationService();
+        var vm = new SettingsViewModel(service);
+        await vm.LoadAssociationsAsync();
+
+        await vm.ReapplyAllAssociationsCommand.ExecuteAsync(null);
+
+        Assert.StartsWith("Failed to reapply associations:", vm.StatusMessage);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task LoadAssociationsAsync_WithAllManagedExtensions_DisplaysAllSevenFormats()
+    {
+        var allSevenExtensions = new List<FileAssociationInfo>
+        {
+            new(".zrus", "Zstandard TAR Archive (.zrus)", true, "RusZip"),
+            new(".zip", "Zip Archive (.zip)", false),
+            new(".tar.gz", "Gzip Tarball (.tar.gz)", false),
+            new(".tgz", "Gzip Tarball (.tgz)", false),
+            new(".7z", "7-Zip Archive (.7z)", false),
+            new(".rar", "RAR Archive (.rar)", false, "WinRAR"),
+            new(".gz", "Gzip Compressed File (.gz)", false)
+        };
+
+        var service = new FakeFileAssociationService
+        {
+            AssociationsToReturn = allSevenExtensions
+        };
+
+        var vm = new SettingsViewModel(service);
+        await vm.LoadAssociationsAsync();
+
+        Assert.Equal(7, vm.Formats.Count);
+        Assert.Contains(vm.Formats, f => f.Extension == ".zrus" && f.IsAssociated && f.StatusText == "Default Handler");
+        Assert.Contains(vm.Formats, f => f.Extension == ".zip" && !f.IsAssociated && f.StatusText == "Not Associated");
+        Assert.Contains(vm.Formats, f => f.Extension == ".tar.gz" && !f.IsAssociated);
+        Assert.Contains(vm.Formats, f => f.Extension == ".tgz" && !f.IsAssociated);
+        Assert.Contains(vm.Formats, f => f.Extension == ".7z" && !f.IsAssociated);
+        Assert.Contains(vm.Formats, f => f.Extension == ".rar" && !f.IsAssociated && f.StatusText == "Handled by WinRAR");
+        Assert.Contains(vm.Formats, f => f.Extension == ".gz" && !f.IsAssociated);
+        Assert.All(vm.Formats, f => Assert.True(f.IsSelected));
+    }
+
+    private class ThrowingFileAssociationService : IFileAssociationService
+    {
+        public IReadOnlyList<string> SupportedExtensions => [".zip"];
+
+        public Task<IReadOnlyList<FileAssociationInfo>> GetAssociationsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<FileAssociationInfo>>([new FileAssociationInfo(".zip", "Zip", false)]);
+
+        public Task<bool> AreAllFormatsAssociatedAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> IsFormatAssociatedAsync(string extension, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task RegisterAssociationsAsync(IEnumerable<string> extensions, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Access denied writing registry.");
+
+        public Task RegisterDefaultAssociationsAsync(CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Access denied registering defaults.");
+
+        public Task RemoveAssociationsAsync(IEnumerable<string> extensions, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Access denied removing associations.");
+    }
 }

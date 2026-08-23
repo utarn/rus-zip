@@ -136,6 +136,56 @@ public class FileAssociationServiceTests : IDisposable
         Assert.False(registry.KeyExists("HKEY_CURRENT_USER", @"Software\Classes\SystemFileAssociations\.zrus\shell\RusZip.ExtractHere"));
     }
 
+    [Fact]
+    public async Task WindowsAssociationService_RemoveAssociations_AllManagedExtensions_CleansAllVerbsAndProgIds()
+    {
+        var registry = new InMemoryWindowsRegistry();
+        var exePath = @"C:\Program Files\RusZip\rus-zip.exe";
+        var service = new WindowsAssociationService(registry, exePath);
+
+        await service.RegisterDefaultAssociationsAsync();
+        Assert.True(await service.AreAllFormatsAssociatedAsync());
+
+        await service.RemoveAssociationsAsync(WindowsAssociationService.ManagedExtensions);
+
+        Assert.False(await service.AreAllFormatsAssociatedAsync());
+        foreach (var ext in WindowsAssociationService.ManagedExtensions)
+        {
+            var progId = WindowsAssociationService.GetProgId(ext);
+            Assert.False(await service.IsFormatAssociatedAsync(ext));
+            Assert.Null(registry.GetValue("HKEY_CURRENT_USER", $@"Software\Classes\{ext}"));
+            Assert.False(registry.KeyExists("HKEY_CURRENT_USER", $@"Software\Classes\{progId}"));
+            Assert.False(registry.KeyExists("HKEY_CURRENT_USER", $@"Software\Classes\SystemFileAssociations\{ext}\shell\RusZip.ExtractHere"));
+            Assert.False(registry.KeyExists("HKEY_CURRENT_USER", $@"Software\Classes\SystemFileAssociations\{ext}\shell\RusZip.ExtractTo"));
+            Assert.False(registry.KeyExists("HKEY_CURRENT_USER", $@"Software\Classes\SystemFileAssociations\{ext}\shell\RusZip.ExtractToSubfolder"));
+            Assert.Null(registry.GetValue("HKEY_CURRENT_USER", @"Software\RusZip\Capabilities\FileAssociations", ext));
+        }
+    }
+
+    [Fact]
+    public async Task WindowsAssociationService_RemoveAssociations_PreservesForeignHandlerWithoutCaching()
+    {
+        var registry = new InMemoryWindowsRegistry();
+        var exePath = @"C:\Program Files\RusZip\rus-zip.exe";
+        var service = new WindowsAssociationService(registry, exePath);
+
+        // Register default associations
+        await service.RegisterDefaultAssociationsAsync();
+
+        // Foreign handler overrides .rar
+        registry.SetValue("HKEY_CURRENT_USER", @"Software\Classes\.rar", null, "WinRAR.RAR");
+
+        // Remove .rar association via RusZip
+        await service.RemoveAssociationsAsync([".rar"]);
+
+        // Foreign handler is preserved, not overwritten or wiped
+        Assert.Equal("WinRAR.RAR", registry.GetValue("HKEY_CURRENT_USER", @"Software\Classes\.rar"));
+        // RusZip verbs and ProgID are cleaned up
+        Assert.False(registry.KeyExists("HKEY_CURRENT_USER", @"Software\Classes\SystemFileAssociations\.rar\shell\RusZip.ExtractHere"));
+        Assert.False(registry.KeyExists("HKEY_CURRENT_USER", @"Software\Classes\RusZip.rar"));
+        Assert.Null(registry.GetValue("HKEY_CURRENT_USER", @"Software\RusZip\Capabilities\FileAssociations", ".rar"));
+    }
+
     #endregion
 
     #region Linux Association Service Tests
@@ -245,6 +295,50 @@ public class FileAssociationServiceTests : IDisposable
         Assert.False(await service.IsFormatAssociatedAsync(".zip"));
     }
 
+    [Fact]
+    public async Task LinuxAssociationService_RemoveAssociations_PreservesOtherHandlers()
+    {
+        var desktopPath = Path.Combine(_tempDir, "applications", "rus-zip.desktop");
+        var mimeappsPath = Path.Combine(_tempDir, "config", "mimeapps.list");
+
+        var service = new LinuxAssociationService(desktopFilePath: desktopPath, mimeappsFilePath: mimeappsPath);
+        await service.RegisterDefaultAssociationsAsync();
+        Assert.True(await service.AreAllFormatsAssociatedAsync());
+
+        // Add a third-party handler for another MIME type
+        var lines = (await File.ReadAllLinesAsync(mimeappsPath)).ToList();
+        lines.Add("text/plain=gedit.desktop");
+        lines.Add("application/pdf=evince.desktop");
+        await File.WriteAllLinesAsync(mimeappsPath, lines);
+
+        await service.RemoveAssociationsAsync([".zip", ".7z"]);
+
+        var mimeText = await File.ReadAllTextAsync(mimeappsPath);
+        Assert.DoesNotContain("application/zip=rus-zip.desktop", mimeText);
+        Assert.DoesNotContain("application/x-7z-compressed=rus-zip.desktop", mimeText);
+        Assert.Contains("text/plain=gedit.desktop", mimeText);
+        Assert.Contains("application/pdf=evince.desktop", mimeText);
+        Assert.False(await service.IsFormatAssociatedAsync(".zip"));
+        Assert.False(await service.IsFormatAssociatedAsync(".7z"));
+    }
+
+    [Fact]
+    public async Task LinuxAssociationService_RemoveAssociations_AllManagedExtensions_CleansAllMimeTypes()
+    {
+        var desktopPath = Path.Combine(_tempDir, "applications", "rus-zip.desktop");
+        var mimeappsPath = Path.Combine(_tempDir, "config", "mimeapps.list");
+
+        var service = new LinuxAssociationService(desktopFilePath: desktopPath, mimeappsFilePath: mimeappsPath);
+        await service.RegisterDefaultAssociationsAsync();
+        Assert.True(await service.AreAllFormatsAssociatedAsync());
+
+        await service.RemoveAssociationsAsync(LinuxAssociationService.ManagedExtensions);
+
+        Assert.False(await service.AreAllFormatsAssociatedAsync());
+        var mimeText = await File.ReadAllTextAsync(mimeappsPath);
+        Assert.DoesNotContain("rus-zip.desktop", mimeText);
+    }
+
     #endregion
 
     #region macOS Association Service Tests
@@ -285,6 +379,22 @@ public class FileAssociationServiceTests : IDisposable
 
         await service.RemoveAssociationsAsync([".zrus"]);
         Assert.False(await service.IsFormatAssociatedAsync(".zrus"));
+    }
+
+    [Fact]
+    public async Task MacAssociationService_RemoveAssociations_AllManagedExtensions_ClearsAll()
+    {
+        var service = new MacAssociationService(bundleIdentifier: "com.ruszip.desktop");
+        await service.RegisterDefaultAssociationsAsync();
+        Assert.True(await service.AreAllFormatsAssociatedAsync());
+
+        await service.RemoveAssociationsAsync(MacAssociationService.ManagedExtensions);
+
+        Assert.False(await service.AreAllFormatsAssociatedAsync());
+        foreach (var ext in MacAssociationService.ManagedExtensions)
+        {
+            Assert.False(await service.IsFormatAssociatedAsync(ext));
+        }
     }
 
     #endregion
