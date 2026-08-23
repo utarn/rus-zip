@@ -38,6 +38,12 @@ public partial class ArchiveBrowserView : UserControl
         }
     }
 
+    public void FocusFilter()
+    {
+        FilterTextBox.Focus();
+        FilterTextBox.SelectAll();
+    }
+
     private static ArchiveItemViewModel? ExtractArchiveItem(object? obj)
     {
         if (obj is ArchiveItemViewModel item)

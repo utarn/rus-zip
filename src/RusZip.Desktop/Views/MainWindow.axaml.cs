@@ -141,6 +141,17 @@ public partial class MainWindow : Window
                 var result = await dialog.ShowDialog<bool>(this);
                 return result;
             };
+
+            vm.RequestExit = () =>
+            {
+                Close();
+            };
+
+            vm.RequestFocusFilter = () =>
+            {
+                var browserView = this.FindControl<ArchiveBrowserView>("BrowserView");
+                browserView?.FocusFilter();
+            };
         }
     }
 

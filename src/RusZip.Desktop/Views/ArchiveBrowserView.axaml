@@ -44,7 +44,8 @@
 
                 <!-- Bottom Row: Filter Box + Action Buttons -->
                 <Grid Grid.Row="1" Grid.Column="0" ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
-                    <TextBox Grid.Column="0"
+                    <TextBox x:Name="FilterTextBox"
+                             Grid.Column="0"
                              Width="260"
                              PlaceholderText="Filter contents..."
                              Text="{Binding FilterText, Mode=TwoWay}"

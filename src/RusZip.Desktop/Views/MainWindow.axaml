@@ -13,7 +13,106 @@
         TransparencyLevelHint="Mica, AcrylicBlur, Blur"
         Background="Transparent">
 
-    <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource SolidBackgroundFillColorBase}">
+    <NativeMenu.Menu>
+        <NativeMenu>
+            <NativeMenuItem Header="File">
+                <NativeMenuItem.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="New Archive..." Command="{Binding CreateArchiveCommand}" Gesture="Ctrl+N" />
+                        <NativeMenuItem Header="Open Archive..." Command="{Binding OpenArchivePickerCommand}" Gesture="Ctrl+O" />
+                        <NativeMenuItem Header="Recent Archives">
+                            <NativeMenuItem.Menu>
+                                <NativeMenu>
+                                    <NativeMenuItem Header="(No Recent Archives)" IsEnabled="False" />
+                                </NativeMenu>
+                            </NativeMenuItem.Menu>
+                        </NativeMenuItem>
+                        <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="Close Archive" Command="{Binding CloseArchiveCommand}" IsEnabled="{Binding HasOpenArchive}" Gesture="Ctrl+W" />
+                        <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="Exit" Command="{Binding ExitApplicationCommand}" Gesture="Alt+F4" />
+                    </NativeMenu>
+                </NativeMenuItem.Menu>
+            </NativeMenuItem>
+            <NativeMenuItem Header="Edit">
+                <NativeMenuItem.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="Select All" Command="{Binding SelectAllCommand}" Gesture="Ctrl+A" />
+                        <NativeMenuItem Header="Invert Selection" Command="{Binding InvertSelectionCommand}" />
+                        <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="Copy Relative Path" Command="{Binding CopyRelativePathCommand}" Gesture="Ctrl+C" />
+                        <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="Delete Selected" Command="{Binding DeleteSelectedCommand}" Gesture="Delete" />
+                    </NativeMenu>
+                </NativeMenuItem.Menu>
+            </NativeMenuItem>
+            <NativeMenuItem Header="View">
+                <NativeMenuItem.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="Refresh" Command="{Binding RefreshArchiveCommand}" Gesture="F5" />
+                        <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="Expand All" Command="{Binding ExpandAllCommand}" Gesture="Ctrl+Shift+E" />
+                        <NativeMenuItem Header="Collapse All" Command="{Binding CollapseAllCommand}" />
+                        <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="Focus Filter" Command="{Binding FocusFilterCommand}" Gesture="Ctrl+F" />
+                    </NativeMenu>
+                </NativeMenuItem.Menu>
+            </NativeMenuItem>
+            <NativeMenuItem Header="Archive">
+                <NativeMenuItem.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="Add Files / Append..." Command="{Binding AppendFilesCommand}" Gesture="Ctrl+Shift+A" />
+                        <NativeMenuItem Header="Extract All" Command="{Binding ExtractAllMenuCommand}" Gesture="Ctrl+E" />
+                        <NativeMenuItem Header="Extract Selected..." Command="{Binding ExtractSelectedItemCommand}" />
+                        <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="Test Archive" Command="{Binding TestArchiveCommand}" Gesture="Ctrl+T" />
+                        <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="Properties" Command="{Binding ShowPropertiesCommand}" Gesture="Alt+Enter" />
+                    </NativeMenu>
+                </NativeMenuItem.Menu>
+            </NativeMenuItem>
+            <NativeMenuItem Header="Tools">
+                <NativeMenuItem.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="Settings..." Command="{Binding OpenSettingsCommand}" Gesture="Ctrl+OemComma" />
+                        <NativeMenuItem Header="Theme Switcher" Command="{Binding ToggleThemeCommand}" />
+                        <NativeMenuItem Header="File Associations..." Command="{Binding OpenFileAssociationsCommand}" />
+                    </NativeMenu>
+                </NativeMenuItem.Menu>
+            </NativeMenuItem>
+            <NativeMenuItem Header="Help">
+                <NativeMenuItem.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="Documentation" Command="{Binding OpenDocumentationCommand}" />
+                        <NativeMenuItem Header="Supported Formats" Command="{Binding OpenSupportedFormatsCommand}" />
+                        <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="About rus-zip" Command="{Binding ShowAboutCommand}" Gesture="F1" />
+                    </NativeMenu>
+                </NativeMenuItem.Menu>
+            </NativeMenuItem>
+        </NativeMenu>
+    </NativeMenu.Menu>
+
+    <Window.KeyBindings>
+        <KeyBinding Gesture="Ctrl+N" Command="{Binding CreateArchiveCommand}" />
+        <KeyBinding Gesture="Ctrl+O" Command="{Binding OpenArchivePickerCommand}" />
+        <KeyBinding Gesture="Ctrl+W" Command="{Binding CloseArchiveCommand}" />
+        <KeyBinding Gesture="Alt+F4" Command="{Binding ExitApplicationCommand}" />
+        <KeyBinding Gesture="Ctrl+A" Command="{Binding SelectAllCommand}" />
+        <KeyBinding Gesture="Ctrl+C" Command="{Binding CopyRelativePathCommand}" />
+        <KeyBinding Gesture="Delete" Command="{Binding DeleteSelectedCommand}" />
+        <KeyBinding Gesture="F5" Command="{Binding RefreshArchiveCommand}" />
+        <KeyBinding Gesture="Ctrl+Shift+E" Command="{Binding ExpandAllCommand}" />
+        <KeyBinding Gesture="Ctrl+F" Command="{Binding FocusFilterCommand}" />
+        <KeyBinding Gesture="Ctrl+Shift+A" Command="{Binding AppendFilesCommand}" />
+        <KeyBinding Gesture="Ctrl+E" Command="{Binding ExtractAllMenuCommand}" />
+        <KeyBinding Gesture="Ctrl+T" Command="{Binding TestArchiveCommand}" />
+        <KeyBinding Gesture="Alt+Enter" Command="{Binding ShowPropertiesCommand}" />
+        <KeyBinding Gesture="Ctrl+OemComma" Command="{Binding OpenSettingsCommand}" />
+        <KeyBinding Gesture="F1" Command="{Binding ShowAboutCommand}" />
+    </Window.KeyBindings>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Background="{DynamicResource SolidBackgroundFillColorBase}">
         <!-- Modern Ribbon / Toolbar & Custom Title Bar -->
         <Border Grid.Row="0"
                 x:Name="TitleBarArea"
@@ -112,8 +211,65 @@
             </Grid>
         </Border>
 
+        <!-- Top-Level Application Menu Bar -->
+        <Border Grid.Row="1"
+                Background="{DynamicResource CardBackgroundFillColorDefault}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="0,0,0,1"
+                Padding="6,2">
+            <Menu x:Name="AppMenuBar">
+                <MenuItem Header="_File">
+                    <MenuItem Header="_New Archive..." Command="{Binding CreateArchiveCommand}" InputGesture="Ctrl+N" />
+                    <MenuItem Header="_Open Archive..." Command="{Binding OpenArchivePickerCommand}" InputGesture="Ctrl+O" />
+                    <MenuItem Header="_Recent Archives" IsEnabled="False">
+                        <MenuItem Header="(No Recent Archives)" IsEnabled="False" />
+                    </MenuItem>
+                    <Separator />
+                    <MenuItem Header="_Close Archive" Command="{Binding CloseArchiveCommand}" IsEnabled="{Binding HasOpenArchive}" InputGesture="Ctrl+W" />
+                    <Separator />
+                    <MenuItem Header="E_xit" Command="{Binding ExitApplicationCommand}" InputGesture="Alt+F4" />
+                </MenuItem>
+                <MenuItem Header="_Edit">
+                    <MenuItem Header="Select _All" Command="{Binding SelectAllCommand}" IsEnabled="{Binding HasOpenArchive}" InputGesture="Ctrl+A" />
+                    <MenuItem Header="_Invert Selection" Command="{Binding InvertSelectionCommand}" IsEnabled="{Binding HasOpenArchive}" />
+                    <Separator />
+                    <MenuItem Header="_Copy Relative Path" Command="{Binding CopyRelativePathCommand}" IsEnabled="{Binding HasOpenArchive}" InputGesture="Ctrl+C" />
+                    <Separator />
+                    <MenuItem Header="_Delete Selected" Command="{Binding DeleteSelectedCommand}" IsEnabled="{Binding CanDeleteFromArchive}" InputGesture="Delete" />
+                </MenuItem>
+                <MenuItem Header="_View">
+                    <MenuItem Header="_Refresh" Command="{Binding RefreshArchiveCommand}" IsEnabled="{Binding HasOpenArchive}" InputGesture="F5" />
+                    <Separator />
+                    <MenuItem Header="_Expand All" Command="{Binding ExpandAllCommand}" IsEnabled="{Binding HasOpenArchive}" InputGesture="Ctrl+Shift+E" />
+                    <MenuItem Header="_Collapse All" Command="{Binding CollapseAllCommand}" IsEnabled="{Binding HasOpenArchive}" />
+                    <Separator />
+                    <MenuItem Header="_Focus Filter" Command="{Binding FocusFilterCommand}" IsEnabled="{Binding HasOpenArchive}" InputGesture="Ctrl+F" />
+                </MenuItem>
+                <MenuItem Header="_Archive">
+                    <MenuItem Header="_Add Files / Append..." Command="{Binding AppendFilesCommand}" IsEnabled="{Binding CanAppendToArchive}" InputGesture="Ctrl+Shift+A" />
+                    <MenuItem Header="_Extract All" Command="{Binding ExtractAllMenuCommand}" IsEnabled="{Binding HasOpenArchive}" InputGesture="Ctrl+E" />
+                    <MenuItem Header="Extract _Selected..." Command="{Binding ExtractSelectedItemCommand}" IsEnabled="{Binding HasOpenArchive}" />
+                    <Separator />
+                    <MenuItem Header="_Test Archive" Command="{Binding TestArchiveCommand}" IsEnabled="{Binding HasOpenArchive}" InputGesture="Ctrl+T" />
+                    <Separator />
+                    <MenuItem Header="_Properties" Command="{Binding ShowPropertiesCommand}" IsEnabled="{Binding HasOpenArchive}" InputGesture="Alt+Enter" />
+                </MenuItem>
+                <MenuItem Header="_Tools">
+                    <MenuItem Header="_Settings..." Command="{Binding OpenSettingsCommand}" InputGesture="Ctrl+," />
+                    <MenuItem Header="_Theme Switcher" Command="{Binding ToggleThemeCommand}" />
+                    <MenuItem Header="_File Associations..." Command="{Binding OpenFileAssociationsCommand}" />
+                </MenuItem>
+                <MenuItem Header="_Help">
+                    <MenuItem Header="_Documentation" Command="{Binding OpenDocumentationCommand}" />
+                    <MenuItem Header="_Supported Formats" Command="{Binding OpenSupportedFormatsCommand}" />
+                    <Separator />
+                    <MenuItem Header="_About rus-zip" Command="{Binding ShowAboutCommand}" InputGesture="F1" />
+                </MenuItem>
+            </Menu>
+        </Border>
+
         <!-- Main Content Area -->
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="2">
             <!-- Mode 1: Elevated Empty / Drag-and-Drop State Card -->
             <Grid IsVisible="{Binding !HasOpenArchive}" Margin="48,32">
                 <Border HorizontalAlignment="Center"
@@ -207,12 +363,13 @@
             </Grid>
 
             <!-- Mode 2: Archive Browser -->
-            <views:ArchiveBrowserView DataContext="{Binding Browser}"
+            <views:ArchiveBrowserView x:Name="BrowserView"
+                                      DataContext="{Binding Browser}"
                                       IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasOpenArchive}" />
         </Grid>
 
         <!-- Status Bar -->
-        <Border Grid.Row="2"
+        <Border Grid.Row="3"
                 Background="{DynamicResource CardBackgroundFillColorSecondary}"
                 BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
                 BorderThickness="0,1,0,0"
@@ -221,7 +378,7 @@
         </Border>
 
         <!-- Mode 3: Compress Dialog Overlay (spans entire window for true modal backdrop and top z-index) -->
-        <Grid Grid.Row="0" Grid.RowSpan="3" Background="#7F000000" IsVisible="{Binding IsCompressDialogVisible}">
+        <Grid Grid.Row="0" Grid.RowSpan="4" Background="#7F000000" IsVisible="{Binding IsCompressDialogVisible}">
             <Border HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Width="780"
@@ -261,10 +418,10 @@
         </Grid>
 
         <!-- Mode 4: Progress Overlay (spans entire window for true modal backdrop and top z-index) -->
-        <views:ProgressOverlay Grid.Row="0" Grid.RowSpan="3" DataContext="{Binding Progress}" />
+        <views:ProgressOverlay Grid.Row="0" Grid.RowSpan="4" DataContext="{Binding Progress}" />
 
         <!-- Mode 5: Settings Dialog Overlay (spans entire window for true modal backdrop and top z-index) -->
-        <Grid Grid.Row="0" Grid.RowSpan="3" Background="#7F000000" IsVisible="{Binding IsSettingsDialogVisible}">
+        <Grid Grid.Row="0" Grid.RowSpan="4" Background="#7F000000" IsVisible="{Binding IsSettingsDialogVisible}">
             <Border HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Width="620"
