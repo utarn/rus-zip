@@ -348,6 +348,46 @@ public partial class QuickExtractViewModel : ObservableObject, IFileConflictReso
             : "Close";
     }
 
+    internal static Action<ProcessStartInfo>? ProcessStarter { get; set; }
+
+    internal static ProcessStartInfo? CreateProcessStartInfoForPlatform(string folderPath, bool isWindows, bool isMac, bool isLinux)
+    {
+        if (isWindows)
+        {
+            return new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = folderPath,
+                UseShellExecute = true
+            };
+        }
+        else if (isMac)
+        {
+            return new ProcessStartInfo
+            {
+                FileName = "open",
+                Arguments = folderPath,
+                UseShellExecute = false
+            };
+        }
+        else if (isLinux)
+        {
+            return new ProcessStartInfo
+            {
+                FileName = "xdg-open",
+                Arguments = folderPath,
+                UseShellExecute = false
+            };
+        }
+
+        return null;
+    }
+
+    internal static ProcessStartInfo? CreateProcessStartInfo(string folderPath)
+    {
+        return CreateProcessStartInfoForPlatform(folderPath, OperatingSystem.IsWindows(), OperatingSystem.IsMacOS(), OperatingSystem.IsLinux());
+    }
+
     public static void OpenFolderInFileManager(string folderPath)
     {
         if (string.IsNullOrEmpty(folderPath) || !Directory.Exists(folderPath))
@@ -357,22 +397,17 @@ public partial class QuickExtractViewModel : ObservableObject, IFileConflictReso
 
         try
         {
-            if (OperatingSystem.IsWindows())
+            var psi = CreateProcessStartInfo(folderPath);
+            if (psi != null)
             {
-                Process.Start(new ProcessStartInfo
+                if (ProcessStarter != null)
                 {
-                    FileName = "explorer.exe",
-                    Arguments = $"\"{folderPath}\"",
-                    UseShellExecute = true
-                });
-            }
-            else if (OperatingSystem.IsMacOS())
-            {
-                Process.Start("open", $"\"{folderPath}\"");
-            }
-            else if (OperatingSystem.IsLinux())
-            {
-                Process.Start("xdg-open", $"\"{folderPath}\"");
+                    ProcessStarter(psi);
+                }
+                else
+                {
+                    Process.Start(psi);
+                }
             }
         }
         catch
