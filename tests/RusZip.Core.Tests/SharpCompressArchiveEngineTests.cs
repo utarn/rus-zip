@@ -1492,6 +1492,138 @@ public class SharpCompressArchiveEngineTests : IDisposable
         Assert.Empty(tempFiles);
     }
 
+    [Fact]
+    public async Task Zip_CompressAsync_ExcludedPaths_OmitsExcludedFilesAndSubtreesFromZipArchive()
+    {
+        // Arrange
+        var sourceDir = Path.Combine(_testDir, "zip_exclusion_src");
+        Directory.CreateDirectory(Path.Combine(sourceDir, "src", "bin", "Debug", "net10.0"));
+        Directory.CreateDirectory(Path.Combine(sourceDir, "node_modules", "lodash"));
+        Directory.CreateDirectory(Path.Combine(sourceDir, "temp"));
+
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "src", "index.ts"), "export const a = 1;");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "src", "bin", "Debug", "net10.0", "app.dll"), "DLL payload");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "node_modules", "lodash", "index.js"), "module.exports = {};");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "temp", "cache.tmp"), "temp cache");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "package.json"), "{\"name\":\"app\"}");
+
+        var zipPath = Path.Combine(_testDir, "zip_excluded.zip");
+        var extractDir = Path.Combine(_testDir, "zip_excluded_extracted");
+
+        var progressReports = new List<ProgressReport>();
+        var progress = new SynchronousProgress<ProgressReport>(progressReports.Add);
+
+        // Act - Compress with exclusions
+        var request = new ArchiveCompressionRequest(
+            sourceDir,
+            zipPath,
+            9,
+            ExcludedPaths: ["node_modules", "bin/Debug", "temp/cache.tmp"]
+        );
+        await _engine.CompressAsync(request, progress);
+
+        // Assert - List entries in archive
+        var entries = await _engine.ListEntriesAsync(zipPath);
+        var fileEntries = entries.Where(e => !e.IsDirectory).Select(e => e.RelativePath).ToList();
+
+        Assert.Contains("src/index.ts", fileEntries);
+        Assert.Contains("package.json", fileEntries);
+        Assert.DoesNotContain(fileEntries, p => p.Contains("bin/Debug"));
+        Assert.DoesNotContain(fileEntries, p => p.Contains("node_modules"));
+        Assert.DoesNotContain(fileEntries, p => p.Contains("cache.tmp"));
+        Assert.Equal(2, fileEntries.Count);
+
+        // Act - Extract
+        var extractResult = await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+        Assert.Equal(2, extractResult.FilesExtracted);
+
+        Assert.True(File.Exists(Path.Combine(extractDir, "src", "index.ts")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "package.json")));
+        Assert.False(Directory.Exists(Path.Combine(extractDir, "node_modules")));
+        Assert.False(Directory.Exists(Path.Combine(extractDir, "src", "bin", "Debug")));
+        Assert.False(File.Exists(Path.Combine(extractDir, "temp", "cache.tmp")));
+
+        // Progress metrics calculation test: verified totals exclude omitted files
+        var indexLen = new FileInfo(Path.Combine(sourceDir, "src", "index.ts")).Length;
+        var pkgLen = new FileInfo(Path.Combine(sourceDir, "package.json")).Length;
+        var expectedTotalBytes = indexLen + pkgLen;
+
+        Assert.NotEmpty(progressReports);
+        var lastReport = progressReports.Last();
+        Assert.Equal(expectedTotalBytes, lastReport.TotalBytes);
+        Assert.Equal(2, lastReport.TotalFiles);
+        Assert.Equal(expectedTotalBytes, lastReport.ProcessedBytes);
+    }
+
+    [Fact]
+    public async Task Zip_CompressAsync_ExcludedPaths_MultiSourceWithBaseDirectory_OmitsExcludedPaths()
+    {
+        // Arrange
+        var rootDir = Path.Combine(_testDir, "zip_multi_src_root");
+        var dirA = Path.Combine(rootDir, "folder_a");
+        var dirB = Path.Combine(rootDir, "folder_b");
+        Directory.CreateDirectory(Path.Combine(dirA, "nested"));
+        Directory.CreateDirectory(Path.Combine(dirA, "excluded_sub"));
+        Directory.CreateDirectory(dirB);
+
+        await File.WriteAllTextAsync(Path.Combine(dirA, "nested", "item.txt"), "Nested item");
+        await File.WriteAllTextAsync(Path.Combine(dirA, "excluded_sub", "omit.txt"), "Omitted item");
+        await File.WriteAllTextAsync(Path.Combine(dirB, "data.txt"), "Data item");
+
+        var zipPath = Path.Combine(_testDir, "zip_multi_excluded.zip");
+
+        // Act - Multi source compression with relative exclusions
+        var request = new ArchiveCompressionRequest(
+            SourcePaths: ["folder_a", "folder_b"],
+            DestinationArchivePath: zipPath,
+            CompressionLevel: 9,
+            BaseDirectory: rootDir,
+            ExcludedPaths: ["excluded_sub"]
+        );
+        await _engine.CompressAsync(request);
+
+        // Assert
+        var entries = await _engine.ListEntriesAsync(zipPath);
+        var files = entries.Where(e => !e.IsDirectory).Select(e => e.RelativePath).ToList();
+
+        Assert.Contains("folder_a/nested/item.txt", files);
+        Assert.Contains("folder_b/data.txt", files);
+        Assert.DoesNotContain(files, f => f.Contains("excluded_sub"));
+        Assert.Equal(2, files.Count);
+    }
+
+    [Fact]
+    public async Task Zip_CompressAsync_ExcludedPaths_AbsolutePaths_OmitsMatchingFilesAndDirectories()
+    {
+        // Arrange
+        var sourceDir = Path.Combine(_testDir, "zip_abs_src");
+        var privateDir = Path.Combine(sourceDir, "private");
+        Directory.CreateDirectory(privateDir);
+
+        var publicFile = Path.Combine(sourceDir, "public.txt");
+        var privateFile = Path.Combine(privateDir, "private.data");
+        await File.WriteAllTextAsync(publicFile, "Public content");
+        await File.WriteAllTextAsync(privateFile, "Private data");
+
+        var zipPath = Path.Combine(_testDir, "zip_abs_excluded.zip");
+
+        // Act - Exclude absolute path of privateDir
+        var request = new ArchiveCompressionRequest(
+            SourcePaths: [sourceDir],
+            DestinationArchivePath: zipPath,
+            CompressionLevel: 9,
+            ExcludedPaths: [privateDir]
+        );
+        await _engine.CompressAsync(request);
+
+        // Assert
+        var entries = await _engine.ListEntriesAsync(zipPath);
+        var files = entries.Where(e => !e.IsDirectory).Select(e => e.RelativePath).ToList();
+
+        Assert.Single(files);
+        Assert.Equal("public.txt", files[0]);
+    }
+
     #endregion
 
     #region AppendAsync Tests

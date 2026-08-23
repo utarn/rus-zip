@@ -983,6 +983,140 @@ public class ZstdTarArchiveEngineTests : IDisposable
         Assert.Empty(tempFiles);
     }
 
+    [Fact]
+    public async Task CompressAsync_ExcludedPaths_OmitsExcludedFilesAndSubtreesFromZrusArchive()
+    {
+        // Arrange
+        var sourceDir = Path.Combine(_testDir, "zrus_exclusion_src");
+        Directory.CreateDirectory(Path.Combine(sourceDir, "src", "bin", "Debug", "net10.0"));
+        Directory.CreateDirectory(Path.Combine(sourceDir, "node_modules", "express", "lib"));
+        Directory.CreateDirectory(Path.Combine(sourceDir, "temp"));
+
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "src", "main.cs"), "Console.WriteLine(\"Hello\");");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "src", "bin", "Debug", "net10.0", "app.dll"), "DLL payload");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "node_modules", "express", "index.js"), "module.exports = {};");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "node_modules", "express", "lib", "router.js"), "router code");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "temp", "cache.tmp"), "temporary cache");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "readme.md"), "# Readme");
+
+        var archivePath = Path.Combine(_testDir, "zrus_excluded.zrus");
+        var extractDir = Path.Combine(_testDir, "zrus_excluded_extracted");
+
+        var progressReports = new List<ProgressReport>();
+        var progress = new SynchronousProgress<ProgressReport>(progressReports.Add);
+
+        // Act - Compress with exclusions
+        var request = new ArchiveCompressionRequest(
+            sourceDir,
+            archivePath,
+            9,
+            ExcludedPaths: ["node_modules", "bin/Debug", "temp/cache.tmp"]
+        );
+        await _engine.CompressAsync(request, progress);
+
+        // Assert - List entries in archive
+        var entries = await _engine.ListEntriesAsync(archivePath);
+        var fileEntries = entries.Where(e => !e.IsDirectory).Select(e => e.RelativePath).ToList();
+
+        Assert.Contains("src/main.cs", fileEntries);
+        Assert.Contains("readme.md", fileEntries);
+        Assert.DoesNotContain(fileEntries, p => p.Contains("bin/Debug"));
+        Assert.DoesNotContain(fileEntries, p => p.Contains("node_modules"));
+        Assert.DoesNotContain(fileEntries, p => p.Contains("cache.tmp"));
+        Assert.Equal(2, fileEntries.Count);
+
+        // Act - Extract
+        var extractResult = await _engine.ExtractAsync(new ArchiveExtractionRequest(archivePath, extractDir));
+        Assert.Equal(2, extractResult.FilesExtracted);
+
+        Assert.True(File.Exists(Path.Combine(extractDir, "src", "main.cs")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "readme.md")));
+        Assert.False(Directory.Exists(Path.Combine(extractDir, "node_modules")));
+        Assert.False(Directory.Exists(Path.Combine(extractDir, "src", "bin", "Debug")));
+        Assert.False(File.Exists(Path.Combine(extractDir, "temp", "cache.tmp")));
+
+        // Progress metrics calculation test: verified totals exclude omitted files
+        var mainLen = new FileInfo(Path.Combine(sourceDir, "src", "main.cs")).Length;
+        var readmeLen = new FileInfo(Path.Combine(sourceDir, "readme.md")).Length;
+        var expectedTotalBytes = mainLen + readmeLen;
+
+        Assert.NotEmpty(progressReports);
+        var lastReport = progressReports.Last();
+        Assert.Equal(expectedTotalBytes, lastReport.TotalBytes);
+        Assert.Equal(2, lastReport.TotalFiles);
+        Assert.Equal(expectedTotalBytes, lastReport.ProcessedBytes);
+    }
+
+    [Fact]
+    public async Task CompressAsync_ExcludedPaths_MultiSourceWithBaseDirectory_OmitsExcludedPaths()
+    {
+        // Arrange
+        var rootDir = Path.Combine(_testDir, "zrus_multi_src_root");
+        var dirA = Path.Combine(rootDir, "folder_a");
+        var dirB = Path.Combine(rootDir, "folder_b");
+        Directory.CreateDirectory(Path.Combine(dirA, "keep"));
+        Directory.CreateDirectory(Path.Combine(dirA, "skip_dir"));
+        Directory.CreateDirectory(dirB);
+
+        await File.WriteAllTextAsync(Path.Combine(dirA, "keep", "doc.txt"), "Keep doc");
+        await File.WriteAllTextAsync(Path.Combine(dirA, "skip_dir", "skipped.txt"), "Skip doc");
+        await File.WriteAllTextAsync(Path.Combine(dirB, "data.json"), "{\"data\": true}");
+        await File.WriteAllTextAsync(Path.Combine(rootDir, "ignored.tmp"), "Temp file");
+
+        var archivePath = Path.Combine(_testDir, "zrus_multi_excluded.zrus");
+
+        // Act - Multi source compression with relative exclusions
+        var request = new ArchiveCompressionRequest(
+            SourcePaths: ["folder_a", "folder_b"],
+            DestinationArchivePath: archivePath,
+            CompressionLevel: 9,
+            BaseDirectory: rootDir,
+            ExcludedPaths: ["skip_dir"]
+        );
+        await _engine.CompressAsync(request);
+
+        // Assert
+        var entries = await _engine.ListEntriesAsync(archivePath);
+        var files = entries.Where(e => !e.IsDirectory).Select(e => e.RelativePath).ToList();
+
+        Assert.Contains("folder_a/keep/doc.txt", files);
+        Assert.Contains("folder_b/data.json", files);
+        Assert.DoesNotContain(files, f => f.Contains("skip_dir"));
+        Assert.Equal(2, files.Count);
+    }
+
+    [Fact]
+    public async Task CompressAsync_ExcludedPaths_AbsolutePaths_OmitsMatchingFilesAndDirectories()
+    {
+        // Arrange
+        var sourceDir = Path.Combine(_testDir, "zrus_abs_src");
+        var secretsDir = Path.Combine(sourceDir, "secrets");
+        Directory.CreateDirectory(secretsDir);
+
+        var publicFile = Path.Combine(sourceDir, "public.txt");
+        var secretFile = Path.Combine(secretsDir, "secret.key");
+        await File.WriteAllTextAsync(publicFile, "Public content");
+        await File.WriteAllTextAsync(secretFile, "Super secret key");
+
+        var archivePath = Path.Combine(_testDir, "zrus_abs_excluded.zrus");
+
+        // Act - Exclude absolute path of secretsDir
+        var request = new ArchiveCompressionRequest(
+            SourcePaths: [sourceDir],
+            DestinationArchivePath: archivePath,
+            CompressionLevel: 9,
+            ExcludedPaths: [secretsDir]
+        );
+        await _engine.CompressAsync(request);
+
+        // Assert
+        var entries = await _engine.ListEntriesAsync(archivePath);
+        var files = entries.Where(e => !e.IsDirectory).Select(e => e.RelativePath).ToList();
+
+        Assert.Single(files);
+        Assert.Equal("public.txt", files[0]);
+    }
+
     #endregion
 
     #region AppendAsync Tests

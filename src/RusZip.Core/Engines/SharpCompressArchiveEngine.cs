@@ -74,30 +74,67 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         {
             await Task.Run(async () =>
             {
+                var isSingleDir = resolvedSources.Count == 1 && resolvedSources[0].IsDir;
+                var exclusionFilter = new CompressionExclusionFilter(request.ExcludedPaths, request.BaseDirectory);
                 var modesByPath = new Dictionary<string, ushort>(StringComparer.Ordinal);
 
                 // Calculate total uncompressed bytes & total files
                 long totalBytes = 0;
                 int totalFiles = 0;
 
-                foreach (var (fullPath, _, isDir) in resolvedSources)
+                void CountFiles(DirectoryInfo dir, string rootPath, string dirPrefix)
+                {
+                    foreach (var subDir in dir.EnumerateDirectories())
+                    {
+                        var relativeFromDir = Path.GetRelativePath(rootPath, subDir.FullName).Replace('\\', '/');
+                        var relPath = string.IsNullOrEmpty(dirPrefix) ? relativeFromDir : dirPrefix + "/" + relativeFromDir;
+                        if (!exclusionFilter.IsExcluded(subDir.FullName, relPath, relativeFromDir))
+                        {
+                            CountFiles(subDir, rootPath, dirPrefix);
+                        }
+                    }
+
+                    foreach (var fileInfo in dir.EnumerateFiles())
+                    {
+                        var relativeFromDir = Path.GetRelativePath(rootPath, fileInfo.FullName).Replace('\\', '/');
+                        var relPath = string.IsNullOrEmpty(dirPrefix) ? relativeFromDir : dirPrefix + "/" + relativeFromDir;
+                        if (!exclusionFilter.IsExcluded(fileInfo.FullName, relPath, relativeFromDir))
+                        {
+                            totalFiles++;
+                            totalBytes += fileInfo.Length;
+                        }
+                    }
+                }
+
+                foreach (var (fullPath, rawPath, isDir) in resolvedSources)
                 {
                     if (isDir)
                     {
-                        var files = Directory.GetFiles(fullPath, "*", SearchOption.AllDirectories);
-                        totalFiles += files.Length;
-                        totalBytes += files.Sum(f => new FileInfo(f).Length);
+                        var rootDirInfo = new DirectoryInfo(fullPath);
+                        var dirPrefix = isSingleDir
+                            ? string.Empty
+                            : EntryNameSanitizer.SanitizeRelativePath(rawPath, fullPath, request.BaseDirectory);
+
+                        if (exclusionFilter.IsExcluded(fullPath, dirPrefix, rawPath))
+                        {
+                            continue;
+                        }
+
+                        CountFiles(rootDirInfo, rootDirInfo.FullName, dirPrefix);
                     }
                     else
                     {
-                        totalFiles += 1;
-                        totalBytes += new FileInfo(fullPath).Length;
+                        var relPath = EntryNameSanitizer.SanitizeRelativePath(rawPath, fullPath, request.BaseDirectory);
+                        if (!exclusionFilter.IsExcluded(fullPath, relPath, rawPath))
+                        {
+                            totalFiles += 1;
+                            totalBytes += new FileInfo(fullPath).Length;
+                        }
                     }
                 }
 
                 long processedBytes = 0;
                 int processedFiles = 0;
-                var isSingleDir = resolvedSources.Count == 1 && resolvedSources[0].IsDir;
 
                 await using (var outputStream = new FileStream(
                     tempOutput,
@@ -127,6 +164,91 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
 
                     using var zipWriter = new ZipWriter(outputStream, writerOptions);
 
+                    async Task WriteDirectoryTreeAsync(DirectoryInfo dir, string rootPath, string dirPrefix)
+                    {
+                        var nonExcludedSubDirs = new List<(DirectoryInfo Dir, string RelPath, string RelFromDir)>();
+                        var nonExcludedFiles = new List<(FileInfo File, string RelPath, string RelFromDir)>();
+
+                        foreach (var subDir in dir.EnumerateDirectories())
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            var relativeFromDir = Path.GetRelativePath(rootPath, subDir.FullName).Replace('\\', '/');
+                            var relPath = string.IsNullOrEmpty(dirPrefix) ? relativeFromDir : dirPrefix + "/" + relativeFromDir;
+                            if (!exclusionFilter.IsExcluded(subDir.FullName, relPath, relativeFromDir))
+                            {
+                                nonExcludedSubDirs.Add((subDir, relPath, relativeFromDir));
+                            }
+                        }
+
+                        foreach (var fileInfo in dir.EnumerateFiles())
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            var relativeFromDir = Path.GetRelativePath(rootPath, fileInfo.FullName).Replace('\\', '/');
+                            var relPath = string.IsNullOrEmpty(dirPrefix) ? relativeFromDir : dirPrefix + "/" + relativeFromDir;
+                            if (!exclusionFilter.IsExcluded(fileInfo.FullName, relPath, relativeFromDir))
+                            {
+                                nonExcludedFiles.Add((fileInfo, relPath, relativeFromDir));
+                            }
+                        }
+
+                        if (nonExcludedSubDirs.Count == 0 && nonExcludedFiles.Count == 0)
+                        {
+                            var relativeFromDir = Path.GetRelativePath(rootPath, dir.FullName).Replace('\\', '/');
+                            var dirRelPath = string.IsNullOrEmpty(dirPrefix) ? relativeFromDir : (relativeFromDir == "." ? dirPrefix : dirPrefix + "/" + relativeFromDir);
+                            if (!string.IsNullOrEmpty(dirRelPath) && dirRelPath != ".")
+                            {
+                                if (TryGetZipMode16(dir.FullName, isDirectory: true) is ushort dirMode)
+                                {
+                                    modesByPath[dirRelPath] = dirMode;
+                                }
+                                zipWriter.WriteDirectory(dirRelPath, dir.LastWriteTimeUtc);
+                            }
+                        }
+
+                        foreach (var (subDir, _, _) in nonExcludedSubDirs)
+                        {
+                            await WriteDirectoryTreeAsync(subDir, rootPath, dirPrefix);
+                        }
+
+                        foreach (var (fileInfo, relPath, _) in nonExcludedFiles)
+                        {
+                            ct.ThrowIfCancellationRequested();
+
+                            if (TryGetZipMode16(fileInfo.FullName, isDirectory: false) is ushort fileMode)
+                            {
+                                modesByPath[relPath] = fileMode;
+                            }
+
+                            await using var fileStream = new FileStream(
+                                fileInfo.FullName,
+                                FileMode.Open,
+                                FileAccess.Read,
+                                FileShare.Read,
+                                BufferSize,
+                                useAsync: true);
+
+                            await using var trackingStream = new ProgressReportingStream(
+                                fileStream,
+                                fileInfo.Length,
+                                bytesRead =>
+                                {
+                                    Interlocked.Add(ref processedBytes, bytesRead);
+                                    var currentTotal = Volatile.Read(ref processedBytes);
+                                    progress?.Report(new DomainProgressReport(
+                                        ProcessedBytes: currentTotal,
+                                        TotalBytes: totalBytes,
+                                        CurrentFileName: relPath,
+                                        Percentage: totalBytes > 0 ? (double)currentTotal / totalBytes * 100.0 : 0,
+                                        ProcessedFiles: Volatile.Read(ref processedFiles),
+                                        TotalFiles: totalFiles
+                                    ));
+                                });
+
+                            zipWriter.Write(relPath, trackingStream, fileInfo.LastWriteTimeUtc);
+                            Interlocked.Increment(ref processedFiles);
+                        }
+                    }
+
                     foreach (var (fullPath, rawPath, isDir) in resolvedSources)
                     {
                         ct.ThrowIfCancellationRequested();
@@ -138,6 +260,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                                 ? string.Empty
                                 : EntryNameSanitizer.SanitizeRelativePath(rawPath, fullPath, request.BaseDirectory);
 
+                            if (exclusionFilter.IsExcluded(fullPath, dirPrefix, rawPath))
+                            {
+                                continue;
+                            }
+
                             if (!string.IsNullOrEmpty(dirPrefix))
                             {
                                 if (TryGetZipMode16(rootDirInfo.FullName, isDirectory: true) is ushort dirMode)
@@ -147,72 +274,18 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                                 zipWriter.WriteDirectory(dirPrefix, rootDirInfo.LastWriteTimeUtc);
                             }
 
-                            var fileEntries = rootDirInfo.GetFiles("*", SearchOption.AllDirectories);
-                            var emptyDirs = rootDirInfo.GetDirectories("*", SearchOption.AllDirectories)
-                                .Where(d => d.GetFileSystemInfos().Length == 0)
-                                .ToList();
-
-                            foreach (var emptyDir in emptyDirs)
-                            {
-                                ct.ThrowIfCancellationRequested();
-                                var relativeFromDir = Path.GetRelativePath(rootDirInfo.FullName, emptyDir.FullName).Replace('\\', '/');
-                                var relPath = string.IsNullOrEmpty(dirPrefix)
-                                    ? relativeFromDir
-                                    : dirPrefix + "/" + relativeFromDir;
-
-                                if (TryGetZipMode16(emptyDir.FullName, isDirectory: true) is ushort dirMode)
-                                {
-                                    modesByPath[relPath] = dirMode;
-                                }
-                                zipWriter.WriteDirectory(relPath, emptyDir.LastWriteTimeUtc);
-                            }
-
-                            foreach (var fileInfo in fileEntries)
-                            {
-                                ct.ThrowIfCancellationRequested();
-                                var relativeFromDir = Path.GetRelativePath(rootDirInfo.FullName, fileInfo.FullName).Replace('\\', '/');
-                                var relPath = string.IsNullOrEmpty(dirPrefix)
-                                    ? relativeFromDir
-                                    : dirPrefix + "/" + relativeFromDir;
-
-                                if (TryGetZipMode16(fileInfo.FullName, isDirectory: false) is ushort fileMode)
-                                {
-                                    modesByPath[relPath] = fileMode;
-                                }
-
-                                await using var fileStream = new FileStream(
-                                    fileInfo.FullName,
-                                    FileMode.Open,
-                                    FileAccess.Read,
-                                    FileShare.Read,
-                                    BufferSize,
-                                    useAsync: true);
-
-                                await using var trackingStream = new ProgressReportingStream(
-                                    fileStream,
-                                    fileInfo.Length,
-                                    bytesRead =>
-                                    {
-                                        Interlocked.Add(ref processedBytes, bytesRead);
-                                        var currentTotal = Volatile.Read(ref processedBytes);
-                                        progress?.Report(new DomainProgressReport(
-                                            ProcessedBytes: currentTotal,
-                                            TotalBytes: totalBytes,
-                                            CurrentFileName: relPath,
-                                            Percentage: totalBytes > 0 ? (double)currentTotal / totalBytes * 100.0 : 0,
-                                            ProcessedFiles: Volatile.Read(ref processedFiles),
-                                            TotalFiles: totalFiles
-                                        ));
-                                    });
-
-                                zipWriter.Write(relPath, trackingStream, fileInfo.LastWriteTimeUtc);
-                                Interlocked.Increment(ref processedFiles);
-                            }
+                            await WriteDirectoryTreeAsync(rootDirInfo, rootDirInfo.FullName, dirPrefix);
                         }
                         else
                         {
                             var fileInfo = new FileInfo(fullPath);
                             var relPath = EntryNameSanitizer.SanitizeRelativePath(rawPath, fullPath, request.BaseDirectory);
+
+                            if (exclusionFilter.IsExcluded(fullPath, relPath, rawPath))
+                            {
+                                continue;
+                            }
+
                             if (TryGetZipMode16(fileInfo.FullName, isDirectory: false) is ushort fileMode)
                             {
                                 modesByPath[relPath] = fileMode;
