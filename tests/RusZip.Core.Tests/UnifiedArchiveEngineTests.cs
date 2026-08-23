@@ -328,6 +328,141 @@ public class UnifiedArchiveEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task UnifiedEngine_DeleteEntriesAsync_RoutesZrusAndZipCorrectly()
+    {
+        // Arrange
+        var sourceDir = Path.Combine(_testDir, "unified_del_data");
+        Directory.CreateDirectory(sourceDir);
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "keep.txt"), "Keep this file");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "remove.txt"), "Remove this file");
+
+        var zrusPath = Path.Combine(_testDir, "unified_del.zrus");
+        var zipPath = Path.Combine(_testDir, "unified_del.zip");
+
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zrusPath, 9));
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9));
+
+        // Act - Delete from .zrus
+        var zrusDelResult = await _engine.DeleteEntriesAsync(new ArchiveDeleteRequest(zrusPath, ["remove.txt"], 9));
+        Assert.True(zrusDelResult.Success);
+        Assert.Equal(1, zrusDelResult.DeletedEntriesCount);
+        Assert.Equal(1, zrusDelResult.RetainedEntriesCount);
+
+        // Act - Delete from .zip
+        var zipDelResult = await _engine.DeleteEntriesAsync(new ArchiveDeleteRequest(zipPath, ["remove.txt"], 9));
+        Assert.True(zipDelResult.Success);
+        Assert.Equal(1, zipDelResult.DeletedEntriesCount);
+        Assert.Equal(1, zipDelResult.RetainedEntriesCount);
+
+        // Verify entries
+        var zrusEntries = await _engine.ListEntriesAsync(zrusPath);
+        var zipEntries = await _engine.ListEntriesAsync(zipPath);
+
+        Assert.Contains(zrusEntries, e => e.RelativePath == "keep.txt");
+        Assert.DoesNotContain(zrusEntries, e => e.RelativePath == "remove.txt");
+
+        Assert.Contains(zipEntries, e => e.RelativePath == "keep.txt");
+        Assert.DoesNotContain(zipEntries, e => e.RelativePath == "remove.txt");
+    }
+
+    [Theory]
+    [InlineData("test_del.tar.zstd")]
+    [InlineData("test_del.tzstd")]
+    public async Task UnifiedEngine_DeleteEntriesAsync_RoutesTarZstdAliasesCorrectly(string archiveFileName)
+    {
+        // Arrange
+        var sourceDir = Path.Combine(_testDir, "data_del_" + Path.GetExtension(archiveFileName).TrimStart('.'));
+        Directory.CreateDirectory(sourceDir);
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "keep.txt"), "Keep payload");
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "delete.txt"), "Delete payload");
+
+        var archivePath = Path.Combine(_testDir, archiveFileName);
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, archivePath, 9));
+
+        // Act
+        var delResult = await _engine.DeleteEntriesAsync(new ArchiveDeleteRequest(archivePath, ["delete.txt"], 9));
+        Assert.True(delResult.Success);
+        Assert.Equal(1, delResult.DeletedEntriesCount);
+        Assert.Equal(1, delResult.RetainedEntriesCount);
+
+        // Verify
+        var entries = await _engine.ListEntriesAsync(archivePath);
+        Assert.Contains(entries, e => e.RelativePath == "keep.txt");
+        Assert.DoesNotContain(entries, e => e.RelativePath == "delete.txt");
+
+        var extractDir = Path.Combine(_testDir, "extract_del_" + Path.GetExtension(archiveFileName).TrimStart('.'));
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(archivePath, extractDir));
+        Assert.True(File.Exists(Path.Combine(extractDir, "keep.txt")));
+        Assert.False(File.Exists(Path.Combine(extractDir, "delete.txt")));
+    }
+
+    [Theory]
+    [InlineData("output_del.rar")]
+    [InlineData("output_del.7z")]
+    [InlineData("output_del.gz")]
+    [InlineData("output_del.tar.gz")]
+    [InlineData("output_del.tgz")]
+    public async Task UnifiedEngine_Delete_ReadOnlyFormat_ThrowsNotSupportedException(string unsupportedArchiveName)
+    {
+        var destination = Path.Combine(_testDir, unsupportedArchiveName);
+        await File.WriteAllTextAsync(destination, "dummy archive content");
+
+        var req = new ArchiveDeleteRequest(destination, ["file.txt"], 9);
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => _engine.DeleteEntriesAsync(req));
+        Assert.Contains("Deleting entries from", ex.Message);
+    }
+
+    [Fact]
+    public async Task UnifiedEngine_Delete_Zst_ThrowsNotSupportedException()
+    {
+        var sourceFile = Path.Combine(_testDir, "del_zst_base.txt");
+        await File.WriteAllTextAsync(sourceFile, "Stream text");
+
+        var zstPath = Path.Combine(_testDir, "del_zst_base.txt.zst");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceFile, zstPath, 9));
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            _engine.DeleteEntriesAsync(new ArchiveDeleteRequest(zstPath, ["del_zst_base.txt"], 9)));
+        Assert.Contains("Deleting entries is not supported for single-file streams", ex.Message);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(23)]
+    [InlineData(-1)]
+    public async Task UnifiedEngine_Delete_Zrus_InvalidCompressionLevel_ThrowsArgumentOutOfRangeException(int invalidLevel)
+    {
+        var sourceDir = Path.Combine(_testDir, $"zrus_del_lvl_{invalidLevel}_dir");
+        Directory.CreateDirectory(sourceDir);
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "initial.txt"), "Initial");
+
+        var zrusPath = Path.Combine(_testDir, $"lvl_del_test_{invalidLevel}.zrus");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zrusPath, 9));
+
+        var req = new ArchiveDeleteRequest(zrusPath, ["initial.txt"], invalidLevel);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _engine.DeleteEntriesAsync(req));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(10)]
+    public async Task UnifiedEngine_Delete_Zip_InvalidCompressionLevel_ThrowsArgumentOutOfRangeException(int invalidLevel)
+    {
+        var sourceDir = Path.Combine(_testDir, $"zip_del_lvl_{invalidLevel}_dir");
+        Directory.CreateDirectory(sourceDir);
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "initial.txt"), "Initial");
+
+        var zipPath = Path.Combine(_testDir, $"lvl_del_test_{invalidLevel}.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceDir, zipPath, 9));
+
+        var req = new ArchiveDeleteRequest(zipPath, ["initial.txt"], invalidLevel);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _engine.DeleteEntriesAsync(req));
+    }
+
+    [Fact]
     public void ArchiveFormatRegistry_UnknownExtension_ThrowsNotSupportedException()
     {
         Assert.Throws<NotSupportedException>(() => ArchiveFormatRegistry.Detect("file.unknown_extension"));

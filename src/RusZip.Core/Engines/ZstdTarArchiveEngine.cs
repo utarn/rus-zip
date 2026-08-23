@@ -881,6 +881,247 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         );
     }
 
+    public async Task<ArchiveDeleteResult> DeleteEntriesAsync(
+        ArchiveDeleteRequest request,
+        IProgress<ProgressReport>? progress = null,
+        CancellationToken ct = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(request.CompressionLevel, CompressionProfiles.MinLevel);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(request.CompressionLevel, CompressionProfiles.MaxLevel);
+
+        if (string.IsNullOrWhiteSpace(request.ArchivePath))
+        {
+            throw new ArgumentException("Archive path cannot be empty.", nameof(request));
+        }
+
+        if (request.EntryPaths is null or { Count: 0 } || request.EntryPaths.All(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException("At least one entry path must be specified for deletion.", nameof(request));
+        }
+
+        var archivePath = Path.GetFullPath(request.ArchivePath);
+        if (!File.Exists(archivePath))
+        {
+            throw new FileNotFoundException($"Archive not found: {archivePath}", archivePath);
+        }
+
+        var descriptor = ArchiveFormatRegistry.Detect(archivePath);
+        if (descriptor.Format == ArchiveFormat.Zst)
+        {
+            throw new NotSupportedException("Deleting entries is not supported for single-file streams.");
+        }
+
+        if (descriptor.Format != ArchiveFormat.Zrus)
+        {
+            throw new NotSupportedException($"Deleting entries from '{descriptor.Format}' archive format is not supported.");
+        }
+
+        var existingEntries = await ListEntriesAsync(archivePath, ct);
+
+        int deletedEntriesCount = 0;
+        int retainedEntriesCount = 0;
+        int retainedFilesCount = 0;
+        long totalUncompressedBytes = 0;
+
+        foreach (var entry in existingEntries)
+        {
+            if (EntryFilter.IsMatch(entry.RelativePath, request.EntryPaths))
+            {
+                deletedEntriesCount++;
+            }
+            else
+            {
+                retainedEntriesCount++;
+                if (!entry.IsDirectory)
+                {
+                    retainedFilesCount++;
+                    totalUncompressedBytes += entry.UncompressedSize;
+                }
+            }
+        }
+
+        var tempOutput = archivePath + ".tmp." + Guid.NewGuid().ToString("N");
+        long processedBytes = 0;
+        int processedFiles = 0;
+        int entriesWritten = 0;
+        var writtenDirPaths = new HashSet<string>(StringComparer.Ordinal);
+        var sw = Stopwatch.StartNew();
+
+        try
+        {
+            await using (var fileStreamIn = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, useAsync: true))
+            await using (var decompStream = new DecompressionStream(fileStreamIn))
+            await using (var countingStream = new CountingReadStream(decompStream))
+            await using (var tarReader = new TarReader(countingStream, leaveOpen: false))
+            await using (var fileStreamOut = new FileStream(tempOutput, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, useAsync: true))
+            await using (var compStream = new CompressionStream(fileStreamOut, request.CompressionLevel))
+            {
+                compStream.SetParameter(ZSTD_cParameter.ZSTD_c_checksumFlag, 1);
+                if (Environment.ProcessorCount > 1)
+                {
+                    compStream.SetParameter(ZSTD_cParameter.ZSTD_c_nbWorkers, Environment.ProcessorCount);
+                }
+
+                await using (var tarWriter = new TarWriter(compStream, TarEntryFormat.Pax, leaveOpen: true))
+                {
+                    TarEntry? entry;
+                    try
+                    {
+                        while ((entry = await tarReader.GetNextEntryAsync(copyData: false, ct)) is not null)
+                        {
+                            ct.ThrowIfCancellationRequested();
+
+                            var entryName = entry.Name;
+                            if (EntryFilter.IsMatch(entryName, request.EntryPaths))
+                            {
+                                continue;
+                            }
+
+                            var isDir = entry.EntryType == TarEntryType.Directory || entryName.Replace('\\', '/').EndsWith('/');
+
+                            if (isDir)
+                            {
+                                var dirName = entryName.Replace('\\', '/');
+                                if (!dirName.EndsWith('/')) dirName += "/";
+
+                                if (writtenDirPaths.Add(dirName))
+                                {
+                                    var dirEntry = new PaxTarEntry(TarEntryType.Directory, dirName)
+                                    {
+                                        ModificationTime = entry.ModificationTime
+                                    };
+                                    if (!OperatingSystem.IsWindows() && entry.Mode != 0 && entry.Mode != (UnixFileMode)(-1))
+                                    {
+                                        dirEntry.Mode = entry.Mode;
+                                    }
+                                    await tarWriter.WriteEntryAsync(dirEntry, ct);
+                                    entriesWritten++;
+                                }
+                            }
+                            else
+                            {
+                                var entryLength = entry.Length;
+                                Stream seekableStream;
+                                if (entryLength > 10 * 1024 * 1024)
+                                {
+                                    var tempFs = new FileStream(
+                                        Path.Combine(Path.GetTempPath(), "ruszip_del_" + Guid.NewGuid().ToString("N")),
+                                        FileMode.Create,
+                                        FileAccess.ReadWrite,
+                                        FileShare.None,
+                                        BufferSize,
+                                        FileOptions.DeleteOnClose);
+                                    if (entry.DataStream is not null)
+                                    {
+                                        await entry.DataStream.CopyToAsync(tempFs, ct);
+                                    }
+                                    tempFs.Position = 0;
+                                    seekableStream = tempFs;
+                                }
+                                else
+                                {
+                                    var ms = new MemoryStream((int)entryLength);
+                                    if (entry.DataStream is not null)
+                                    {
+                                        await entry.DataStream.CopyToAsync(ms, ct);
+                                    }
+                                    ms.Position = 0;
+                                    seekableStream = ms;
+                                }
+
+                                await using (seekableStream)
+                                {
+                                    await using var trackingStream = new ProgressReportingStream(
+                                        seekableStream,
+                                        entryLength,
+                                        bytesRead =>
+                                        {
+                                            Interlocked.Add(ref processedBytes, bytesRead);
+                                            var currentTotal = Volatile.Read(ref processedBytes);
+                                            progress?.Report(new ProgressReport(
+                                                ProcessedBytes: currentTotal,
+                                                TotalBytes: totalUncompressedBytes,
+                                                CurrentFileName: entryName,
+                                                Percentage: totalUncompressedBytes > 0 ? (double)currentTotal / totalUncompressedBytes * 100.0 : 0,
+                                                ProcessedFiles: Volatile.Read(ref processedFiles),
+                                                TotalFiles: retainedFilesCount
+                                            ));
+                                        });
+
+                                    var fileEntry = new PaxTarEntry(TarEntryType.RegularFile, entryName)
+                                    {
+                                        DataStream = trackingStream,
+                                        ModificationTime = entry.ModificationTime
+                                    };
+                                    if (!OperatingSystem.IsWindows() && entry.Mode != 0 && entry.Mode != (UnixFileMode)(-1))
+                                    {
+                                        fileEntry.Mode = entry.Mode;
+                                    }
+
+                                    await tarWriter.WriteEntryAsync(fileEntry, ct);
+                                    entriesWritten++;
+                                    Interlocked.Increment(ref processedFiles);
+                                }
+                            }
+                        }
+                    }
+                    catch (EndOfStreamException) when (countingStream.TotalBytesRead == 0)
+                    {
+                        // Legacy empty-directory archive
+                    }
+
+                    // Drain decompStream to verify frame checksum
+                    byte[] drainBuffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+                    try
+                    {
+                        int read;
+                        while ((read = await decompStream.ReadAsync(drainBuffer.AsMemory(0, BufferSize), ct)) > 0) { }
+                    }
+                    catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+                    {
+                        throw new ArchiveIntegrityException($"Zstandard frame checksum failed in '{archivePath}': {ex.Message}", innerException: ex);
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(drainBuffer);
+                    }
+                }
+
+                if (entriesWritten == 0)
+                {
+                    byte[] endOfArchive = new byte[1024]; // two 512-byte zero blocks
+                    await compStream.WriteAsync(endOfArchive.AsMemory(), ct);
+                }
+            }
+
+            File.Move(tempOutput, archivePath, overwrite: true);
+        }
+        catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+        {
+            throw new ArchiveIntegrityException($"Zstandard frame error in '{archivePath}': {ex.Message}", innerException: ex);
+        }
+        finally
+        {
+            if (File.Exists(tempOutput))
+            {
+                try { File.Delete(tempOutput); } catch { /* Ignore */ }
+            }
+        }
+
+        var finalInfo = new FileInfo(archivePath);
+        sw.Stop();
+
+        return new ArchiveDeleteResult(
+            Success: true,
+            ArchivePath: archivePath,
+            DeletedEntriesCount: deletedEntriesCount,
+            RetainedEntriesCount: retainedEntriesCount,
+            UncompressedBytes: totalUncompressedBytes,
+            CompressedBytes: finalInfo.Length,
+            ElapsedMilliseconds: sw.ElapsedMilliseconds
+        );
+    }
+
     private sealed record IncomingAppendEntry(
         string RelativePath,
         string FullPath,

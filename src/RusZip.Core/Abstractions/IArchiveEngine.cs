@@ -14,6 +14,11 @@ public interface IArchiveEngine
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default);
 
+    Task<ArchiveDeleteResult> DeleteEntriesAsync(
+        ArchiveDeleteRequest request,
+        IProgress<ProgressReport>? progress = null,
+        CancellationToken ct = default);
+
     Task<ExtractionResult> ExtractAsync(
         ArchiveExtractionRequest request,
         IProgress<ProgressReport>? progress = null,

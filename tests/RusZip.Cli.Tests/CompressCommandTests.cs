@@ -722,6 +722,9 @@ public sealed class CompressCommandTests : CliTestBase
         public Task<AppendResult> AppendAsync(ArchiveAppendRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
             => _inner.AppendAsync(request, progress, ct);
 
+        public Task<ArchiveDeleteResult> DeleteEntriesAsync(ArchiveDeleteRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+            => _inner.DeleteEntriesAsync(request, progress, ct);
+
         public Task<ExtractionResult> ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
             => _inner.ExtractAsync(request, progress, ct);
 

@@ -2008,4 +2008,353 @@ public class SharpCompressArchiveEngineTests : IDisposable
     }
 
     #endregion
+
+    #region DeleteEntriesAsync Tests
+
+    [Fact]
+    public async Task Zip_DeleteEntriesAsync_SingleFile_DeletesEntryAndPreservesRetainedEntries()
+    {
+        // Arrange
+        var baseDir = Path.Combine(_testDir, "zip_del_single_base");
+        Directory.CreateDirectory(baseDir);
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "file1.txt"), "File 1 Content");
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "file2.txt"), "File 2 Content - to delete");
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "file3.txt"), "File 3 Content");
+
+        var zipPath = Path.Combine(_testDir, "zip_del_single.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        // Act
+        var deleteReq = new ArchiveDeleteRequest(zipPath, ["file2.txt"], 9);
+        var result = await _engine.DeleteEntriesAsync(deleteReq);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.Equal(1, result.DeletedEntriesCount);
+        Assert.Equal(2, result.RetainedEntriesCount);
+        Assert.True(result.CompressedBytes > 0);
+        Assert.Equal("File 1 Content".Length + "File 3 Content".Length, result.UncompressedBytes);
+
+        var entries = await _engine.ListEntriesAsync(zipPath);
+        Assert.Equal(2, entries.Count);
+        Assert.Contains(entries, e => e.RelativePath == "file1.txt");
+        Assert.Contains(entries, e => e.RelativePath == "file3.txt");
+        Assert.DoesNotContain(entries, e => e.RelativePath == "file2.txt");
+
+        var extractDir = Path.Combine(_testDir, "zip_del_single_extracted");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+        Assert.True(File.Exists(Path.Combine(extractDir, "file1.txt")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "file3.txt")));
+        Assert.False(File.Exists(Path.Combine(extractDir, "file2.txt")));
+        Assert.Equal("File 1 Content", await File.ReadAllTextAsync(Path.Combine(extractDir, "file1.txt")));
+        Assert.Equal("File 3 Content", await File.ReadAllTextAsync(Path.Combine(extractDir, "file3.txt")));
+    }
+
+    [Fact]
+    public async Task Zip_DeleteEntriesAsync_DirectorySubtree_DeletesDirectoryAndAllChildren()
+    {
+        // Arrange
+        var baseDir = Path.Combine(_testDir, "zip_del_subtree_base");
+        Directory.CreateDirectory(baseDir);
+        Directory.CreateDirectory(Path.Combine(baseDir, "sub", "deep"));
+        Directory.CreateDirectory(Path.Combine(baseDir, "other"));
+
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "root.txt"), "Root Content");
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "sub", "nested1.txt"), "Nested 1");
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "sub", "nested2.txt"), "Nested 2");
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "sub", "deep", "nested3.txt"), "Nested 3");
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "other", "keep.txt"), "Keep me");
+
+        var zipPath = Path.Combine(_testDir, "zip_del_subtree.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        // Act - Delete the entire "sub" subtree
+        var deleteReq = new ArchiveDeleteRequest(zipPath, ["sub"], 9);
+        var result = await _engine.DeleteEntriesAsync(deleteReq);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.True(result.DeletedEntriesCount >= 3);
+
+        var entries = await _engine.ListEntriesAsync(zipPath);
+        Assert.DoesNotContain(entries, e => e.RelativePath.StartsWith("sub/") || e.RelativePath == "sub");
+        Assert.Contains(entries, e => e.RelativePath == "root.txt");
+        Assert.Contains(entries, e => e.RelativePath.Replace('\\', '/') == "other/keep.txt");
+
+        var extractDir = Path.Combine(_testDir, "zip_del_subtree_extracted");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+        Assert.True(File.Exists(Path.Combine(extractDir, "root.txt")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "other", "keep.txt")));
+        Assert.False(Directory.Exists(Path.Combine(extractDir, "sub")));
+    }
+
+    [Fact]
+    public async Task Zip_DeleteEntriesAsync_MultipleEntries_DeletesAllSpecifiedEntries()
+    {
+        // Arrange
+        var baseDir = Path.Combine(_testDir, "zip_del_multi_base");
+        Directory.CreateDirectory(baseDir);
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "f1.txt"), "F1");
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "f2.txt"), "F2");
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "f3.txt"), "F3");
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "f4.txt"), "F4");
+
+        var zipPath = Path.Combine(_testDir, "zip_del_multi.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        // Act
+        var deleteReq = new ArchiveDeleteRequest(zipPath, ["f1.txt", "f3.txt"], 9);
+        var result = await _engine.DeleteEntriesAsync(deleteReq);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.Equal(2, result.DeletedEntriesCount);
+        Assert.Equal(2, result.RetainedEntriesCount);
+
+        var entries = await _engine.ListEntriesAsync(zipPath);
+        Assert.Contains(entries, e => e.RelativePath == "f2.txt");
+        Assert.Contains(entries, e => e.RelativePath == "f4.txt");
+        Assert.DoesNotContain(entries, e => e.RelativePath == "f1.txt");
+        Assert.DoesNotContain(entries, e => e.RelativePath == "f3.txt");
+    }
+
+    [Fact]
+    public async Task Zip_DeleteEntriesAsync_PreservesTimestampsAndPosixPermissions_OnRetainedEntries()
+    {
+        // Arrange
+        var baseDir = Path.Combine(_testDir, "zip_del_posix_base");
+        Directory.CreateDirectory(baseDir);
+
+        var file1 = Path.Combine(baseDir, "script.sh");
+        var file2 = Path.Combine(baseDir, "delete_me.txt");
+        var file3 = Path.Combine(baseDir, "secret.key");
+
+        await File.WriteAllTextAsync(file1, "#!/bin/sh\necho test");
+        await File.WriteAllTextAsync(file2, "delete me");
+        await File.WriteAllTextAsync(file3, "secret data");
+
+        var targetTime = new DateTime(2025, 6, 15, 12, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(file1, targetTime);
+        File.SetLastWriteTimeUtc(file3, targetTime);
+
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(file1, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute); // 0755
+            File.SetUnixFileMode(file3, UnixFileMode.UserRead | UnixFileMode.UserWrite); // 0600
+        }
+
+        var zipPath = Path.Combine(_testDir, "zip_del_posix.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        // Act
+        var deleteReq = new ArchiveDeleteRequest(zipPath, ["delete_me.txt"], 9);
+        var result = await _engine.DeleteEntriesAsync(deleteReq);
+
+        // Assert
+        Assert.True(result.Success);
+
+        var extractDir = Path.Combine(_testDir, "zip_del_posix_extracted");
+        await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+
+        var extractedFile1 = Path.Combine(extractDir, "script.sh");
+        var extractedFile3 = Path.Combine(extractDir, "secret.key");
+
+        Assert.True(File.Exists(extractedFile1));
+        Assert.True(File.Exists(extractedFile3));
+        Assert.False(File.Exists(Path.Combine(extractDir, "delete_me.txt")));
+
+        var file1Info = new FileInfo(extractedFile1);
+        var file3Info = new FileInfo(extractedFile3);
+
+        Assert.Equal(targetTime, file1Info.LastWriteTimeUtc);
+        Assert.Equal(targetTime, file3Info.LastWriteTimeUtc);
+
+        if (!OperatingSystem.IsWindows())
+        {
+            var mode1 = File.GetUnixFileMode(extractedFile1);
+            var mode3 = File.GetUnixFileMode(extractedFile3);
+
+            Assert.True(mode1.HasFlag(UnixFileMode.UserExecute));
+            Assert.True(mode1.HasFlag(UnixFileMode.GroupExecute));
+            Assert.True(mode1.HasFlag(UnixFileMode.OtherExecute));
+
+            Assert.True(mode3.HasFlag(UnixFileMode.UserRead));
+            Assert.True(mode3.HasFlag(UnixFileMode.UserWrite));
+        }
+    }
+
+    [Fact]
+    public async Task Zip_DeleteEntriesAsync_DeleteAllEntries_ProducesValidEmptyArchive()
+    {
+        // Arrange
+        var baseDir = Path.Combine(_testDir, "zip_del_all_base");
+        Directory.CreateDirectory(baseDir);
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "f1.txt"), "F1");
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "f2.txt"), "F2");
+
+        var zipPath = Path.Combine(_testDir, "zip_del_all.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        // Act - delete all
+        var deleteReq = new ArchiveDeleteRequest(zipPath, ["f1.txt", "f2.txt"], 9);
+        var result = await _engine.DeleteEntriesAsync(deleteReq);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.Equal(2, result.DeletedEntriesCount);
+        Assert.Equal(0, result.RetainedEntriesCount);
+        Assert.Equal(0, result.UncompressedBytes);
+
+        var entries = await _engine.ListEntriesAsync(zipPath);
+        Assert.Empty(entries);
+
+        var extractDir = Path.Combine(_testDir, "zip_del_all_extracted");
+        var extResult = await _engine.ExtractAsync(new ArchiveExtractionRequest(zipPath, extractDir));
+        Assert.Equal(0, extResult.FilesExtracted);
+    }
+
+    [Fact]
+    public async Task Zip_DeleteEntriesAsync_Cancellation_CleansUpTempFilesAndPreservesOriginalArchive()
+    {
+        // Arrange
+        var baseDir = Path.Combine(_testDir, "zip_del_cancel_base");
+        Directory.CreateDirectory(baseDir);
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "f1.txt"), "F1 data");
+
+        var zipPath = Path.Combine(_testDir, "zip_del_cancel.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+        var originalBytes = await File.ReadAllBytesAsync(zipPath);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        // Act & Assert
+        var deleteReq = new ArchiveDeleteRequest(zipPath, ["f1.txt"], 9);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _engine.DeleteEntriesAsync(deleteReq, ct: cts.Token));
+
+        var currentBytes = await File.ReadAllBytesAsync(zipPath);
+        Assert.Equal(originalBytes, currentBytes);
+
+        var tempFiles = Directory.GetFiles(_testDir, "zip_del_cancel.zip.tmp.*");
+        Assert.Empty(tempFiles);
+    }
+
+    [Fact]
+    public async Task Zip_DeleteEntriesAsync_NonExistentEntry_DoesNotFail_ReturnsZeroDeletedCount()
+    {
+        // Arrange
+        var baseDir = Path.Combine(_testDir, "zip_del_nonexistent_base");
+        Directory.CreateDirectory(baseDir);
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "existing.txt"), "Existing");
+
+        var zipPath = Path.Combine(_testDir, "zip_del_nonexistent.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        // Act
+        var deleteReq = new ArchiveDeleteRequest(zipPath, ["absent.txt"], 9);
+        var result = await _engine.DeleteEntriesAsync(deleteReq);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.Equal(0, result.DeletedEntriesCount);
+        Assert.Equal(1, result.RetainedEntriesCount);
+
+        var entries = await _engine.ListEntriesAsync(zipPath);
+        Assert.Single(entries);
+        Assert.Equal("existing.txt", entries[0].RelativePath);
+    }
+
+    [Fact]
+    public async Task Zip_DeleteEntriesAsync_NonExistentArchive_ThrowsFileNotFoundException()
+    {
+        var missingArchive = Path.Combine(_testDir, "missing.zip");
+        var req = new ArchiveDeleteRequest(missingArchive, ["f1.txt"], 9);
+        await Assert.ThrowsAsync<FileNotFoundException>(() => _engine.DeleteEntriesAsync(req));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(10)]
+    [InlineData(22)]
+    public async Task Zip_DeleteEntriesAsync_InvalidCompressionLevel_ThrowsArgumentOutOfRangeException(int invalidLevel)
+    {
+        var baseDir = Path.Combine(_testDir, $"zip_del_lvl_{invalidLevel}_base");
+        Directory.CreateDirectory(baseDir);
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "f.txt"), "data");
+
+        var zipPath = Path.Combine(_testDir, $"zip_del_lvl_{invalidLevel}.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        var req = new ArchiveDeleteRequest(zipPath, ["f.txt"], invalidLevel);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _engine.DeleteEntriesAsync(req));
+    }
+
+    [Fact]
+    public async Task Zip_DeleteEntriesAsync_EmptyEntryPaths_ThrowsArgumentException()
+    {
+        var baseDir = Path.Combine(_testDir, "zip_del_empty_paths_base");
+        Directory.CreateDirectory(baseDir);
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "f.txt"), "data");
+
+        var zipPath = Path.Combine(_testDir, "zip_del_empty_paths.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        var reqEmpty = new ArchiveDeleteRequest(zipPath, [], 9);
+        await Assert.ThrowsAsync<ArgumentException>(() => _engine.DeleteEntriesAsync(reqEmpty));
+
+        var reqWhitespace = new ArchiveDeleteRequest(zipPath, ["", "   "], 9);
+        await Assert.ThrowsAsync<ArgumentException>(() => _engine.DeleteEntriesAsync(reqWhitespace));
+    }
+
+    [Fact]
+    public async Task Zip_DeleteEntriesAsync_ProgressReporting_TracksProcessedBytesAndRetainedFiles()
+    {
+        // Arrange
+        var baseDir = Path.Combine(_testDir, "zip_del_prog_base");
+        Directory.CreateDirectory(baseDir);
+        var f1 = Path.Combine(baseDir, "f1.bin");
+        var f2 = Path.Combine(baseDir, "f2.bin");
+        var f3 = Path.Combine(baseDir, "f3.bin");
+        var f1Data = new byte[32 * 1024];
+        var f2Data = new byte[64 * 1024];
+        var f3Data = new byte[16 * 1024];
+        Random.Shared.NextBytes(f1Data);
+        Random.Shared.NextBytes(f2Data);
+        Random.Shared.NextBytes(f3Data);
+        await File.WriteAllBytesAsync(f1, f1Data);
+        await File.WriteAllBytesAsync(f2, f2Data);
+        await File.WriteAllBytesAsync(f3, f3Data);
+
+        var zipPath = Path.Combine(_testDir, "zip_del_prog.zip");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(baseDir, zipPath, 9));
+
+        var progressReports = new List<ProgressReport>();
+        var progress = new SynchronousProgress<ProgressReport>(r => progressReports.Add(r));
+
+        // Act - Delete f3.bin, retaining f1.bin and f2.bin
+        var deleteReq = new ArchiveDeleteRequest(zipPath, ["f3.bin"], 9);
+        var result = await _engine.DeleteEntriesAsync(deleteReq, progress);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.NotEmpty(progressReports);
+        var last = progressReports.Last();
+        Assert.Equal(f1Data.Length + f2Data.Length, last.TotalBytes);
+        Assert.Equal(last.TotalBytes, last.ProcessedBytes);
+        Assert.Equal(100.0, last.Percentage);
+        Assert.Equal(2, last.TotalFiles);
+        Assert.Equal(1, last.ProcessedFiles); // 1 file completed before the last one finishes
+    }
+
+    [Fact]
+    public async Task Zip_DeleteEntriesAsync_UnsupportedFormat_ThrowsNotSupportedException()
+    {
+        var targzFile = Path.Combine(_testDir, "test_del.tar.gz");
+        await File.WriteAllTextAsync(targzFile, "dummy");
+
+        var req = new ArchiveDeleteRequest(targzFile, ["file.txt"], 9);
+        await Assert.ThrowsAsync<NotSupportedException>(() => _engine.DeleteEntriesAsync(req));
+    }
+
+    #endregion
 }
