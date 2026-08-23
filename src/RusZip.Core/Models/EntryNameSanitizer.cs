@@ -87,4 +87,66 @@ public static class EntryNameSanitizer
 
         return false;
     }
+
+    /// <summary>
+    /// Computes a sanitized relative archive entry path from a typed source path, stripping
+    /// directory traversal segments ('..'), leading/trailing slashes, and control characters.
+    /// If the path is rooted and not within baseDirectory, the basename is returned.
+    /// </summary>
+    public static string SanitizeRelativePath(string rawPath, string fullPath, string? baseDirectory = null)
+    {
+        string pathToSanitize = rawPath;
+        if (Path.IsPathRooted(rawPath))
+        {
+            if (!string.IsNullOrEmpty(baseDirectory))
+            {
+                var fullBase = Path.GetFullPath(baseDirectory);
+                if (fullPath.StartsWith(fullBase, StringComparison.OrdinalIgnoreCase))
+                {
+                    pathToSanitize = Path.GetRelativePath(fullBase, fullPath);
+                }
+                else
+                {
+                    var name = Path.GetFileName(rawPath.TrimEnd('/', '\\'));
+                    return string.IsNullOrEmpty(name) ? new DirectoryInfo(fullPath).Name : Sanitize(name);
+                }
+            }
+            else
+            {
+                var name = Path.GetFileName(rawPath.TrimEnd('/', '\\'));
+                return string.IsNullOrEmpty(name) ? new DirectoryInfo(fullPath).Name : Sanitize(name);
+            }
+        }
+
+        var normalized = pathToSanitize.Replace('\\', '/');
+        var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var stack = new List<string>();
+
+        foreach (var seg in segments)
+        {
+            if (seg == ".")
+            {
+                continue;
+            }
+
+            if (seg == "..")
+            {
+                if (stack.Count > 0)
+                {
+                    stack.RemoveAt(stack.Count - 1);
+                }
+                continue;
+            }
+
+            stack.Add(seg);
+        }
+
+        if (stack.Count == 0)
+        {
+            var name = Path.GetFileName(fullPath.TrimEnd('/', '\\'));
+            return string.IsNullOrEmpty(name) ? new DirectoryInfo(fullPath).Name : Sanitize(name);
+        }
+
+        return Sanitize(string.Join("/", stack));
+    }
 }

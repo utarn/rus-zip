@@ -122,4 +122,20 @@ public sealed class EntryNameSanitizerTests
         Assert.False(EntryNameSanitizer.IsControlChar('é'));
         Assert.False(EntryNameSanitizer.IsControlChar('\u200b')); // zero-width space (Format, not Control)
     }
+
+    [Theory]
+    [InlineData("file.txt", "/base/file.txt", null, "file.txt")]
+    [InlineData("sub/file.txt", "/base/sub/file.txt", null, "sub/file.txt")]
+    [InlineData("sub\\file.txt", "/base/sub/file.txt", null, "sub/file.txt")]
+    [InlineData("../file.txt", "/base/file.txt", null, "file.txt")]
+    [InlineData("../../file.txt", "/base/file.txt", null, "file.txt")]
+    [InlineData("./sub/file.txt", "/base/sub/file.txt", null, "sub/file.txt")]
+    [InlineData("foo/../bar/file.txt", "/base/bar/file.txt", null, "bar/file.txt")]
+    [InlineData("/tmp/absolute/file.txt", "/tmp/absolute/file.txt", null, "file.txt")]
+    [InlineData("dir/", "/base/dir", null, "dir")]
+    public void SanitizeRelativePath_SanitizesTraversalAndSubpaths(string raw, string full, string? baseDir, string expected)
+    {
+        var result = EntryNameSanitizer.SanitizeRelativePath(raw, full, baseDir);
+        Assert.Equal(expected, result);
+    }
 }
