@@ -39,6 +39,14 @@ public sealed class CompressSettings : JsonCommandSettings
     [CommandOption("-p|--profile <PROFILE>")]
     [Description("Compression profile for .zrus: fast (3), balanced (9), high (15), ultra (22).")]
     public string? Profile { get; init; }
+
+    [CommandOption("-a|--append")]
+    [Description("Append sources to an existing archive instead of overwriting.")]
+    public bool Append { get; init; }
+
+    [CommandOption("-u|--update-only")]
+    [Description("When appending, only replace existing entries if the source file is strictly newer.")]
+    public bool UpdateOnly { get; init; }
 }
 
 public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<CompressSettings>
@@ -147,6 +155,27 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                         $"Compression level {compressionLevel} is not valid for .{formatName} archives. Valid range: {formatDescriptor.MinCompressionLevel}-{formatDescriptor.MaxCompressionLevel}{rangeNote}.");
                 }
 
+                string formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
+
+                if (settings.Append)
+                {
+                    var appendRequest = new ArchiveAppendRequest(destination, sourceArgs, compressionLevel, settings.UpdateOnly);
+                    var appendResult = await _engine.AppendAsync(appendRequest, progress, ct);
+
+                    return new CompressResult(
+                        Success: true,
+                        SourcePaths: resolvedSources,
+                        ArchivePath: destination,
+                        Format: formatStr,
+                        TotalFiles: appendResult.TotalFiles,
+                        UncompressedBytes: appendResult.UncompressedBytes,
+                        CompressedBytes: appendResult.CompressedBytes,
+                        CompressionRatio: appendResult.CompressionRatio,
+                        ElapsedMilliseconds: 0,
+                        SourcePath: resolvedSources.Count == 1 ? resolvedSources[0] : resolvedSources[0]
+                    );
+                }
+
                 var request = new ArchiveCompressionRequest(sourceArgs, destination, compressionLevel);
 
                 await _engine.CompressAsync(request, progress, ct);
@@ -171,7 +200,7 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                 }
 
                 double ratio = uncompressedSize > 0 ? (double)destInfo.Length / uncompressedSize : 1.0;
-                string formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
+                formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
 
                 return new CompressResult(
                     Success: true,

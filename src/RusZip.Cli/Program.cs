@@ -54,6 +54,14 @@ public static class Program
                 .WithExample(["file.txt", "archive.zip", "-l", "9", "--json"])
                 .WithExample(["photos/", "album.zrus", "--profile", "ultra"]);
 
+            config.AddCommand<AppendCommand>("append")
+                .WithAlias("a")
+                .WithAlias("add")
+                .WithDescription("Append files or directories to an existing .zrus archive.")
+                .WithExample(["backup.zrus", "newfile.txt"])
+                .WithExample(["backup.zrus", "photos/", "-u"])
+                .WithExample(["archive.zrus", "docs/", "--update-only", "--json"]);
+
             config.AddCommand<ExtractCommand>("extract")
                 .WithAlias("x")
                 .WithDescription("Extract an archive (.zrus, .zip, .rar, .7z, .gz, .tar.gz) to a directory.")

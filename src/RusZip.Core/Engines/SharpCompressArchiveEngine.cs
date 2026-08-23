@@ -269,6 +269,15 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         }
     }
 
+    public Task<AppendResult> AppendAsync(
+        ArchiveAppendRequest request,
+        IProgress<DomainProgressReport>? progress = null,
+        CancellationToken ct = default)
+    {
+        var descriptor = ArchiveFormatRegistry.Detect(request.ArchivePath);
+        throw new NotSupportedException($"Appending to '{descriptor.Format}' archive format is not supported.");
+    }
+
     public async Task<ExtractionResult> ExtractAsync(
         ArchiveExtractionRequest request,
         IProgress<DomainProgressReport>? progress = null,

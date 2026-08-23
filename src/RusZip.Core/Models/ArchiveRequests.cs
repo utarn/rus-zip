@@ -12,7 +12,32 @@ public sealed record ArchiveCompressionRequest(
 
     public string SourcePath => SourcePaths.Count > 0 ? SourcePaths[0] : string.Empty;
 }
+public sealed record ArchiveAppendRequest(
+    string ArchivePath,
+    IReadOnlyList<string> SourcePaths,
+    int CompressionLevel = 9,
+    bool UpdateOnly = false,
+    string? BaseDirectory = null
+)
+{
+    public ArchiveAppendRequest(string archivePath, string sourcePath, int compressionLevel = 9, bool updateOnly = false, string? baseDirectory = null)
+        : this(archivePath, [sourcePath], compressionLevel, updateOnly, baseDirectory) { }
+}
 
+public sealed record AppendResult(
+    bool Success,
+    string ArchivePath,
+    string Format,
+    int AddedFiles,
+    int UpdatedFiles,
+    int RetainedFiles,
+    int SkippedFiles,
+    int TotalFiles,
+    long UncompressedBytes,
+    long CompressedBytes,
+    double CompressionRatio,
+    long ElapsedMilliseconds
+);
 
 /// <summary>
 /// Request to extract an archive.

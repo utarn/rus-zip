@@ -47,6 +47,10 @@ public static class CliCommandRunner
                 {
                     result = (TResult)(object)(er with { ElapsedMilliseconds = sw.ElapsedMilliseconds });
                 }
+                else if (result is AppendResult ar)
+                {
+                    result = (TResult)(object)(ar with { ElapsedMilliseconds = sw.ElapsedMilliseconds });
+                }
 
                 if (isJson)
                 {

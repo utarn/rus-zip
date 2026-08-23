@@ -34,6 +34,25 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
         };
     }
 
+    public Task<AppendResult> AppendAsync(
+        ArchiveAppendRequest request,
+        IProgress<ProgressReport>? progress = null,
+        CancellationToken ct = default)
+    {
+        var descriptor = ArchiveFormatRegistry.Detect(request.ArchivePath);
+        if (!descriptor.CanCompress)
+        {
+            throw new NotSupportedException($"Appending to '{descriptor.Format}' archive format is not supported.");
+        }
+
+        return descriptor.Format switch
+        {
+            ArchiveFormat.Zrus => _zstdEngine.AppendAsync(request, progress, ct),
+            ArchiveFormat.Zip => _sharpCompressEngine.AppendAsync(request, progress, ct),
+            _ => throw new NotSupportedException($"Appending to '{descriptor.Format}' archive format is not supported.")
+        };
+    }
+
     public Task<ExtractionResult> ExtractAsync(
         ArchiveExtractionRequest request,
         IProgress<ProgressReport>? progress = null,
