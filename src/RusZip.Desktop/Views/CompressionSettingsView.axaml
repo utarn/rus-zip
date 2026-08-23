@@ -5,45 +5,200 @@
              x:Class="RusZip.Desktop.Views.CompressionSettingsView"
              x:DataType="vm:CompressionSettingsViewModel">
 
-    <StackPanel Spacing="16" Margin="16">
-        <!-- Source Path with File and Folder Browse Buttons -->
-        <StackPanel Spacing="6">
-            <TextBlock Text="Source File / Directory:" FontWeight="SemiBold" />
-            <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto">
-                <TextBox Grid.Row="0" Grid.Column="0"
-                         Text="{Binding SourcePath}"
-                         PlaceholderText="Select file or directory to compress" />
-                <Button Grid.Row="0" Grid.Column="1"
-                        Content="Browse File..."
-                        Command="{Binding BrowseSourceFileCommand}"
-                        Margin="8,0,0,0" />
-                <Button Grid.Row="0" Grid.Column="2"
-                        Content="Browse Folder..."
-                        Command="{Binding BrowseSourceFolderCommand}"
-                        Margin="4,0,0,0" />
+    <StackPanel Spacing="12" Margin="16">
+        <!-- Staged Sources Tree Header & Summary Metrics -->
+        <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Text="Staged Files &amp; Folders:" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <TextBlock Text="{Binding TotalFilesCount, StringFormat='{}Files: {0:N0}'}"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextFillColorTertiary}" />
+                <TextBlock Text="{Binding ExcludedFilesCount, StringFormat='{}Excluded: {0:N0}'}"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextFillColorTertiary}" />
+                <TextBlock Text="{Binding FormattedTotalStagedBytes, StringFormat='{}Total Size: {0}'}"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextFillColorSecondary}" />
+            </StackPanel>
+        </Grid>
 
-                <!-- Multi-source staging display (F-27): all dropped non-archive paths are shown
-                     when more than one source is staged. -->
-                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
-                            Margin="0,4,0,0"
-                            IsVisible="{Binding HasMultipleSources}"
-                            Spacing="2">
-                    <TextBlock Text="Staged sources:"
-                               FontSize="11"
-                               Foreground="{DynamicResource TextFillColorSecondary}" />
-                    <ItemsControl x:Name="StagedSources" ItemsSource="{Binding SourcePaths}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}"
-                                           FontSize="11"
-                                           Foreground="{DynamicResource TextFillColorSecondary}"
-                                           TextTrimming="CharacterEllipsis" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
+        <!-- Staging Toolbar & DataGrid -->
+        <Border BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                Padding="0">
+            <Grid RowDefinitions="Auto,*">
+                <!-- Toolbar -->
+                <Border Grid.Row="0"
+                        Padding="8,6"
+                        BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                        BorderThickness="0,0,0,1"
+                        Background="{DynamicResource LayerFillColorDefaultBrush}">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+                            <Button Command="{Binding AddFilesCommand}"
+                                    Padding="8,4"
+                                    FontSize="12"
+                                    ToolTip.Tip="Add files to stage">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <PathIcon Data="{StaticResource Icon.NewArchive}" Width="12" Height="12" />
+                                    <TextBlock Text="Add File(s)..." VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding AddFolderCommand}"
+                                    Padding="8,4"
+                                    FontSize="12"
+                                    ToolTip.Tip="Add directory folder to stage">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <PathIcon Data="{StaticResource Icon.OpenFolder}" Width="12" Height="12" />
+                                    <TextBlock Text="Add Folder..." VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding RemoveSelectedCommand}"
+                                    Padding="8,4"
+                                    FontSize="12"
+                                    ToolTip.Tip="Un-stage root item or exclude selected child">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <PathIcon Data="{StaticResource Icon.Close}" Width="12" Height="12" />
+                                    <TextBlock Text="Remove / Exclude" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding ToggleExclusionCommand}"
+                                    Padding="8,4"
+                                    FontSize="12"
+                                    ToolTip.Tip="Toggle exclusion of selected item">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <PathIcon Data="{StaticResource Icon.Check}" Width="12" Height="12" />
+                                    <TextBlock Text="Toggle Exclusion" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                            <Button Command="{Binding ClearAllCommand}"
+                                    Padding="8,4"
+                                    FontSize="12"
+                                    ToolTip.Tip="Clear all staged items">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <PathIcon Data="{StaticResource Icon.Clear}" Width="12" Height="12" />
+                                    <TextBlock Text="Clear All" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Hierarchical DataGrid -->
+                <DataGrid x:Name="StagedGrid"
+                          Grid.Row="1"
+                          Height="160"
+                          HierarchicalRowsEnabled="True"
+                          HierarchicalModel="{Binding GridSource}"
+                          CanUserResizeColumns="True"
+                          CanUserSortColumns="True"
+                          HeadersVisibility="Column"
+                          SelectionMode="Single"
+                          SelectionUnit="FullRow"
+                          SelectedItem="{Binding SelectedItem}">
+                    <DataGrid.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Toggle Exclusion" Command="{Binding ToggleExclusionCommand}" />
+                            <MenuItem Header="Remove / Exclude Selected" Command="{Binding RemoveSelectedCommand}" />
+                            <MenuItem Header="Clear All" Command="{Binding ClearAllCommand}" />
+                        </ContextMenu>
+                    </DataGrid.ContextMenu>
+                    <DataGrid.Columns>
+                        <DataGridHierarchicalColumn Header="Name"
+                                                    Width="*"
+                                                    CanUserSort="True"
+                                                    CanUserResize="True"
+                                                    SortMemberPath="Name"
+                                                    x:CompileBindings="False"
+                                                    Binding="{Binding Item}">
+                            <DataGridHierarchicalColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <CheckBox IsChecked="{Binding !IsExcluded}"
+                                                  Margin="0,0,4,0"
+                                                  VerticalAlignment="Center"
+                                                  ToolTip.Tip="Check to include in archive, uncheck to exclude" />
+                                        <PathIcon Data="{Binding IconGeometry}" Width="16" Height="16" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding Name}"
+                                                   VerticalAlignment="Center"
+                                                   Opacity="{Binding IsExcluded, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridHierarchicalColumn.CellTemplate>
+                        </DataGridHierarchicalColumn>
+
+                        <DataGridTemplateColumn Header="Size"
+                                                Width="90"
+                                                CanUserSort="True"
+                                                CanUserResize="True"
+                                                SortMemberPath="Size"
+                                                x:CompileBindings="False">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock DataContext="{Binding Item}"
+                                               Text="{Binding FormattedSize}"
+                                               TextAlignment="Right"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,8,0" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="Modified"
+                                                Width="130"
+                                                CanUserSort="True"
+                                                CanUserResize="True"
+                                                SortMemberPath="LastModified"
+                                                x:CompileBindings="False">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock DataContext="{Binding Item}"
+                                               Text="{Binding FormattedLastModified}"
+                                               VerticalAlignment="Center" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="Attributes"
+                                                Width="80"
+                                                CanUserSort="True"
+                                                CanUserResize="True"
+                                                SortMemberPath="Attributes"
+                                                x:CompileBindings="False">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock DataContext="{Binding Item}"
+                                               Text="{Binding Attributes}"
+                                               VerticalAlignment="Center" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="Source Path"
+                                                Width="150"
+                                                CanUserSort="True"
+                                                CanUserResize="True"
+                                                SortMemberPath="FullPath"
+                                                x:CompileBindings="False">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock DataContext="{Binding Item}"
+                                               Text="{Binding FullPath}"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
             </Grid>
-        </StackPanel>
+        </Border>
 
         <!-- Destination Path & Format with Browse Destination Button -->
         <Grid ColumnDefinitions="*,Auto,120" RowDefinitions="Auto,Auto">
@@ -99,8 +254,7 @@
                         TickFrequency="1"
                         IsSnapToTickEnabled="True" />
 
-                <!-- Segmented Preset Cards (F-34: data-driven from PresetProfiles; card visuals
-                     unchanged from the previous hardcoded four-card grid) -->
+                <!-- Segmented Preset Cards -->
                 <ItemsControl x:Name="PresetCards" ItemsSource="{Binding Presets}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>

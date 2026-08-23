@@ -36,10 +36,10 @@ public class CompressionSettingsViewTests
         Assert.Contains("/tmp/a.txt", vm.SourcePathsDisplay);
         Assert.Contains("/tmp/c.txt", vm.SourcePathsDisplay);
 
-        // The ItemsControl showing staged sources resolves to the three paths.
-        var stagedItems = view.FindControl<ItemsControl>("StagedSources");
-        Assert.NotNull(stagedItems);
-        Assert.Equal(3, stagedItems.Items.Count);
+        var stagedGrid = view.FindControl<DataGrid>("StagedGrid");
+        Assert.NotNull(stagedGrid);
+        Assert.Equal(3, vm.StagedItems.Count);
+        Assert.NotNull(vm.GridSource);
     }
 
     [AvaloniaFact]

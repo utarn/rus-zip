@@ -186,8 +186,7 @@ public partial class MainWindowViewModel : ObservableObject
     {
         if (!string.IsNullOrEmpty(initialSourcePath))
         {
-            Settings.SourcePath = initialSourcePath;
-            Settings.DestinationPath = initialSourcePath + Settings.SelectedFormat;
+            Settings.StageSources([initialSourcePath]);
         }
 
         IsCompressDialogVisible = true;
@@ -202,7 +201,11 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand]
     public async Task ExecuteCompressAsync()
     {
-        if (string.IsNullOrEmpty(Settings.SourcePath) || string.IsNullOrEmpty(Settings.DestinationPath))
+        var sourcePaths = Settings.SourcePaths.Count > 0
+            ? Settings.SourcePaths
+            : (!string.IsNullOrEmpty(Settings.SourcePath) ? [Settings.SourcePath] : Array.Empty<string>());
+
+        if (sourcePaths.Count == 0 || string.IsNullOrEmpty(Settings.DestinationPath))
             return;
 
         var cts = Progress.CreateCancellationTokenSource();
@@ -213,9 +216,11 @@ public partial class MainWindowViewModel : ObservableObject
         try
         {
             var req = new ArchiveCompressionRequest(
-                Settings.SourcePath,
+                sourcePaths,
                 Settings.DestinationPath,
-                Settings.CompressionLevel
+                Settings.CompressionLevel,
+                BaseDirectory: null,
+                ExcludedPaths: Settings.ExcludedPaths
             );
 
             await Task.Run(async () => await _engine.CompressAsync(req, progressHandler, cts.Token), cts.Token);
@@ -351,12 +356,20 @@ public partial class MainWindowViewModel : ObservableObject
         // the same drop are reported as ignored rather than silently discarded.
         if (nonArchives.Count > 0)
         {
-            Settings.StageSources(nonArchives);
+            if (IsCompressDialogVisible)
+            {
+                Settings.AddSources(nonArchives);
+            }
+            else
+            {
+                Settings.StageSources(nonArchives);
+                ShowCompressDialog();
+            }
+
             if (archives.Count > 0)
             {
                 StatusText = FormatStatus($"{archives.Count} archive{(archives.Count == 1 ? "" : "s")} ignored.");
             }
-            ShowCompressDialog();
             return;
         }
 

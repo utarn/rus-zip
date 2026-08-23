@@ -245,7 +245,7 @@ public class CompressionSettingsViewModelTests
         Assert.Equal("/tmp/b.txt", vm.SourcePaths[1]);
         Assert.True(vm.HasMultipleSources);
         Assert.Equal("/tmp/a.txt", vm.SourcePath);
-        Assert.Equal("/tmp/a.txt.zrus", vm.DestinationPath);
+        Assert.Equal("/tmp/Archive.zrus", vm.DestinationPath);
         Assert.Contains("/tmp/a.txt", vm.SourcePathsDisplay);
         Assert.Contains("/tmp/b.txt", vm.SourcePathsDisplay);
     }
@@ -454,4 +454,324 @@ public class CompressionSettingsViewModelTests
         Assert.Equal([".zrus", ".zip"], CompressionSettingsViewModel.AvailableFormats);
         Assert.Equal(CompressionSettingsViewModel.AvailableFormats, vm.Formats);
     }
+
+    [Fact]
+    public async Task AddFilesCommand_WithCallback_StagesMultipleFiles()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "add_files_test_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var file1 = Path.Combine(tempDir, "file1.txt");
+        var file2 = Path.Combine(tempDir, "file2.log");
+        File.WriteAllText(file1, "12345");
+        File.WriteAllText(file2, "1234567890");
+
+        try
+        {
+            var vm = new CompressionSettingsViewModel
+            {
+                RequestSourceFiles = () => Task.FromResult<IReadOnlyList<string>?>([file1, file2])
+            };
+
+            await vm.AddFilesCommand.ExecuteAsync(null);
+
+            Assert.Equal(2, vm.StagedItems.Count);
+            Assert.Equal(2, vm.TotalFilesCount);
+            Assert.Equal(0, vm.ExcludedFilesCount);
+            Assert.Equal(15, vm.TotalStagedBytes);
+            Assert.Equal("15 B", vm.FormattedTotalStagedBytes);
+            Assert.Equal(Path.Combine(tempDir, "Archive.zrus"), vm.DestinationPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task AddFilesCommand_WithParameter_StagesFiles()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "add_files_param_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var file1 = Path.Combine(tempDir, "data.csv");
+        File.WriteAllText(file1, "col1,col2");
+
+        try
+        {
+            var vm = new CompressionSettingsViewModel();
+            await vm.AddFilesCommand.ExecuteAsync(new[] { file1 });
+
+            Assert.Single(vm.StagedItems);
+            Assert.Equal("data.csv", vm.StagedItems[0].Name);
+            Assert.Equal(1, vm.TotalFilesCount);
+            Assert.Equal(file1 + ".zrus", vm.DestinationPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task AddFolderCommand_StagesFolderTreeWithHierarchy()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "add_folder_test_" + Guid.NewGuid().ToString("N"));
+        var subDir = Path.Combine(tempDir, "nested");
+        Directory.CreateDirectory(subDir);
+        var file1 = Path.Combine(tempDir, "root_file.txt");
+        var file2 = Path.Combine(subDir, "nested_file.txt");
+        File.WriteAllText(file1, "1234");
+        File.WriteAllText(file2, "123456");
+
+        try
+        {
+            var vm = new CompressionSettingsViewModel
+            {
+                RequestSourceFolder = () => Task.FromResult<string?>(tempDir)
+            };
+
+            await vm.AddFolderCommand.ExecuteAsync(null);
+
+            Assert.Single(vm.StagedItems);
+            Assert.True(vm.StagedItems[0].IsDirectory);
+            Assert.Equal(2, vm.TotalFilesCount);
+            Assert.Equal(0, vm.ExcludedFilesCount);
+            Assert.Equal(10, vm.TotalStagedBytes);
+            Assert.Equal(tempDir + ".zrus", vm.DestinationPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void RemoveSelectedCommand_RootItem_UnstagesItemAndUpdatesMetrics()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "remove_root_test_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var file1 = Path.Combine(tempDir, "file1.txt");
+        var file2 = Path.Combine(tempDir, "file2.txt");
+        File.WriteAllText(file1, "12345");
+        File.WriteAllText(file2, "12345");
+
+        try
+        {
+            var vm = new CompressionSettingsViewModel();
+            vm.StageSources([file1, file2]);
+
+            Assert.Equal(2, vm.StagedItems.Count);
+            Assert.Equal(2, vm.TotalFilesCount);
+            Assert.Equal(10, vm.TotalStagedBytes);
+
+            vm.SelectedItem = vm.StagedItems[0];
+            vm.RemoveSelectedCommand.Execute(null);
+
+            Assert.Single(vm.StagedItems);
+            Assert.Equal(file2, vm.StagedItems[0].FullPath);
+            Assert.Null(vm.SelectedItem);
+            Assert.Equal(1, vm.TotalFilesCount);
+            Assert.Equal(5, vm.TotalStagedBytes);
+            Assert.Equal(file2 + ".zrus", vm.DestinationPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void RemoveSelectedCommand_ChildItem_MarksAsExcludedAndUpdatesExclusionPaths()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "remove_child_test_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var file1 = Path.Combine(tempDir, "file1.txt");
+        var file2 = Path.Combine(tempDir, "file2.txt");
+        File.WriteAllText(file1, "12345"); // 5 bytes
+        File.WriteAllText(file2, "12345"); // 5 bytes
+
+        try
+        {
+            var vm = new CompressionSettingsViewModel();
+            vm.StageSources([tempDir]);
+
+            Assert.Single(vm.StagedItems);
+            var root = vm.StagedItems[0];
+            Assert.Equal(2, root.Children.Count);
+            Assert.Equal(2, vm.TotalFilesCount);
+            Assert.Equal(0, vm.ExcludedFilesCount);
+            Assert.Equal(10, vm.TotalStagedBytes);
+            Assert.Empty(vm.ExclusionPaths);
+
+            var childToExclude = root.Children[0];
+            vm.RemoveSelectedCommand.Execute(childToExclude);
+
+            Assert.True(childToExclude.IsExcluded);
+            Assert.Equal(2, vm.TotalFilesCount);
+            Assert.Equal(1, vm.ExcludedFilesCount);
+            Assert.Equal(5, vm.TotalStagedBytes);
+            Assert.Single(vm.ExclusionPaths);
+            Assert.Equal(childToExclude.FullPath, vm.ExclusionPaths[0]);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ClearAllCommand_ResetsAllStagingStateAndMetrics()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "clear_all_test_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var file1 = Path.Combine(tempDir, "file1.txt");
+        File.WriteAllText(file1, "12345");
+
+        try
+        {
+            var vm = new CompressionSettingsViewModel();
+            vm.StageSources([file1]);
+
+            Assert.Single(vm.StagedItems);
+            Assert.Equal(1, vm.TotalFilesCount);
+            Assert.Equal(5, vm.TotalStagedBytes);
+            Assert.False(string.IsNullOrEmpty(vm.DestinationPath));
+
+            vm.ClearAllCommand.Execute(null);
+
+            Assert.Empty(vm.StagedItems);
+            Assert.Empty(vm.ExclusionPaths);
+            Assert.Null(vm.SelectedItem);
+            Assert.Equal(0, vm.TotalFilesCount);
+            Assert.Equal(0, vm.ExcludedFilesCount);
+            Assert.Equal(0, vm.TotalStagedBytes);
+            Assert.Equal(string.Empty, vm.DestinationPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ToggleExclusionCommand_TogglesStateAndRecalculatesMetrics()
+    {
+        var root = new StagedSourceItemViewModel { Name = "dir", IsDirectory = true, FullPath = "/path/dir" };
+        var file1 = new StagedSourceItemViewModel { Name = "a.txt", IsDirectory = false, Size = 100, FullPath = "/path/dir/a.txt", Parent = root };
+        var file2 = new StagedSourceItemViewModel { Name = "b.txt", IsDirectory = false, Size = 200, FullPath = "/path/dir/b.txt", Parent = root };
+        root.Children.Add(file1);
+        root.Children.Add(file2);
+
+        var vm = new CompressionSettingsViewModel();
+        vm.StagedItems.Add(root);
+        vm.RecalculateMetrics();
+
+        Assert.Equal(2, vm.TotalFilesCount);
+        Assert.Equal(0, vm.ExcludedFilesCount);
+        Assert.Equal(300, vm.TotalStagedBytes);
+
+        // Toggle file1
+        vm.ToggleExclusionCommand.Execute(file1);
+
+        Assert.True(file1.IsExcluded);
+        Assert.Equal(2, vm.TotalFilesCount);
+        Assert.Equal(1, vm.ExcludedFilesCount);
+        Assert.Equal(200, vm.TotalStagedBytes);
+        Assert.Contains(file1.FullPath, vm.ExclusionPaths);
+
+        // Toggle file1 back
+        vm.ToggleExclusionCommand.Execute(file1);
+
+        Assert.False(file1.IsExcluded);
+        Assert.Equal(2, vm.TotalFilesCount);
+        Assert.Equal(0, vm.ExcludedFilesCount);
+        Assert.Equal(300, vm.TotalStagedBytes);
+        Assert.DoesNotContain(file1.FullPath, vm.ExclusionPaths);
+    }
+
+    [Fact]
+    public void SmartDestinationPath_SingleSource_DerivesItemNameFormat()
+    {
+        var vm = new CompressionSettingsViewModel();
+        vm.StageSources(["/home/user/my_folder"]);
+
+        Assert.Equal("/home/user/my_folder.zrus", vm.DestinationPath);
+        Assert.False(vm.IsDestinationPinned);
+    }
+
+    [Fact]
+    public void SmartDestinationPath_MultipleSources_DerivesParentDirArchiveFormat()
+    {
+        var vm = new CompressionSettingsViewModel();
+        vm.StageSources(["/home/user/docs/file1.txt", "/home/user/docs/file2.txt"]);
+
+        Assert.Equal(Path.Combine("/home/user/docs", "Archive.zrus"), vm.DestinationPath);
+        Assert.False(vm.IsDestinationPinned);
+    }
+
+    [Fact]
+    public void SmartDestinationPath_ManualEdit_PinsLockAndPreservesPath()
+    {
+        var vm = new CompressionSettingsViewModel();
+        vm.StageSources(["/home/user/file1.txt"]);
+        Assert.Equal("/home/user/file1.txt.zrus", vm.DestinationPath);
+        Assert.False(vm.IsDestinationPinned);
+
+        // User manually edits destination
+        vm.DestinationPath = "/custom/target/backup.zrus";
+        Assert.True(vm.IsDestinationPinned);
+
+        // Adding more sources does not overwrite manual destination
+        vm.AddSources(["/home/user/file2.txt"]);
+        Assert.Equal("/custom/target/backup.zrus", vm.DestinationPath);
+        Assert.True(vm.IsDestinationPinned);
+    }
+
+    [Fact]
+    public void SmartDestinationPath_ManualEdit_FormatChangeStillUpdatesExtension()
+    {
+        var vm = new CompressionSettingsViewModel();
+        vm.DestinationPath = "/custom/path/archive.zrus";
+        Assert.True(vm.IsDestinationPinned);
+
+        vm.SelectedFormat = ".zip";
+        Assert.Equal("/custom/path/archive.zip", vm.DestinationPath);
+        Assert.True(vm.IsDestinationPinned);
+    }
+
+    [Fact]
+    public void SmartDestinationPath_ClearingDestinationPath_UnlocksManualLock()
+    {
+        var vm = new CompressionSettingsViewModel();
+        vm.DestinationPath = "/custom/path/archive.zrus";
+        Assert.True(vm.IsDestinationPinned);
+
+        vm.DestinationPath = "";
+        Assert.False(vm.IsDestinationPinned);
+
+        vm.StageSources(["/home/user/test.txt"]);
+        Assert.Equal("/home/user/test.txt.zrus", vm.DestinationPath);
+    }
+
+    [Fact]
+    public void ExpandAllAndCollapseAll_TogglesHierarchyRecursively()
+    {
+        var root = new StagedSourceItemViewModel { Name = "root", IsDirectory = true };
+        var child = new StagedSourceItemViewModel { Name = "child", IsDirectory = true, Parent = root };
+        root.Children.Add(child);
+
+        var vm = new CompressionSettingsViewModel();
+        vm.StagedItems.Add(root);
+
+        Assert.False(root.IsExpanded);
+        Assert.False(child.IsExpanded);
+
+        vm.ExpandAllCommand.Execute(null);
+        Assert.True(root.IsExpanded);
+        Assert.True(child.IsExpanded);
+
+        vm.CollapseAllCommand.Execute(null);
+        Assert.False(root.IsExpanded);
+        Assert.False(child.IsExpanded);
+    }
 }
+
