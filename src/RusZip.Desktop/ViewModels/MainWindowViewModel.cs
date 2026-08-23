@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RusZip.Core.Abstractions;
@@ -83,6 +84,11 @@ public partial class MainWindowViewModel : ObservableObject
 
     public Func<Task<string?>>? RequestExtractDestinationFolder { get; set; }
     public Func<Task<string?>>? RequestOpenArchivePicker { get; set; }
+    public Func<Task<IReadOnlyList<string>?>>? RequestAppendSourcePaths { get; set; }
+    public Func<int, IReadOnlyList<string>, Task<bool>>? ConfirmDeleteAsync { get; set; }
+
+    public bool CanAppendToArchive => HasOpenArchive && Browser.CanCompress;
+    public bool CanDeleteFromArchive => HasOpenArchive && Browser.CanCompress && (Browser.SelectedItem != null || Browser.SelectedItems.Count > 0);
 
     /// <summary>
     /// Formats a status message for the one-line status bar: strips C0/C1 control bytes
@@ -104,8 +110,61 @@ public partial class MainWindowViewModel : ObservableObject
         _settings = new CompressionSettingsViewModel();
         _progress = new OperationProgressViewModel();
 
-        _browser.ExtractRequested += OnBrowserExtractRequestedAsync;
-        _browser.ExtractItemRequested += OnBrowserExtractItemRequestedAsync;
+        WireBrowser(_browser);
+    }
+
+    private void WireBrowser(ArchiveBrowserViewModel browser)
+    {
+        browser.ExtractRequested += OnBrowserExtractRequestedAsync;
+        browser.ExtractItemRequested += OnBrowserExtractItemRequestedAsync;
+        browser.ExtractItemsRequested += OnBrowserExtractItemsRequestedAsync;
+        browser.AppendRequested += OnBrowserAppendRequestedAsync;
+        browser.DeleteRequested += OnBrowserDeleteRequestedAsync;
+        browser.PropertyChanged += OnBrowserPropertyChanged;
+        browser.SelectedItems.CollectionChanged += OnBrowserSelectedItemsCollectionChanged;
+        if (ConfirmDeleteAsync != null)
+        {
+            browser.ConfirmDeleteAsync = ConfirmDeleteAsync;
+        }
+    }
+
+    private void UnwireBrowser(ArchiveBrowserViewModel browser)
+    {
+        browser.ExtractRequested -= OnBrowserExtractRequestedAsync;
+        browser.ExtractItemRequested -= OnBrowserExtractItemRequestedAsync;
+        browser.ExtractItemsRequested -= OnBrowserExtractItemsRequestedAsync;
+        browser.AppendRequested -= OnBrowserAppendRequestedAsync;
+        browser.DeleteRequested -= OnBrowserDeleteRequestedAsync;
+        browser.PropertyChanged -= OnBrowserPropertyChanged;
+        browser.SelectedItems.CollectionChanged -= OnBrowserSelectedItemsCollectionChanged;
+    }
+
+    private void OnBrowserSelectedItemsCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        OnBrowserSelectionChanged();
+    }
+
+    private void OnBrowserPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ArchiveBrowserViewModel.CanCompress)
+            or nameof(ArchiveBrowserViewModel.SelectedItem))
+        {
+            OnBrowserSelectionChanged();
+        }
+    }
+
+    private void OnBrowserSelectionChanged()
+    {
+        OnPropertyChanged(nameof(CanAppendToArchive));
+        OnPropertyChanged(nameof(CanDeleteFromArchive));
+        AppendFilesCommand.NotifyCanExecuteChanged();
+        DeleteSelectedCommand.NotifyCanExecuteChanged();
+        ExtractSelectedItemCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnHasOpenArchiveChanged(bool value)
+    {
+        OnBrowserSelectionChanged();
     }
 
     private async Task OnBrowserExtractRequestedAsync()
@@ -132,14 +191,38 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    private async Task OnBrowserExtractItemsRequestedAsync(IReadOnlyList<ArchiveItemViewModel> items)
+    {
+        if (RequestExtractDestinationFolder != null)
+        {
+            var destination = await RequestExtractDestinationFolder.Invoke();
+            if (!string.IsNullOrEmpty(destination))
+            {
+                await ExecuteExtractItemsAsync(items, destination);
+            }
+        }
+    }
+
+    private async Task OnBrowserAppendRequestedAsync()
+    {
+        await AppendFilesAsync();
+    }
+
+    private async Task OnBrowserDeleteRequestedAsync(IReadOnlyList<ArchiveItemViewModel> items)
+    {
+        var paths = items.Select(i => i.RelativePath).Distinct().ToList();
+        await ExecuteDeleteEntriesAsync(paths);
+    }
+
     [RelayCommand]
     public void CloseArchive()
     {
         HasOpenArchive = false;
+        UnwireBrowser(Browser);
         Browser = new ArchiveBrowserViewModel();
-        Browser.ExtractRequested += OnBrowserExtractRequestedAsync;
-        Browser.ExtractItemRequested += OnBrowserExtractItemRequestedAsync;
+        WireBrowser(Browser);
         StatusText = "Ready";
+        OnBrowserSelectionChanged();
     }
 
     [RelayCommand]
@@ -155,11 +238,62 @@ public partial class MainWindowViewModel : ObservableObject
             HasOpenArchive = true;
             IsCompressDialogVisible = false;
             StatusText = FormatStatus($"Loaded {entries.Count} entries from {Path.GetFileName(archivePath)}");
+            OnBrowserSelectionChanged();
         }
         catch (Exception ex)
         {
             StatusText = FormatStatus($"Failed to open archive: {ex.Message}");
         }
+    }
+
+    public async Task RefreshArchiveAsync()
+    {
+        if (string.IsNullOrEmpty(Browser.LoadedArchivePath) || !File.Exists(Browser.LoadedArchivePath))
+            return;
+
+        var archivePath = Browser.LoadedArchivePath;
+        var entries = await _engine.ListEntriesAsync(archivePath);
+        Browser.LoadEntries(archivePath, entries);
+        OnBrowserSelectionChanged();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanAppendToArchive))]
+    public async Task AppendFilesAsync()
+    {
+        if (!HasOpenArchive || !Browser.CanCompress)
+            return;
+
+        if (RequestAppendSourcePaths != null)
+        {
+            var paths = await RequestAppendSourcePaths.Invoke();
+            if (paths != null && paths.Count > 0)
+            {
+                await ExecuteAppendAsync(paths);
+            }
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanDeleteFromArchive))]
+    public async Task DeleteSelectedAsync()
+    {
+        if (!HasOpenArchive || !Browser.CanCompress)
+            return;
+
+        var items = Browser.GetEffectiveSelectedItems();
+        if (items.Count == 0)
+            return;
+
+        var paths = items.Select(i => i.RelativePath).Distinct().ToList();
+
+        var confirm = ConfirmDeleteAsync ?? Browser.ConfirmDeleteAsync;
+        if (confirm != null)
+        {
+            var confirmed = await confirm(items.Count, paths);
+            if (!confirmed)
+                return;
+        }
+
+        await ExecuteDeleteEntriesAsync(paths);
     }
 
     [RelayCommand]
@@ -315,6 +449,131 @@ public partial class MainWindowViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusText = FormatStatus($"Extraction failed: {ex.Message}");
+        }
+        finally
+        {
+            await Progress.FinishOperationAsync(success, StatusText);
+        }
+    }
+
+    public async Task ExecuteExtractItemsAsync(IReadOnlyList<ArchiveItemViewModel> items, string destinationDirectory)
+    {
+        if (!HasOpenArchive || string.IsNullOrEmpty(Browser.LoadedArchivePath) || items == null || items.Count == 0)
+            return;
+
+        var cts = Progress.CreateCancellationTokenSource();
+        Progress.OperationTitle = $"Extracting {items.Count} items...";
+        var progressHandler = new Progress<ProgressReport>(Progress.ReportProgress);
+
+        bool success = false;
+        try
+        {
+            var entryPaths = items.Select(i => i.RelativePath).Distinct().ToList();
+            var req = new ArchiveExtractionRequest(
+                Browser.LoadedArchivePath,
+                destinationDirectory,
+                Overwrite: true,
+                Limits: Browser.ExtractionSettings.BuildLimits(),
+                Entries: entryPaths);
+            await Task.Run(async () => await _engine.ExtractAsync(req, progressHandler, cts.Token), cts.Token);
+            success = true;
+            StatusText = FormatStatus($"Extracted {items.Count} item{(items.Count == 1 ? "" : "s")} to {destinationDirectory}");
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = FormatStatus("Extraction cancelled.");
+        }
+        catch (Exception ex)
+        {
+            StatusText = FormatStatus($"Extraction failed: {ex.Message}");
+        }
+        finally
+        {
+            await Progress.FinishOperationAsync(success, StatusText);
+        }
+    }
+
+    public async Task ExecuteAppendAsync(IReadOnlyList<string> sourcePaths)
+    {
+        if (!HasOpenArchive || string.IsNullOrEmpty(Browser.LoadedArchivePath) || sourcePaths == null || sourcePaths.Count == 0)
+            return;
+
+        var archivePath = Browser.LoadedArchivePath;
+        var descriptor = ArchiveFormatRegistry.Detect(archivePath);
+        if (!descriptor.CanCompress || descriptor.Format == ArchiveFormat.Zst)
+        {
+            StatusText = FormatStatus($"Appending to {descriptor.Format} archives is not supported.");
+            return;
+        }
+
+        var cts = Progress.CreateCancellationTokenSource();
+        Progress.OperationTitle = "Adding to Archive...";
+        var progressHandler = new Progress<ProgressReport>(Progress.ReportProgress);
+
+        bool success = false;
+        try
+        {
+            var req = new ArchiveAppendRequest(
+                archivePath,
+                sourcePaths,
+                CompressionLevel: descriptor.DefaultCompressionLevel);
+
+            var result = await Task.Run(async () => await _engine.AppendAsync(req, progressHandler, cts.Token), cts.Token);
+            success = true;
+            StatusText = FormatStatus($"Added {result.AddedFiles} file{(result.AddedFiles == 1 ? "" : "s")} to {Path.GetFileName(archivePath)}");
+            await RefreshArchiveAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = FormatStatus("Append cancelled.");
+        }
+        catch (Exception ex)
+        {
+            StatusText = FormatStatus($"Append failed: {ex.Message}");
+        }
+        finally
+        {
+            await Progress.FinishOperationAsync(success, StatusText);
+        }
+    }
+
+    public async Task ExecuteDeleteEntriesAsync(IReadOnlyList<string> entryPaths)
+    {
+        if (!HasOpenArchive || string.IsNullOrEmpty(Browser.LoadedArchivePath) || entryPaths == null || entryPaths.Count == 0)
+            return;
+
+        var archivePath = Browser.LoadedArchivePath;
+        var descriptor = ArchiveFormatRegistry.Detect(archivePath);
+        if (!descriptor.CanCompress || descriptor.Format == ArchiveFormat.Zst)
+        {
+            StatusText = FormatStatus($"Deleting entries from {descriptor.Format} archives is not supported.");
+            return;
+        }
+
+        var cts = Progress.CreateCancellationTokenSource();
+        Progress.OperationTitle = "Deleting Entries...";
+        var progressHandler = new Progress<ProgressReport>(Progress.ReportProgress);
+
+        bool success = false;
+        try
+        {
+            var req = new ArchiveDeleteRequest(
+                archivePath,
+                entryPaths,
+                CompressionLevel: descriptor.DefaultCompressionLevel);
+
+            var result = await Task.Run(async () => await _engine.DeleteEntriesAsync(req, progressHandler, cts.Token), cts.Token);
+            success = true;
+            StatusText = FormatStatus($"Deleted {result.DeletedEntriesCount} entr{(result.DeletedEntriesCount == 1 ? "y" : "ies")} from {Path.GetFileName(archivePath)}");
+            await RefreshArchiveAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = FormatStatus("Deletion cancelled.");
+        }
+        catch (Exception ex)
+        {
+            StatusText = FormatStatus($"Deletion failed: {ex.Message}");
         }
         finally
         {

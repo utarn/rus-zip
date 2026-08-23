@@ -112,6 +112,35 @@ public partial class MainWindow : Window
                 }
                 return null;
             };
+
+            vm.RequestAppendSourcePaths = async () =>
+            {
+                var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "Select File(s) to Add to Archive",
+                    AllowMultiple = true
+                });
+
+                if (files.Count > 0)
+                {
+                    return files.Select(f => f.TryGetLocalPath())
+                                .Where(p => !string.IsNullOrEmpty(p))
+                                .Select(p => p!)
+                                .ToList();
+                }
+                return null;
+            };
+
+            vm.ConfirmDeleteAsync = async (count, paths) =>
+            {
+                var archiveName = !string.IsNullOrEmpty(vm.Browser.LoadedArchivePath)
+                    ? Path.GetFileName(vm.Browser.LoadedArchivePath)
+                    : string.Empty;
+                var dialogVm = new DeleteConfirmationViewModel(count, paths, archiveName);
+                var dialog = new DeleteConfirmationDialog(dialogVm);
+                var result = await dialog.ShowDialog<bool>(this);
+                return result;
+            };
         }
     }
 

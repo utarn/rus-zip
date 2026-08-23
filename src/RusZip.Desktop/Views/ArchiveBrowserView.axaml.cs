@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using RusZip.Desktop.ViewModels;
 
 namespace RusZip.Desktop.Views;
@@ -29,10 +30,58 @@ public partial class ArchiveBrowserView : UserControl
         ApplyColumnSortComparers();
 
         ArchiveGrid.CellPointerPressed += OnArchiveGridCellPointerPressed;
+        ArchiveGrid.KeyDown += OnArchiveGridKeyDown;
         if (ArchiveGrid.ContextMenu is { } menu)
         {
             menu.Opening += OnArchiveGridContextMenuOpening;
             menu.Closing += OnArchiveGridContextMenuClosing;
+        }
+    }
+
+    private static ArchiveItemViewModel? ExtractArchiveItem(object? obj)
+    {
+        if (obj is ArchiveItemViewModel item)
+        {
+            return item;
+        }
+        if (obj != null)
+        {
+            var prop = obj.GetType().GetProperty("Item");
+            if (prop?.GetValue(obj) is ArchiveItemViewModel unwrapped)
+            {
+                return unwrapped;
+            }
+        }
+        return null;
+    }
+
+    private void OnArchiveGridSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not ArchiveBrowserViewModel vm)
+        {
+            return;
+        }
+
+        var selected = ArchiveGrid.SelectedItems
+            .OfType<object>()
+            .Select(ExtractArchiveItem)
+            .Where(x => x != null)
+            .Select(x => x!)
+            .Distinct()
+            .ToList();
+
+        vm.SetSelectedItems(selected);
+    }
+
+    private void OnArchiveGridKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.Delete or Key.Back && DataContext is ArchiveBrowserViewModel vm)
+        {
+            if (vm.DeleteSelectedCommand.CanExecute(null))
+            {
+                vm.DeleteSelectedCommand.Execute(null);
+                e.Handled = true;
+            }
         }
     }
 

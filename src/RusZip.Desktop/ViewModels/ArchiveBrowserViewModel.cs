@@ -24,6 +24,9 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     [ObservableProperty] private long? _totalCompressedBytes;
     [ObservableProperty] private string _filterText = string.Empty;
     [ObservableProperty] private ArchiveItemViewModel? _selectedItem;
+    [ObservableProperty] private bool _canCompress;
+
+    public ObservableCollection<ArchiveItemViewModel> SelectedItems { get; } = [];
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasLoadError))]
@@ -90,8 +93,12 @@ public partial class ArchiveBrowserViewModel : ObservableObject
 
     public event Func<Task>? ExtractRequested;
     public event Func<ArchiveItemViewModel, Task>? ExtractItemRequested;
+    public event Func<IReadOnlyList<ArchiveItemViewModel>, Task>? ExtractItemsRequested;
+    public event Func<Task>? AppendRequested;
+    public event Func<IReadOnlyList<ArchiveItemViewModel>, Task>? DeleteRequested;
     public event Func<string, Task>? CopyPathRequested;
 
+    public Func<int, IReadOnlyList<string>, Task<bool>>? ConfirmDeleteAsync { get; set; }
     public Func<string, Task>? CopyToClipboardService { get; set; }
 
     public string FormattedTotalUncompressedSize => DataMetricsFormatter.FormatBytes(TotalUncompressedBytes);
@@ -126,6 +133,7 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         // the hostile list afterwards either.
         if (entries.Count > EntryCountCap)
         {
+            CanCompress = false;
             _allEntries = [];
             LoadErrorMessage =
                 $"This archive lists {entries.Count:N0} entries, exceeding the {EntryCountCap:N0}-entry safety limit for browsing. " +
@@ -134,16 +142,28 @@ public partial class ArchiveBrowserViewModel : ObservableObject
             GridSource = null;
             FilterText = string.Empty;
             SelectedItem = null;
+            SelectedItems.Clear();
             UpdateBreadcrumbs(null);
             return;
         }
+
+        CanCompress = ArchiveFormatRegistry.TryDetect(archivePath, out var descriptor)
+            && descriptor.CanCompress
+            && descriptor.Format != ArchiveFormat.Zst;
 
         _allEntries = entries.ToList();
         LoadErrorMessage = string.Empty;
         FilterText = string.Empty;
         SelectedItem = null;
+        SelectedItems.Clear();
         RebuildGridSource();
         UpdateBreadcrumbs(null);
+    }
+
+    partial void OnCanCompressChanged(bool value)
+    {
+        AppendFilesCommand.NotifyCanExecuteChanged();
+        DeleteSelectedCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnFilterTextChanged(string value)
@@ -154,8 +174,48 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     partial void OnSelectedItemChanged(ArchiveItemViewModel? value)
     {
         UpdateBreadcrumbsFromNavigation();
+        NotifySelectionCommands();
+    }
+
+    public void SetSelectedItems(IEnumerable<ArchiveItemViewModel> items)
+    {
+        SelectedItems.Clear();
+        foreach (var item in items)
+        {
+            SelectedItems.Add(item);
+        }
+        NotifySelectionCommands();
+    }
+
+    public IReadOnlyList<ArchiveItemViewModel> GetEffectiveSelectedItems(ArchiveItemViewModel? contextTarget = null)
+    {
+        if (contextTarget != null)
+        {
+            if (SelectedItems.Contains(contextTarget))
+            {
+                return SelectedItems.ToList();
+            }
+            return [contextTarget];
+        }
+
+        if (SelectedItems.Count > 0)
+        {
+            return SelectedItems.ToList();
+        }
+
+        if (SelectedItem != null)
+        {
+            return [SelectedItem];
+        }
+
+        return [];
+    }
+
+    private void NotifySelectionCommands()
+    {
         ExtractSelectedItemCommand.NotifyCanExecuteChanged();
         ExtractItemCommand.NotifyCanExecuteChanged();
+        DeleteSelectedCommand.NotifyCanExecuteChanged();
         CopyPathCommand.NotifyCanExecuteChanged();
         CopySelectedItemPathCommand.NotifyCanExecuteChanged();
     }
@@ -178,6 +238,53 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         SetExpandedRecursive(RootItems, false);
     }
 
+    [RelayCommand(CanExecute = nameof(CanExecuteAppend))]
+    public async Task AppendFilesAsync()
+    {
+        if (AppendRequested != null)
+        {
+            await AppendRequested.Invoke();
+        }
+    }
+
+    public bool CanExecuteAppend() => CanCompress;
+
+    [RelayCommand(CanExecute = nameof(CanExecuteDelete))]
+    public async Task DeleteSelectedAsync(object? parameter = null)
+    {
+        var target = parameter switch
+        {
+            ArchiveItemViewModel single => GetEffectiveSelectedItems(single),
+            IEnumerable<ArchiveItemViewModel> multiple => multiple.ToList(),
+            _ => GetEffectiveSelectedItems()
+        };
+
+        if (target.Count == 0)
+            return;
+
+        var paths = target.Select(t => t.RelativePath).ToList();
+
+        if (ConfirmDeleteAsync != null)
+        {
+            var confirmed = await ConfirmDeleteAsync(target.Count, paths);
+            if (!confirmed)
+                return;
+        }
+
+        if (DeleteRequested != null)
+        {
+            await DeleteRequested.Invoke(target);
+        }
+    }
+
+    public bool CanExecuteDelete(object? parameter = null)
+    {
+        if (!CanCompress) return false;
+        if (parameter is ArchiveItemViewModel) return true;
+        if (parameter is IEnumerable<ArchiveItemViewModel> list) return list.Any();
+        return SelectedItem != null || SelectedItems.Count > 0;
+    }
+
     [RelayCommand]
     public async Task RequestExtractAsync()
     {
@@ -190,25 +297,40 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     [RelayCommand]
     public async Task ExtractSelectedItemAsync()
     {
-        if (SelectedItem != null && ExtractItemRequested != null)
+        var targets = GetEffectiveSelectedItems();
+        if (targets.Count > 1 && ExtractItemsRequested != null)
         {
-            await ExtractItemRequested.Invoke(SelectedItem);
+            await ExtractItemsRequested.Invoke(targets);
         }
-        else if (SelectedItem == null && ExtractRequested != null)
+        else if (targets.Count == 1 && ExtractItemRequested != null)
+        {
+            await ExtractItemRequested.Invoke(targets[0]);
+        }
+        else if (targets.Count == 0 && ExtractRequested != null)
         {
             await ExtractRequested.Invoke();
         }
     }
 
     [RelayCommand]
-    public async Task ExtractItemAsync(ArchiveItemViewModel? item = null)
+    public async Task ExtractItemAsync(object? parameter = null)
     {
-        var target = item ?? SelectedItem;
-        if (target != null && ExtractItemRequested != null)
+        var target = parameter switch
         {
-            await ExtractItemRequested.Invoke(target);
+            ArchiveItemViewModel single => GetEffectiveSelectedItems(single),
+            IEnumerable<ArchiveItemViewModel> multiple => multiple.ToList(),
+            _ => GetEffectiveSelectedItems()
+        };
+
+        if (target.Count > 1 && ExtractItemsRequested != null)
+        {
+            await ExtractItemsRequested.Invoke(target);
         }
-        else if (target == null && ExtractRequested != null)
+        else if (target.Count == 1 && ExtractItemRequested != null)
+        {
+            await ExtractItemRequested.Invoke(target[0]);
+        }
+        else if (target.Count == 0 && ExtractRequested != null)
         {
             await ExtractRequested.Invoke();
         }
