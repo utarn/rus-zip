@@ -307,7 +307,7 @@ public class MainWindowViewModelTests
             Assert.Contains(file1, vm.Settings.SourcePathsDisplay);
             Assert.Contains(file2, vm.Settings.SourcePathsDisplay);
             Assert.Equal(file1, vm.Settings.SourcePath);
-            Assert.Equal(file1 + ".zrus", vm.Settings.DestinationPath);
+            Assert.Equal(Path.Combine(dir, "Archive.zrus"), vm.Settings.DestinationPath);
         }
         finally
         {
@@ -994,4 +994,86 @@ public class MainWindowViewModelTests
         Assert.NotNull(zstFile.Patterns);
         Assert.Equal(["*.zst"], zstFile.Patterns);
     }
+
+    [Fact]
+    public async Task ExecuteCompressAsync_PassesStagedSourcesAndActiveExclusionsToRequest()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "mw_compress_test_" + Guid.NewGuid().ToString("N"));
+        var subDir = Path.Combine(tempDir, "ignore_me");
+        Directory.CreateDirectory(subDir);
+        var file1 = Path.Combine(tempDir, "keep.txt");
+        var file2 = Path.Combine(subDir, "skip.txt");
+        var tempDest = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.zrus");
+
+        File.WriteAllText(file1, "keep");
+        File.WriteAllText(file2, "skip");
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine();
+            var vm = new MainWindowViewModel(fakeEngine);
+
+            // Stage folder
+            vm.Settings.StageSources([tempDir]);
+            vm.Settings.DestinationPath = tempDest;
+
+            // Exclude the sub-directory
+            var root = vm.Settings.StagedItems[0];
+            var childToExclude = root.Children.FirstOrDefault(c => c.Name == "ignore_me");
+            Assert.NotNull(childToExclude);
+            vm.Settings.ToggleExclusionCommand.Execute(childToExclude);
+
+            Assert.NotEmpty(vm.Settings.ExclusionPaths);
+            Assert.Contains(childToExclude.FullPath, vm.Settings.ExclusionPaths);
+
+            await vm.ExecuteCompressAsync();
+
+            Assert.NotNull(fakeEngine.LastCompressionRequest);
+            Assert.Single(fakeEngine.LastCompressionRequest.SourcePaths);
+            Assert.Equal(tempDir, fakeEngine.LastCompressionRequest.SourcePaths[0]);
+            Assert.Equal(tempDest, fakeEngine.LastCompressionRequest.DestinationArchivePath);
+            Assert.NotNull(fakeEngine.LastCompressionRequest.ExcludedPaths);
+            Assert.Contains(childToExclude.FullPath, fakeEngine.LastCompressionRequest.ExcludedPaths);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+            if (File.Exists(tempDest)) File.Delete(tempDest);
+        }
+    }
+
+    [Fact]
+    public async Task HandleDroppedPathsAsync_WhenCompressDialogAlreadyVisible_AppendsSources()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "mw_drop_append_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var file1 = Path.Combine(tempDir, "first.txt");
+        var file2 = Path.Combine(tempDir, "second.txt");
+        File.WriteAllText(file1, "1");
+        File.WriteAllText(file2, "2");
+
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine();
+            var vm = new MainWindowViewModel(fakeEngine);
+
+            // Drop first file -> opens dialog
+            await vm.HandleDroppedPathsAsync([file1]);
+            Assert.True(vm.IsCompressDialogVisible);
+            Assert.Single(vm.Settings.StagedItems);
+
+            // Drop second file while dialog is open -> appends to staged items
+            await vm.HandleDroppedPathsAsync([file2]);
+            Assert.True(vm.IsCompressDialogVisible);
+            Assert.Equal(2, vm.Settings.StagedItems.Count);
+            Assert.Equal(file1, vm.Settings.StagedItems[0].FullPath);
+            Assert.Equal(file2, vm.Settings.StagedItems[1].FullPath);
+            Assert.Equal(Path.Combine(tempDir, "Archive.zrus"), vm.Settings.DestinationPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
 }
+

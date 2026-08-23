@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Platform.Storage;
 using RusZip.Desktop.ViewModels;
 
@@ -9,6 +10,19 @@ public partial class CompressionSettingsView : UserControl
     public CompressionSettingsView()
     {
         InitializeComponent();
+        StagedGrid.KeyDown += OnStagedGridKeyDown;
+    }
+
+    private void OnStagedGridKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.Delete or Key.Back && DataContext is CompressionSettingsViewModel vm)
+        {
+            if (vm.SelectedItem != null)
+            {
+                vm.RemoveSelectedCommand.Execute(vm.SelectedItem);
+                e.Handled = true;
+            }
+        }
     }
 
     public static FilePickerSaveOptions CreateSaveFilePickerOptions(CompressionSettingsViewModel vm)
@@ -18,13 +32,35 @@ public partial class CompressionSettingsView : UserControl
         var pattern = isZip ? "*.zip" : "*.zrus";
         var typeName = isZip ? "ZIP Archive (*.zip)" : "ZRUS Archive (*.zrus)";
 
+        string suggestedFileName;
+        if (!string.IsNullOrEmpty(vm.DestinationPath))
+        {
+            suggestedFileName = Path.GetFileName(vm.DestinationPath);
+        }
+        else if (vm.StagedItems.Count > 1)
+        {
+            suggestedFileName = $"Archive{vm.SelectedFormat}";
+        }
+        else if (vm.StagedItems.Count == 1)
+        {
+            var single = vm.StagedItems[0].FullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            suggestedFileName = Path.GetFileName(single) + vm.SelectedFormat;
+        }
+        else if (!string.IsNullOrEmpty(vm.SourcePath))
+        {
+            var single = vm.SourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            suggestedFileName = Path.GetFileName(single) + vm.SelectedFormat;
+        }
+        else
+        {
+            suggestedFileName = $"archive{vm.SelectedFormat}";
+        }
+
         return new FilePickerSaveOptions
         {
             Title = "Save Archive As",
             DefaultExtension = ext,
-            SuggestedFileName = !string.IsNullOrEmpty(vm.SourcePath)
-                ? Path.GetFileName(vm.SourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) + vm.SelectedFormat
-                : $"archive{vm.SelectedFormat}",
+            SuggestedFileName = suggestedFileName,
             FileTypeChoices =
             [
                 new FilePickerFileType(typeName) { Patterns = [pattern] },
@@ -38,6 +74,18 @@ public partial class CompressionSettingsView : UserControl
         base.OnDataContextChanged(e);
         if (DataContext is CompressionSettingsViewModel vm)
         {
+            vm.RequestSourceFiles = async () =>
+            {
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel == null) return null;
+                var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "Select File(s) to Compress",
+                    AllowMultiple = true
+                });
+                return files.Select(f => f.TryGetLocalPath()).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!).ToList();
+            };
+
             vm.RequestSourceFile = async () =>
             {
                 var topLevel = TopLevel.GetTopLevel(this);

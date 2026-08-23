@@ -206,7 +206,7 @@
         <Grid Grid.Row="0" Grid.RowSpan="3" Background="#7F000000" IsVisible="{Binding IsCompressDialogVisible}">
             <Border HorizontalAlignment="Center"
                     VerticalAlignment="Center"
-                    Width="580"
+                    Width="680"
                     Background="{DynamicResource CardBackgroundFillColorDefault}"
                     BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
                     BorderThickness="1"
