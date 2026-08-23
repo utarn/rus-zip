@@ -754,12 +754,12 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
 
         if (format == ArchiveFormat.TarGz)
         {
-            return await ExtractTarGzAsync(archivePath, destDir, request.Overwrite, request.Limits, request.Entries, progress, ct);
+            return await ExtractTarGzAsync(archivePath, destDir, request.Overwrite, request.Limits, request.Entries, progress, ct, request.ConflictResolver);
         }
 
         if (format == ArchiveFormat.Gz)
         {
-            return await ExtractGzAsync(archivePath, destDir, request.Overwrite, request.Limits, request.Entries, progress, ct);
+            return await ExtractGzAsync(archivePath, destDir, request.Overwrite, request.Limits, request.Entries, progress, ct, request.ConflictResolver);
         }
 
         var readerOptions = new ReaderOptions { LeaveStreamOpen = false };
@@ -859,7 +859,8 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     progress,
                     ct,
                     request.Limits,
-                    totalIsEstimate: totalBytes >= 0);
+                    totalIsEstimate: totalBytes >= 0,
+                    conflictResolver: request.ConflictResolver);
             }
             catch (Exception ex) when (ex is not SecurityException && ex is not NotSupportedException && ex is not InvalidOperationException && ex is not IOException && ex is not OperationCanceledException && IsPasswordOrEncryptedException(ex))
             {
@@ -964,7 +965,8 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         ExtractionLimits? limits,
         IReadOnlyList<string>? entries,
         IProgress<DomainProgressReport>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        IFileConflictResolver? conflictResolver = null)
     {
         var source = new TarGzExtractionSource(archivePath, entries);
         return await SafeArchiveExtractor.ExtractAllAsync(
@@ -974,7 +976,8 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             totalBytes: -1,
             progress,
             ct,
-            limits);
+            limits,
+            conflictResolver: conflictResolver);
     }
 
     private static async Task<ExtractionResult> ExtractGzAsync(
@@ -984,7 +987,8 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         ExtractionLimits? limits,
         IReadOnlyList<string>? entries,
         IProgress<DomainProgressReport>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        IFileConflictResolver? conflictResolver = null)
     {
         var source = new GzExtractionSource(archivePath, entries);
         return await SafeArchiveExtractor.ExtractAllAsync(
@@ -994,7 +998,8 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             totalBytes: -1,
             progress,
             ct,
-            limits);
+            limits,
+            conflictResolver: conflictResolver);
     }
 
     private sealed class TarGzExtractionSource(string archivePath, IReadOnlyList<string>? entryFilter) : IArchiveExtractionSource

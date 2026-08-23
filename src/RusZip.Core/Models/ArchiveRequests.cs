@@ -1,3 +1,5 @@
+using RusZip.Core.Abstractions;
+
 namespace RusZip.Core.Models;
 
 public sealed record ArchiveCompressionRequest(
@@ -58,12 +60,14 @@ public sealed record AppendResult(
 /// matches, extraction fails with an <see cref="InvalidOperationException"/> (see
 /// <c>RusZip.Core.Engines.EntryFilter</c>).
 /// </param>
+/// <param name="ConflictResolver">Optional conflict resolver for interactive or policy-driven file collision handling.</param>
 public sealed record ArchiveExtractionRequest(
     string ArchivePath,
     string DestinationDirectory,
     bool Overwrite = true,
     ExtractionLimits? Limits = null,
-    IReadOnlyList<string>? Entries = null
+    IReadOnlyList<string>? Entries = null,
+    IFileConflictResolver? ConflictResolver = null
 );
 
 /// <summary>
