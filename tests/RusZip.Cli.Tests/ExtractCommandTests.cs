@@ -34,6 +34,54 @@ public sealed class ExtractCommandTests : CliTestBase
     }
 
     [Fact]
+    public async Task Extract_TarZstdArchive_MultiFile_JsonMode_ReturnsExitCode0_AndValidJson()
+    {
+        // Arrange: create multi-file directory and compress to .tar.zstd
+        var sourceDir = CreateTempDirectory("src_tarzstd", fileCount: 3);
+        var archivePath = Path.Combine(TempDirectory, "test_extract.tar.zstd");
+        var (cCode, _) = await RunCliAsync("compress", sourceDir, archivePath, "--json");
+        Assert.Equal(0, cCode);
+
+        var outDir = Path.Combine(TempDirectory, "extracted_tarzstd");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<ExtractResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(Path.GetFullPath(archivePath), result.ArchivePath);
+        Assert.Equal(Path.GetFullPath(outDir), result.DestinationPath);
+        Assert.Equal(3, result.ExtractedFiles);
+        Assert.True(result.TotalBytes > 0);
+    }
+
+    [Fact]
+    public async Task Extract_TzstdArchive_MultiFile_JsonMode_ReturnsExitCode0_AndValidJson()
+    {
+        // Arrange: create multi-file directory and compress to .tzstd
+        var sourceDir = CreateTempDirectory("src_tzstd", fileCount: 2);
+        var archivePath = Path.Combine(TempDirectory, "test_extract.tzstd");
+        var (cCode, _) = await RunCliAsync("compress", sourceDir, archivePath, "--json");
+        Assert.Equal(0, cCode);
+
+        var outDir = Path.Combine(TempDirectory, "extracted_tzstd");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<ExtractResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(Path.GetFullPath(archivePath), result.ArchivePath);
+        Assert.Equal(Path.GetFullPath(outDir), result.DestinationPath);
+        Assert.Equal(2, result.ExtractedFiles);
+        Assert.True(result.TotalBytes > 0);
+    }
+
+    [Fact]
     public async Task Extract_ZipArchive_JsonMode_ReturnsExitCode0()
     {
         // Arrange
@@ -458,6 +506,82 @@ public sealed class ExtractCommandTests : CliTestBase
         // Partial (corrupt) output cleaned up.
         Assert.False(File.Exists(Path.Combine(outDir, "midstream_cli.bin")));
         Assert.Empty(Directory.GetFiles(outDir, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Extract_CorruptedTarZstd_MidStream_ReturnsExitCode1_AndExecutionError_AndCleansUp()
+    {
+        var sourceFile = Path.Combine(TempDirectory, "midstream_tarzstd.bin");
+        var payload = new byte[5 * 1024 * 1024];
+        new Random(4242).NextBytes(payload);
+        await File.WriteAllBytesAsync(sourceFile, payload);
+
+        var archivePath = Path.Combine(TempDirectory, "midstream_tarzstd.tar.zstd");
+        await RunCliAsync("compress", sourceFile, archivePath, "--json");
+
+        var bytes = await File.ReadAllBytesAsync(archivePath);
+        bytes[bytes.Length / 2] ^= 0xFF;
+        var badPath = Path.Combine(TempDirectory, "midstream_tarzstd_bad.tar.zstd");
+        await File.WriteAllBytesAsync(badPath, bytes);
+
+        var outDir = Path.Combine(TempDirectory, "midstream_tarzstd_out");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", badPath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("checksum", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(Path.Combine(outDir, "midstream_tarzstd.bin")));
+        Assert.Empty(Directory.GetFiles(outDir, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Extract_TarZstd_WithMaxUncompressedSizeCap_ReturnsExitCode1_AndExecutionError()
+    {
+        var sourceFile = Path.Combine(TempDirectory, "big_tarzstd.bin");
+        var payload = new byte[2 * 1024 * 1024];
+        new Random(1234).NextBytes(payload);
+        await File.WriteAllBytesAsync(sourceFile, payload);
+
+        var archivePath = Path.Combine(TempDirectory, "bomb_size.tar.zstd");
+        await RunCliAsync("compress", sourceFile, archivePath, "--json");
+
+        var outDir = Path.Combine(TempDirectory, "extracted_tarzstd_bomb_size");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--max-uncompressed-size", "1MB", "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("uncompressed output", err.Error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(Path.Combine(outDir, "big_tarzstd.bin")));
+    }
+
+    [Fact]
+    public async Task Extract_TarZstd_EntryCountCapExceeded_ReturnsExitCode1_AndExecutionError()
+    {
+        var srcDir = CreateTempDirectory("tarzstd_entries_src", fileCount: 5);
+        var archivePath = Path.Combine(TempDirectory, "bomb_entries.tar.zstd");
+        await RunCliAsync("compress", srcDir, archivePath, "--json");
+
+        var outDir = Path.Combine(TempDirectory, "extracted_tarzstd_bomb_entries");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--max-entries", "2", "--json");
+
+        // Assert
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("entry count", err.Error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

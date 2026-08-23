@@ -7,6 +7,8 @@ public class FileIconCategorizerTests
     [Theory]
     // Formats the ArchiveFormatRegistry actually recognizes (capability-backed).
     [InlineData("archive.zrus")]
+    [InlineData("archive.tar.zstd")]
+    [InlineData("archive.tzstd")]
     [InlineData("archive.zip")]
     [InlineData("archive.7z")]
     [InlineData("archive.rar")]
@@ -15,6 +17,8 @@ public class FileIconCategorizerTests
     [InlineData("bundle.tgz")]
     [InlineData("UPPER.ZRUS")]
     [InlineData("ARCHIVE.TAR.GZ")]
+    [InlineData("ARCHIVE.TAR.ZSTD")]
+    [InlineData("BUNDLE.TZSTD")]
     public void IsArchiveFile_RegistryRecognizedFormats_ReturnsTrue(string fileName)
     {
         Assert.True(FileIconCategorizer.IsArchiveFile(fileName));
@@ -56,6 +60,8 @@ public class FileIconCategorizerTests
     [Theory]
     // Registry-recognized archives.
     [InlineData("archive.zrus", "📦")]
+    [InlineData("archive.tar.zstd", "📦")]
+    [InlineData("archive.tzstd", "📦")]
     [InlineData("archive.zip", "📦")]
     [InlineData("archive.rar", "📦")]
     [InlineData("archive.tar.gz", "📦")]
@@ -78,6 +84,8 @@ public class FileIconCategorizerTests
     [Theory]
     // Registry-recognized archives.
     [InlineData("archive.zrus", "Icon.FileArchive")]
+    [InlineData("archive.tar.zstd", "Icon.FileArchive")]
+    [InlineData("archive.tzstd", "Icon.FileArchive")]
     [InlineData("archive.zip", "Icon.FileArchive")]
     [InlineData("archive.7z", "Icon.FileArchive")]
     [InlineData("archive.rar", "Icon.FileArchive")]
