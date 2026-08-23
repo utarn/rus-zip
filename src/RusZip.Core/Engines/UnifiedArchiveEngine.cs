@@ -28,7 +28,7 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
 
         return descriptor.Format switch
         {
-            ArchiveFormat.Zrus => _zstdEngine.CompressAsync(request, progress, ct),
+            ArchiveFormat.Zrus or ArchiveFormat.Zst => _zstdEngine.CompressAsync(request, progress, ct),
             ArchiveFormat.Zip => _sharpCompressEngine.CompressAsync(request, progress, ct),
             _ => throw new NotSupportedException($"Creation of '{descriptor.Format}' archive format is not supported. Supported creation formats: {string.Join(", ", ArchiveFormatRegistry.CompressibleFormats.Select(f => f.PrimaryExtension))}")
         };
@@ -40,6 +40,11 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
         CancellationToken ct = default)
     {
         var descriptor = ArchiveFormatRegistry.Detect(request.ArchivePath);
+        if (descriptor.Format == ArchiveFormat.Zst)
+        {
+            throw new NotSupportedException("Appending is not supported for single-file streams.");
+        }
+
         if (!descriptor.CanCompress)
         {
             throw new NotSupportedException($"Appending to '{descriptor.Format}' archive format is not supported.");
@@ -66,7 +71,7 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
 
         return descriptor.Format switch
         {
-            ArchiveFormat.Zrus => _zstdEngine.ExtractAsync(request, progress, ct),
+            ArchiveFormat.Zrus or ArchiveFormat.Zst => _zstdEngine.ExtractAsync(request, progress, ct),
             _ => _sharpCompressEngine.ExtractAsync(request, progress, ct)
         };
     }
@@ -78,7 +83,7 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
         var descriptor = ArchiveFormatRegistry.Detect(archivePath);
         return descriptor.Format switch
         {
-            ArchiveFormat.Zrus => _zstdEngine.ListEntriesAsync(archivePath, ct),
+            ArchiveFormat.Zrus or ArchiveFormat.Zst => _zstdEngine.ListEntriesAsync(archivePath, ct),
             _ => _sharpCompressEngine.ListEntriesAsync(archivePath, ct)
         };
     }

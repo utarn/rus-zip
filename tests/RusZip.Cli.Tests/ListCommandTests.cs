@@ -410,4 +410,60 @@ public sealed class ListCommandTests : CliTestBase
         Assert.Equal(0, result.TotalEntries);
         Assert.Empty(result.Entries);
     }
+
+    [Fact]
+    public async Task List_ZstArchive_JsonMode_ReturnsExitCode0_AndValidJson()
+    {
+        // Arrange
+        var sourceFile = CreateTempFile("metrics.json", "{\"cpu\": 42, \"mem\": 1024}");
+        var archivePath = Path.Combine(TempDirectory, "metrics.json.zst");
+        await RunCliAsync("compress", sourceFile, archivePath, "--json");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("list", archivePath, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+
+        var result = ParseJson<ListResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(Path.GetFullPath(archivePath), result.ArchivePath);
+        Assert.Equal("zst", result.Format);
+        Assert.Equal(1, result.TotalEntries);
+        Assert.Single(result.Entries);
+        Assert.Equal("metrics.json", result.Entries[0].Path);
+        Assert.False(result.Entries[0].IsDirectory);
+        Assert.True(result.Entries[0].UncompressedSize > 0);
+    }
+
+    [Fact]
+    public async Task List_ZstArchive_ConsoleMode_ReturnsExitCode0()
+    {
+        // Arrange
+        var sourceFile = CreateTempFile("output.log", "some log text");
+        var archivePath = Path.Combine(TempDirectory, "output.log.zst");
+        await RunCliAsync("compress", sourceFile, archivePath, "--json");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("list", archivePath);
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.Contains("output.log", stdout);
+        Assert.Contains("1 entries", stdout);
+    }
+
+    [Fact]
+    public async Task List_ZstArchive_CorruptedPayload_ReturnsExitCode1_ExecutionError()
+    {
+        var archivePath = Path.Combine(TempDirectory, "corrupt_list.zst");
+        await File.WriteAllBytesAsync(archivePath, [0x00, 0x01, 0x02, 0x03, 0x04]);
+
+        var (exitCode, stdout) = await RunCliAsync("list", archivePath, "--json");
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("Zstandard frame error", err.Error.Message);
+    }
 }

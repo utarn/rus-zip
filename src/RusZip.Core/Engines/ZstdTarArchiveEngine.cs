@@ -84,6 +84,81 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         int entriesWritten = 0;
         var isSingleDir = resolvedSources.Count == 1 && resolvedSources[0].IsDir;
 
+        var descriptor = ArchiveFormatRegistry.Detect(destination);
+        if (descriptor.Format == ArchiveFormat.Zst)
+        {
+            if (resolvedSources.Count != 1)
+            {
+                throw new ArgumentException("Single-file Zstandard compression (.zst) requires exactly one source file.", nameof(request));
+            }
+
+            if (resolvedSources[0].IsDir)
+            {
+                throw new ArgumentException("Single-file Zstandard compression (.zst) does not support directory input.", nameof(request));
+            }
+
+            var (srcFullPath, _, _) = resolvedSources[0];
+            var fileInfo = new FileInfo(srcFullPath);
+            var relPath = Path.GetFileName(srcFullPath);
+
+            try
+            {
+                await using (var fileStream = new FileStream(
+                    tempOutput,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    BufferSize,
+                    useAsync: true))
+                await using (var compressionStream = new CompressionStream(fileStream, request.CompressionLevel))
+                {
+                    compressionStream.SetParameter(ZSTD_cParameter.ZSTD_c_checksumFlag, 1);
+                    if (Environment.ProcessorCount > 1)
+                    {
+                        compressionStream.SetParameter(ZSTD_cParameter.ZSTD_c_nbWorkers, Environment.ProcessorCount);
+                    }
+
+                    await using var srcStream = new FileStream(
+                        fileInfo.FullName,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.Read,
+                        BufferSize,
+                        useAsync: true);
+
+                    await using var trackingStream = new ProgressReportingStream(
+                        srcStream,
+                        fileInfo.Length,
+                        bytesRead =>
+                        {
+                            Interlocked.Add(ref processedBytes, bytesRead);
+                            var currentTotal = Volatile.Read(ref processedBytes);
+                            progress?.Report(new ProgressReport(
+                                ProcessedBytes: currentTotal,
+                                TotalBytes: totalBytes,
+                                CurrentFileName: relPath,
+                                Percentage: totalBytes > 0 ? (double)currentTotal / totalBytes * 100.0 : 0,
+                                ProcessedFiles: Volatile.Read(ref processedFiles),
+                                TotalFiles: totalFiles
+                            ));
+                        });
+
+                    await trackingStream.CopyToAsync(compressionStream, BufferSize, ct);
+                    Interlocked.Increment(ref processedFiles);
+                }
+
+                File.Move(tempOutput, destination, overwrite: true);
+                return;
+            }
+            finally
+            {
+                if (File.Exists(tempOutput))
+                {
+                    try { File.Delete(tempOutput); } catch { /* Ignore */ }
+                }
+            }
+        }
+
         try
         {
             await using (var fileStream = new FileStream(
@@ -282,6 +357,12 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         if (!File.Exists(archivePath))
         {
             throw new FileNotFoundException($"Archive not found: {archivePath}", archivePath);
+        }
+
+        var descriptor = ArchiveFormatRegistry.Detect(archivePath);
+        if (descriptor.Format == ArchiveFormat.Zst)
+        {
+            throw new NotSupportedException("Appending is not supported for single-file streams.");
         }
 
         // Validate all sources upfront before creating any temporary files
@@ -762,6 +843,12 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             throw new FileNotFoundException($"Archive not found: {archivePath}");
         }
 
+        var descriptor = ArchiveFormatRegistry.Detect(archivePath);
+        if (descriptor.Format == ArchiveFormat.Zst)
+        {
+            return await ExtractZstAsync(archivePath, request.DestinationDirectory, request.Overwrite, request.Limits, request.Entries, progress, ct, request.ConflictResolver);
+        }
+
         // Pre-scan uncompressed total size. These totals are derived from header metadata and are
         // therefore spoofable — they drive the progress bar only (labeled as estimates) and are never
         // used for enforcement (see ADR-0007). Enforcement reads actual streamed bytes/entries.
@@ -809,6 +896,106 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
         {
             throw new ArchiveIntegrityException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", innerException: ex);
+        }
+    }
+
+    private static async Task<ExtractionResult> ExtractZstAsync(
+        string archivePath,
+        string destinationDir,
+        bool overwrite,
+        ExtractionLimits? limits,
+        IReadOnlyList<string>? entries,
+        IProgress<ProgressReport>? progress,
+        CancellationToken ct,
+        IFileConflictResolver? conflictResolver = null)
+    {
+        long totalBytes = 0;
+        try
+        {
+            var list = await ListZstEntryAsync(archivePath, ct);
+            totalBytes = list
+                .Where(e => !e.IsDirectory && EntryFilter.IsMatch(e.RelativePath, entries))
+                .Sum(e => e.UncompressedSize);
+        }
+        catch (ArchiveIntegrityException)
+        {
+            totalBytes = -1;
+        }
+        catch (InvalidDataException)
+        {
+            throw;
+        }
+        catch
+        {
+            totalBytes = -1;
+        }
+
+        var source = new ZstExtractionSource(archivePath, entries);
+        try
+        {
+            return await SafeArchiveExtractor.ExtractAllAsync(
+                source,
+                destinationDir,
+                overwrite,
+                totalBytes,
+                progress,
+                ct,
+                limits,
+                totalIsEstimate: false,
+                conflictResolver: conflictResolver);
+        }
+        catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+        {
+            throw new ArchiveIntegrityException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", innerException: ex);
+        }
+    }
+
+    private sealed class ZstExtractionSource(string archivePath, IReadOnlyList<string>? entryFilter) : IArchiveExtractionSource
+    {
+        public async IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync([EnumeratorCancellation] CancellationToken ct = default)
+        {
+            var outFileName = Path.GetFileNameWithoutExtension(archivePath);
+            var fileInfo = new FileInfo(archivePath);
+
+            if (entryFilter is { Count: > 0 } && !EntryFilter.IsMatch(outFileName, entryFilter))
+            {
+                throw new InvalidOperationException(EntryFilter.NoMatchMessage);
+            }
+
+            yield return new ExtractionEntry(
+                RelativePath: outFileName,
+                IsDirectory: false,
+                UncompressedSize: -1,
+                ModificationTime: fileInfo.LastWriteTimeUtc,
+                UnixMode: null,
+                OpenStreamAsync: _ =>
+                {
+                    FileStream inStream;
+                    try
+                    {
+                        inStream = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, SafeArchiveExtractor.BufferSize, useAsync: true);
+                    }
+                    catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+                    {
+                        throw new ArchiveIntegrityException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", outFileName, ex);
+                    }
+
+                    DecompressionStream zstdStream;
+                    try
+                    {
+                        zstdStream = new DecompressionStream(inStream);
+                    }
+                    catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+                    {
+                        inStream.Dispose();
+                        throw new ArchiveIntegrityException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", outFileName, ex);
+                    }
+
+                    Stream stream = new ZstdIntegrityStream(zstdStream, archivePath, outFileName);
+                    return ValueTask.FromResult(stream);
+                }
+            );
+            await Task.CompletedTask;
         }
     }
 
@@ -1017,6 +1204,21 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _inner.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            await _inner.DisposeAsync();
+            await base.DisposeAsync();
+        }
     }
 
     /// <summary>
@@ -1084,6 +1286,12 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             throw new FileNotFoundException($"Archive not found: {fullPath}");
         }
 
+        var descriptor = ArchiveFormatRegistry.Detect(fullPath);
+        if (descriptor.Format == ArchiveFormat.Zst)
+        {
+            return await ListZstEntryAsync(fullPath, ct);
+        }
+
         var results = new List<ArchiveEntry>();
 
         try
@@ -1147,5 +1355,53 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         }
 
         return results;
+    }
+
+    private static async Task<IReadOnlyList<ArchiveEntry>> ListZstEntryAsync(string fullPath, CancellationToken ct)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(fullPath);
+        var fileInfo = new FileInfo(fullPath);
+        long uncompressedBytes = 0;
+
+        try
+        {
+            await using var fileStream = new FileStream(
+                fullPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                BufferSize,
+                useAsync: true);
+
+            await using var decompressionStream = new DecompressionStream(fileStream);
+
+            byte[] drainBuffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+            try
+            {
+                int read;
+                while ((read = await decompressionStream.ReadAsync(drainBuffer.AsMemory(0, BufferSize), ct)) > 0)
+                {
+                    uncompressedBytes += read;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(drainBuffer);
+            }
+        }
+        catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+        {
+            throw new ArchiveIntegrityException($"Zstandard frame error in '{fullPath}': {ex.Message}", innerException: ex);
+        }
+
+        return [new ArchiveEntry(
+            RelativePath: fileName,
+            UncompressedSize: uncompressedBytes,
+            CompressedSize: fileInfo.Length,
+            LastModified: fileInfo.LastWriteTimeUtc,
+            IsDirectory: false,
+            IsEncrypted: false,
+            Attributes: ""
+        )];
     }
 }

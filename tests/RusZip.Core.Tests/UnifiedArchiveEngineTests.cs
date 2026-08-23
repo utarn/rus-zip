@@ -120,7 +120,52 @@ public class UnifiedArchiveEngineTests : IDisposable
         var req = new ArchiveCompressionRequest(dummyFile, destination, 9);
 
         var ex = await Assert.ThrowsAsync<NotSupportedException>(() => _engine.CompressAsync(req));
-        Assert.Contains("Supported creation formats: .zrus, .zip", ex.Message);
+        Assert.Contains("Supported creation formats: .zrus, .zip, .zst", ex.Message);
+    }
+
+    [Fact]
+    public async Task UnifiedEngine_RoutesZstCorrectly()
+    {
+        var sourceFile = Path.Combine(_testDir, "single.txt");
+        await File.WriteAllTextAsync(sourceFile, "Hello Zstandard stream!");
+
+        var zstPath = Path.Combine(_testDir, "single.txt.zst");
+
+        // Compress
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceFile, zstPath, 9));
+        Assert.True(File.Exists(zstPath));
+
+        // List
+        var entries = await _engine.ListEntriesAsync(zstPath);
+        var entry = Assert.Single(entries);
+        Assert.Equal("single.txt", entry.RelativePath);
+        Assert.False(entry.IsDirectory);
+        Assert.Equal("Hello Zstandard stream!".Length, entry.UncompressedSize);
+
+        // Extract
+        var extractDir = Path.Combine(_testDir, "zst_extract_out");
+        var result = await _engine.ExtractAsync(new ArchiveExtractionRequest(zstPath, extractDir));
+        Assert.Equal(1, result.FilesExtracted);
+        var extractedFile = Path.Combine(extractDir, "single.txt");
+        Assert.True(File.Exists(extractedFile));
+        Assert.Equal("Hello Zstandard stream!", await File.ReadAllTextAsync(extractedFile));
+    }
+
+    [Fact]
+    public async Task UnifiedEngine_Append_Zst_ThrowsNotSupportedException()
+    {
+        var sourceFile = Path.Combine(_testDir, "append_base.txt");
+        await File.WriteAllTextAsync(sourceFile, "Initial stream");
+
+        var zstPath = Path.Combine(_testDir, "append_base.txt.zst");
+        await _engine.CompressAsync(new ArchiveCompressionRequest(sourceFile, zstPath, 9));
+
+        var appendFile = Path.Combine(_testDir, "extra.txt");
+        await File.WriteAllTextAsync(appendFile, "Extra");
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            _engine.AppendAsync(new ArchiveAppendRequest(zstPath, [appendFile], 9)));
+        Assert.Contains("Appending is not supported for single-file streams", ex.Message);
     }
 
     [Fact]

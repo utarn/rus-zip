@@ -88,6 +88,20 @@ public static class ArchiveFormatRegistry
         CategoryDescription: "Single file GZip compressed stream"
     );
 
+    public static readonly ArchiveFormatDescriptor Zst = new(
+        Format: ArchiveFormat.Zst,
+        DisplayName: "Zstandard Compressed File (.zst)",
+        PrimaryExtension: ".zst",
+        Extensions: [".zst"],
+        CanCompress: true,
+        CanDecompress: true,
+        MinCompressionLevel: 1,
+        MaxCompressionLevel: 22,
+        DefaultCompressionLevel: 9,
+        MimeType: "application/zstd",
+        CategoryDescription: "Single file Zstandard compressed stream"
+    );
+
     private static readonly IReadOnlyList<ArchiveFormatDescriptor> AllFormats =
     [
         TarGz,   // Checked before Gz / Tar
@@ -95,7 +109,8 @@ public static class ArchiveFormatRegistry
         Zip,
         SevenZip,
         Rar,
-        Gz
+        Gz,
+        Zst
     ];
 
     public static IReadOnlyList<ArchiveFormatDescriptor> Formats => AllFormats;

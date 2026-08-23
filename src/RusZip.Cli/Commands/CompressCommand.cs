@@ -147,6 +147,24 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     throw new NotSupportedException($"Creation of archive format '{formatDescriptor.Format}' is not supported. Supported creation formats: {supportedCreationFormats}");
                 }
 
+                if (formatDescriptor.Format == ArchiveFormat.Zst)
+                {
+                    if (settings.Append)
+                    {
+                        throw new NotSupportedException("Appending is not supported for single-file streams.");
+                    }
+
+                    if (sourceArgs.Count != 1)
+                    {
+                        throw new ArgumentException("Single-file Zstandard compression (.zst) requires exactly one source file.");
+                    }
+
+                    if (Directory.Exists(resolvedSources[0]))
+                    {
+                        throw new ArgumentException("Single-file Zstandard compression (.zst) does not support directory input.");
+                    }
+                }
+
                 // F-16: level validation is per destination format. The registry models the real
                 // range for each format (.zip 0-9 with 0 = Store, .zrus 1-22), so `-l 15 x.zip`
                 // is rejected instead of silently capping, and `-l 0 x.zip` maps to Store.

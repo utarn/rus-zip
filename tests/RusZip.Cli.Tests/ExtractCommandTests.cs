@@ -879,6 +879,80 @@ public sealed class ExtractCommandTests : CliTestBase
         Assert.Contains("Invalid conflict policy 'invalid_policy'. Valid policies: overwrite, skip, abort.", err.Error.Message);
     }
 
+    #region Single-File Zstandard Stream (.zst) Tests
+
+    [Fact]
+    public async Task Extract_ZstArchive_JsonMode_ReturnsExitCode0_AndValidJson()
+    {
+        // Arrange
+        var sourceFile = CreateTempFile("data.csv", "id,name,val\n1,Alpha,100\n2,Beta,200\n");
+        var archivePath = Path.Combine(TempDirectory, "data.csv.zst");
+        var (cExit, _) = await RunCliAsync("compress", sourceFile, "-o", archivePath, "--json");
+        Assert.Equal(0, cExit);
+
+        var outDir = Path.Combine(TempDirectory, "extracted_zst_cli");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<ExtractResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(Path.GetFullPath(archivePath), result.ArchivePath);
+        Assert.Equal(Path.GetFullPath(outDir), result.DestinationPath);
+        Assert.Equal(1, result.ExtractedFiles);
+        Assert.True(result.TotalBytes > 0);
+
+        var extractedFile = Path.Combine(outDir, "data.csv");
+        Assert.True(File.Exists(extractedFile));
+        Assert.Equal("id,name,val\n1,Alpha,100\n2,Beta,200\n", await File.ReadAllTextAsync(extractedFile));
+    }
+
+    [Fact]
+    public async Task Extract_ZstArchive_ConsoleMode_ReturnsExitCode0()
+    {
+        // Arrange
+        var sourceFile = CreateTempFile("log.txt", "Single file log payload");
+        var archivePath = Path.Combine(TempDirectory, "log.txt.zst");
+        await RunCliAsync("compress", sourceFile, archivePath, "--json");
+
+        var outDir = Path.Combine(TempDirectory, "extracted_zst_console");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir);
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Extraction Summary", stdout);
+        Assert.True(File.Exists(Path.Combine(outDir, "log.txt")));
+    }
+
+    [Fact]
+    public async Task Extract_ZstArchive_CorruptedPayload_ReturnsExitCode1_ExecutionError()
+    {
+        var sourceFile = CreateTempFile("corrupt_test.bin", "sample data to corrupt");
+        var archivePath = Path.Combine(TempDirectory, "corrupt_test.bin.zst");
+        await RunCliAsync("compress", sourceFile, archivePath, "--json");
+
+        // Corrupt file
+        var bytes = await File.ReadAllBytesAsync(archivePath);
+        for (int i = 8; i < bytes.Length; i++) bytes[i] = (byte)~bytes[i];
+        await File.WriteAllBytesAsync(archivePath, bytes);
+
+        var outDir = Path.Combine(TempDirectory, "corrupt_zst_out");
+
+        var (exitCode, stdout) = await RunCliAsync("extract", archivePath, "-o", outDir, "--json");
+        Assert.Equal(1, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("EXECUTION_ERROR", err.Error.Code);
+        Assert.Contains("Zstandard frame corrupted", err.Error.Message);
+        Assert.False(File.Exists(Path.Combine(outDir, "corrupt_test.bin")));
+    }
+
+    #endregion
+
     #endregion
 
     private static void CreateZipWithEntries(string archivePath, params (string Name, byte[] Content)[] entries)
