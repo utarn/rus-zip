@@ -48,6 +48,26 @@ public sealed record AppendResult(
     long ElapsedMilliseconds
 );
 
+public sealed record ArchiveDeleteRequest(
+    string ArchivePath,
+    IReadOnlyList<string> EntryPaths,
+    int CompressionLevel = 9
+)
+{
+    public ArchiveDeleteRequest(string archivePath, string entryPath, int compressionLevel = 9)
+        : this(archivePath, [entryPath], compressionLevel) { }
+}
+
+public sealed record ArchiveDeleteResult(
+    bool Success,
+    string ArchivePath,
+    int DeletedEntriesCount,
+    int RetainedEntriesCount,
+    long UncompressedBytes,
+    long CompressedBytes,
+    long ElapsedMilliseconds
+);
+
 /// <summary>
 /// Request to extract an archive.
 /// </summary>

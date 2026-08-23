@@ -793,6 +793,226 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         );
     }
 
+    public async Task<ArchiveDeleteResult> DeleteEntriesAsync(
+        ArchiveDeleteRequest request,
+        IProgress<DomainProgressReport>? progress = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.ArchivePath))
+        {
+            throw new ArgumentException("Archive path cannot be empty.", nameof(request));
+        }
+
+        if (request.EntryPaths is null or { Count: 0 } || request.EntryPaths.All(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException("At least one entry path must be specified for deletion.", nameof(request));
+        }
+
+        var archivePath = Path.GetFullPath(request.ArchivePath);
+        if (!File.Exists(archivePath))
+        {
+            throw new FileNotFoundException($"Archive not found: {archivePath}", archivePath);
+        }
+
+        var descriptor = ArchiveFormatRegistry.Detect(archivePath);
+        if (descriptor.Format != ArchiveFormat.Zip)
+        {
+            throw new NotSupportedException($"Deleting entries from '{descriptor.Format}' archive format is not supported.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(request.CompressionLevel, 0);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(request.CompressionLevel, 9);
+
+        var existingCdRecords = ParseZipCentralDirectory(archivePath);
+        var existingModesByPath = new Dictionary<string, ushort>(StringComparer.Ordinal);
+        foreach (var rec in existingCdRecords)
+        {
+            if ((rec.VersionMadeBy >> 8) == 3)
+            {
+                ushort mode16 = (ushort)(rec.ExternalFileAttributes >> 16);
+                if (mode16 != 0)
+                {
+                    existingModesByPath[rec.Name] = mode16;
+                    var trimmed = rec.Name.TrimEnd('/');
+                    if (trimmed.Length > 0)
+                    {
+                        existingModesByPath[trimmed] = mode16;
+                    }
+                }
+            }
+        }
+
+        var existingEntries = await ListEntriesAsync(archivePath, ct);
+
+        int deletedEntriesCount = 0;
+        int retainedEntriesCount = 0;
+        int retainedFilesCount = 0;
+        long totalUncompressedBytes = 0;
+
+        foreach (var entry in existingEntries)
+        {
+            var normPath = entry.RelativePath.Replace('\\', '/');
+            if (EntryFilter.IsMatch(normPath, request.EntryPaths))
+            {
+                deletedEntriesCount++;
+            }
+            else
+            {
+                retainedEntriesCount++;
+                if (!entry.IsDirectory)
+                {
+                    retainedFilesCount++;
+                    totalUncompressedBytes += entry.UncompressedSize;
+                }
+            }
+        }
+
+        var tempOutput = archivePath + ".tmp." + Guid.NewGuid().ToString("N");
+        long processedBytes = 0;
+        int processedFiles = 0;
+        var writtenDirPaths = new HashSet<string>(StringComparer.Ordinal);
+        var modesByPath = new Dictionary<string, ushort>(StringComparer.Ordinal);
+        var sw = Stopwatch.StartNew();
+
+        try
+        {
+            await Task.Run(async () =>
+            {
+                var compressionType = request.CompressionLevel == 0 ? SharpCompress.Common.CompressionType.None : SharpCompress.Common.CompressionType.Deflate;
+                var writerOptions = new ZipWriterOptions(compressionType)
+                {
+                    UseZip64 = true,
+                    LeaveStreamOpen = false,
+                    ArchiveEncoding = new ArchiveEncoding
+                    {
+                        Default = Encoding.UTF8,
+                        UTF8 = Encoding.UTF8
+                    }
+                };
+
+                await using (var outputStream = new FileStream(
+                    tempOutput,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    BufferSize,
+                    useAsync: true))
+                {
+                    using var zipWriter = new ZipWriter(outputStream, writerOptions);
+
+                    using (var existingArchive = SharpCompress.Archives.Zip.ZipArchive.OpenArchive(archivePath, new ReaderOptions { LeaveStreamOpen = false }))
+                    {
+                        List<IArchiveEntry> archiveEntries;
+                        try
+                        {
+                            archiveEntries = existingArchive.Entries.ToList();
+                        }
+                        catch (Exception ex) when (IsCorruptionException(ex))
+                        {
+                            throw new ArchiveIntegrityException($"Archive '{archivePath}' is corrupted or unparseable: {ex.Message}", innerException: ex);
+                        }
+                        catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
+                        {
+                            throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
+                        }
+
+                        foreach (var entry in archiveEntries)
+                        {
+                            ct.ThrowIfCancellationRequested();
+
+                            var entryKey = entry.Key ?? string.Empty;
+                            var normalizedKey = entryKey.Replace('\\', '/');
+
+                            if (EntryFilter.IsMatch(normalizedKey, request.EntryPaths))
+                            {
+                                continue;
+                            }
+
+                            bool isDir = entry.IsDirectory || normalizedKey.EndsWith('/');
+
+                            if (isDir)
+                            {
+                                var dirName = normalizedKey.TrimEnd('/') + "/";
+                                if (writtenDirPaths.Add(dirName))
+                                {
+                                    if (existingModesByPath.TryGetValue(normalizedKey, out var dirMode) ||
+                                        existingModesByPath.TryGetValue(dirName, out dirMode) ||
+                                        existingModesByPath.TryGetValue(dirName.TrimEnd('/'), out dirMode))
+                                    {
+                                        modesByPath[dirName] = dirMode;
+                                        modesByPath[dirName.TrimEnd('/')] = dirMode;
+                                    }
+                                    zipWriter.WriteDirectory(dirName, entry.LastModifiedTime?.ToUniversalTime() ?? DateTime.UtcNow);
+                                }
+                            }
+                            else
+                            {
+                                if (existingModesByPath.TryGetValue(normalizedKey, out var fileMode) ||
+                                    existingModesByPath.TryGetValue(entryKey, out fileMode))
+                                {
+                                    modesByPath[normalizedKey] = fileMode;
+                                }
+
+                                var entryLength = entry.Size;
+                                await using var entryStream = entry.OpenEntryStream();
+                                await using var trackingStream = new ProgressReportingStream(
+                                    entryStream,
+                                    entryLength,
+                                    bytesRead =>
+                                    {
+                                        Interlocked.Add(ref processedBytes, bytesRead);
+                                        var currentTotal = Volatile.Read(ref processedBytes);
+                                        progress?.Report(new DomainProgressReport(
+                                            ProcessedBytes: currentTotal,
+                                            TotalBytes: totalUncompressedBytes,
+                                            CurrentFileName: normalizedKey,
+                                            Percentage: totalUncompressedBytes > 0 ? (double)currentTotal / totalUncompressedBytes * 100.0 : 0,
+                                            ProcessedFiles: Volatile.Read(ref processedFiles),
+                                            TotalFiles: retainedFilesCount
+                                        ));
+                                    });
+
+                                zipWriter.Write(normalizedKey, trackingStream, entry.LastModifiedTime?.ToUniversalTime() ?? DateTime.UtcNow);
+                                Interlocked.Increment(ref processedFiles);
+                            }
+                        }
+                    }
+                }
+
+                if (modesByPath.Count > 0)
+                {
+                    PatchZipExternalAttributes(tempOutput, modesByPath);
+                }
+
+                File.Move(tempOutput, archivePath, overwrite: true);
+            }, ct);
+        }
+        catch (Exception ex) when (IsCorruptionException(ex))
+        {
+            throw new ArchiveIntegrityException($"Archive '{archivePath}' is corrupted or unparseable: {ex.Message}", innerException: ex);
+        }
+        finally
+        {
+            if (File.Exists(tempOutput))
+            {
+                try { File.Delete(tempOutput); } catch { /* Ignore */ }
+            }
+        }
+
+        var finalInfo = new FileInfo(archivePath);
+        sw.Stop();
+
+        return new ArchiveDeleteResult(
+            Success: true,
+            ArchivePath: archivePath,
+            DeletedEntriesCount: deletedEntriesCount,
+            RetainedEntriesCount: retainedEntriesCount,
+            UncompressedBytes: totalUncompressedBytes,
+            CompressedBytes: finalInfo.Length,
+            ElapsedMilliseconds: sw.ElapsedMilliseconds
+        );
+    }
+
     private sealed record IncomingAppendEntry(
         string RelativePath,
         string FullPath,
