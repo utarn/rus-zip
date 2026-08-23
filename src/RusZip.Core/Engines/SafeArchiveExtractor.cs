@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Security;
+using RusZip.Core.Abstractions;
 using RusZip.Core.Models;
 
 namespace RusZip.Core.Engines;
@@ -55,7 +56,8 @@ public static class SafeArchiveExtractor
         IProgress<ProgressReport>? progress,
         CancellationToken ct = default,
         ExtractionLimits? limits = null,
-        bool totalIsEstimate = false)
+        bool totalIsEstimate = false,
+        IFileConflictResolver? conflictResolver = null)
     {
         var destDir = Path.GetFullPath(destinationDirectory);
         Directory.CreateDirectory(destDir);
@@ -80,6 +82,7 @@ public static class SafeArchiveExtractor
         long processedBytes = 0;
         int processedFiles = 0;
         int processedEntries = 0;
+        FileConflictResolution? batchResolution = null;
         var extractedDirectories = new List<(string TargetPath, DateTimeOffset? ModTime, UnixFileMode? Mode)>();
         var createdPaths = new List<string>();
         byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
@@ -144,22 +147,74 @@ public static class SafeArchiveExtractor
                     EnsureDirectoryExists(parentDir, createdPaths);
                 }
 
-                // 4. Overwrite check
-                if (!overwrite && File.Exists(targetPath))
+                // 4. Overwrite & conflict resolution check
+                var fileExistedBefore = File.Exists(targetPath);
+                if (fileExistedBefore)
                 {
-                    throw new IOException($"Destination file already exists and overwrite is false: '{targetPath}'");
+                    if (conflictResolver != null)
+                    {
+                        FileConflictResolution resolution;
+                        if (batchResolution.HasValue)
+                        {
+                            resolution = batchResolution.Value;
+                        }
+                        else
+                        {
+                            var existingInfo = new FileInfo(targetPath);
+                            var context = new FileConflictContext(
+                                TargetPath: targetPath,
+                                RelativeEntryPath: entry.RelativePath,
+                                EntryUncompressedSize: entry.UncompressedSize,
+                                EntryLastModified: entry.ModificationTime,
+                                ExistingFileSize: existingInfo.Length,
+                                ExistingLastModified: new DateTimeOffset(existingInfo.LastWriteTimeUtc, TimeSpan.Zero)
+                            );
+
+                            resolution = await conflictResolver.ResolveConflictAsync(context, ct);
+                            if (resolution is FileConflictResolution.OverwriteAll or FileConflictResolution.SkipAll)
+                            {
+                                batchResolution = resolution;
+                            }
+                        }
+
+                        switch (resolution)
+                        {
+                            case FileConflictResolution.Overwrite:
+                            case FileConflictResolution.OverwriteAll:
+                                break;
+                            case FileConflictResolution.Skip:
+                            case FileConflictResolution.SkipAll:
+                                progress?.Report(new ProgressReport(
+                                    ProcessedBytes: processedBytes,
+                                    TotalBytes: totalBytes,
+                                    CurrentFileName: entryName,
+                                    Percentage: totalBytes > 0 ? (double)processedBytes / totalBytes * 100.0 : 0,
+                                    ProcessedFiles: processedFiles,
+                                    IsIndeterminate: totalBytes <= 0,
+                                    IsTotalEstimate: totalIsEstimate
+                                ));
+                                continue;
+                            case FileConflictResolution.Abort:
+                                throw new OperationCanceledException(ct);
+                            default:
+                                throw new InvalidOperationException($"Unexpected file conflict resolution: {resolution}");
+                        }
+                    }
+                    else if (!overwrite)
+                    {
+                        throw new IOException($"Destination file already exists and overwrite is false: '{targetPath}'");
+                    }
                 }
 
                 // 5. Stream writing with buffer pooling & progress reporting.
                 //    Track the target path up-front so an abort mid-write still cleans up the partial file.
-                var fileExistedBefore = File.Exists(targetPath);
                 if (!fileExistedBefore)
                     createdPaths.Add(targetPath);
 
                 await using (var entryStream = await entry.OpenStreamAsync(ct))
                 await using (var outFs = new FileStream(
                     targetPath,
-                    overwrite ? FileMode.Create : FileMode.CreateNew,
+                    FileMode.Create,
                     FileAccess.Write,
                     FileShare.None,
                     BufferSize,
@@ -227,7 +282,7 @@ public static class SafeArchiveExtractor
 
             return new ExtractionResult(processedBytes, processedFiles, processedEntries);
         }
-        catch (Exception ex) when (ex is SecurityException or ExtractionLimitExceededException or ArchiveIntegrityException)
+        catch (Exception ex) when (ex is SecurityException or ExtractionLimitExceededException or ArchiveIntegrityException or OperationCanceledException)
         {
             CleanupCreatedPaths(createdPaths);
             throw;

@@ -803,7 +803,8 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                 progress,
                 ct,
                 request.Limits,
-                totalIsEstimate: totalBytes >= 0);
+                totalIsEstimate: totalBytes >= 0,
+                conflictResolver: request.ConflictResolver);
         }
         catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
         {
