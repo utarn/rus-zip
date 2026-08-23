@@ -1,0 +1,102 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RusZip.Desktop.ViewModels"
+        x:Class="RusZip.Desktop.Views.FileAssociationPromptDialog"
+        x:DataType="vm:FileAssociationPromptViewModel"
+        Title="Default Archive Application - rus-zip"
+        Width="540" Height="460"
+        MinWidth="480" MinHeight="400"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="40"
+        WindowDecorations="Full"
+        Background="Transparent">
+
+    <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource SolidBackgroundFillColorBase}">
+        <!-- Custom Title Bar Area -->
+        <Border Grid.Row="0"
+                Background="{DynamicResource CardBackgroundFillColorDefault}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="0,0,0,1"
+                Padding="16,10">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Data="{StaticResource Icon.FileArchive}"
+                          Width="18" Height="18"
+                          Foreground="{DynamicResource SystemAccentColor}" />
+                <TextBlock Text="Set rus-zip as Default Archive App"
+                           FontWeight="SemiBold"
+                           FontSize="14"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <!-- Main Content -->
+        <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*" Margin="20,16">
+            <TextBlock Grid.Row="0"
+                       Text="rus-zip is not the default application for some supported archive formats. Select the formats you would like to open with rus-zip by default:"
+                       TextWrapping="Wrap"
+                       FontSize="13"
+                       Foreground="{DynamicResource TextFillColorSecondary}"
+                       Margin="0,0,0,12" />
+
+            <!-- Select All / None toolbar -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10" Margin="0,0,0,8">
+                <Button Content="Select All" Command="{Binding SelectAllCommand}" Padding="8,4" FontSize="11" />
+                <Button Content="Select None" Command="{Binding SelectNoneCommand}" Padding="8,4" FontSize="11" />
+            </StackPanel>
+
+            <!-- Checklist of formats -->
+            <Border Grid.Row="2"
+                    Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                    BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="8">
+                <ScrollViewer>
+                    <ItemsControl ItemsSource="{Binding Formats}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:FormatAssociationItemViewModel">
+                                <Border Padding="8,6" Margin="0,2" CornerRadius="4">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="12" />
+                                            <TextBlock Text="{Binding StatusText}" FontSize="11" Foreground="{DynamicResource TextFillColorTertiary}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- Actions Toolbar -->
+        <Border Grid.Row="2"
+                Background="{DynamicResource CardBackgroundFillColorDefault}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="0,1,0,0"
+                Padding="16,12">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="You can change this later in Settings."
+                           FontSize="11"
+                           Foreground="{DynamicResource TextFillColorTertiary}"
+                           VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                    <Button Command="{Binding NotNowCommand}"
+                            Content="Not Now"
+                            Padding="16,7"
+                            CornerRadius="6" />
+                    <Button Command="{Binding SetAsDefaultCommand}"
+                            Content="Set as Default"
+                            Classes="accent"
+                            Padding="20,7"
+                            CornerRadius="6" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
