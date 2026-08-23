@@ -70,6 +70,7 @@ public class MainWindowViewModelTests
     [InlineData("test.zrus", true)]
     [InlineData("test.tar.zstd", true)]
     [InlineData("test.tzstd", true)]
+    [InlineData("test.zst", true)]
     [InlineData("test.zip", true)]
     [InlineData("test.rar", true)]
     [InlineData("test.7z", true)]
@@ -81,6 +82,7 @@ public class MainWindowViewModelTests
     [InlineData("TEST.TAR.GZ", true)]
     [InlineData("TEST.TAR.ZSTD", true)]
     [InlineData("TEST.TZSTD", true)]
+    [InlineData("TEST.ZST", true)]
     [InlineData("test.txt", false)]
     [InlineData("test.exe", false)]
     [InlineData("test.pdf", false)]
@@ -924,5 +926,62 @@ public class MainWindowViewModelTests
         vm.CloseSettingsDialogCommand.Execute(null);
 
         Assert.False(vm.IsSettingsDialogVisible);
+    }
+
+    [Theory]
+    [InlineData("archive.tar.zstd")]
+    [InlineData("archive.tzstd")]
+    [InlineData("archive.zst")]
+    public async Task HandleDroppedPathsAsync_ZstandardFormats_OpensArchiveDirectly(string fileName)
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}_{fileName}");
+        await File.WriteAllTextAsync(tempFile, "fake archive content");
+        try
+        {
+            var fakeEngine = new FakeArchiveEngine
+            {
+                EntriesToReturn = [new ArchiveEntry("file.txt", 100, 50, null, false)]
+            };
+            var vm = new MainWindowViewModel(fakeEngine);
+
+            await vm.HandleDroppedPathsAsync([tempFile]);
+
+            Assert.True(vm.HasOpenArchive);
+            Assert.Equal(tempFile, vm.Browser.LoadedArchivePath);
+            Assert.False(vm.IsCompressDialogVisible);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void MainWindow_OpenArchivePickerFileTypes_IncludesZstandardFormatsAndDedicatedCategories()
+    {
+        var filters = Views.MainWindow.OpenArchivePickerFileTypes;
+        Assert.NotNull(filters);
+
+        // 1. Supported Archives contains all formats including .tar.zstd, .tzstd, and .zst
+        var supported = filters.FirstOrDefault(f => f.Name.StartsWith("Supported Archives"));
+        Assert.NotNull(supported);
+        Assert.NotNull(supported.Patterns);
+        Assert.Contains("*.tar.zstd", supported.Patterns);
+        Assert.Contains("*.tzstd", supported.Patterns);
+        Assert.Contains("*.zst", supported.Patterns);
+        Assert.Contains("*.zrus", supported.Patterns);
+        Assert.Contains("*.zip", supported.Patterns);
+
+        // 2. Dedicated Zstandard Tar Archives category
+        var zstdTar = filters.FirstOrDefault(f => f.Name.StartsWith("Zstandard Tar Archives"));
+        Assert.NotNull(zstdTar);
+        Assert.NotNull(zstdTar.Patterns);
+        Assert.Equal(["*.zrus", "*.tar.zstd", "*.tzstd"], zstdTar.Patterns);
+
+        // 3. Dedicated Zstandard Compressed Files category
+        var zstFile = filters.FirstOrDefault(f => f.Name.StartsWith("Zstandard Compressed Files"));
+        Assert.NotNull(zstFile);
+        Assert.NotNull(zstFile.Patterns);
+        Assert.Equal(["*.zst"], zstFile.Patterns);
     }
 }

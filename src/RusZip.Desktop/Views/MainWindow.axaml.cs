@@ -60,6 +60,28 @@ public partial class MainWindow : Window
         }
     }
 
+    public static IReadOnlyList<FilePickerFileType> OpenArchivePickerFileTypes =>
+    [
+        new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz, *.tgz, *.tar.zstd, *.tzstd, *.zst)")
+        {
+            Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz", "*.tar", "*.tar.zstd", "*.tzstd", "*.zst"]
+        },
+        new FilePickerFileType("Zstandard Tar Archives (*.zrus, *.tar.zstd, *.tzstd)") { Patterns = ["*.zrus", "*.tar.zstd", "*.tzstd"] },
+        new FilePickerFileType("Zstandard Compressed Files (*.zst)") { Patterns = ["*.zst"] },
+        new FilePickerFileType("Zip Archives (*.zip)") { Patterns = ["*.zip"] },
+        new FilePickerFileType("7-Zip Archives (*.7z)") { Patterns = ["*.7z"] },
+        new FilePickerFileType("RAR Archives (*.rar)") { Patterns = ["*.rar"] },
+        new FilePickerFileType("GZip Archives (*.gz, *.tar.gz, *.tgz)") { Patterns = ["*.gz", "*.tar.gz", "*.tgz"] },
+        new FilePickerFileType("All Files (*.*)") { Patterns = ["*.*"] }
+    ];
+
+    public static FilePickerOpenOptions CreateOpenArchivePickerOptions() => new()
+    {
+        Title = "Open Archive",
+        AllowMultiple = false,
+        FileTypeFilter = OpenArchivePickerFileTypes.ToList()
+    };
+
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
@@ -82,25 +104,7 @@ public partial class MainWindow : Window
 
             vm.RequestOpenArchivePicker = async () =>
             {
-                var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-                {
-                    Title = "Open Archive",
-                    AllowMultiple = false,
-                    FileTypeFilter =
-                    [
-                        new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz, *.tgz, *.tar.zstd, *.tzstd, *.zst)")
-                        {
-                            Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz", "*.tar", "*.tar.zstd", "*.tzstd", "*.zst"]
-                        },
-                        new FilePickerFileType("Zstandard Tar Archives (*.zrus, *.tar.zstd, *.tzstd)") { Patterns = ["*.zrus", "*.tar.zstd", "*.tzstd"] },
-                        new FilePickerFileType("Zstandard Compressed Files (*.zst)") { Patterns = ["*.zst"] },
-                        new FilePickerFileType("Zip Archives (*.zip)") { Patterns = ["*.zip"] },
-                        new FilePickerFileType("7-Zip Archives (*.7z)") { Patterns = ["*.7z"] },
-                        new FilePickerFileType("RAR Archives (*.rar)") { Patterns = ["*.rar"] },
-                        new FilePickerFileType("GZip Archives (*.gz, *.tar.gz, *.tgz)") { Patterns = ["*.gz", "*.tar.gz", "*.tgz"] },
-                        new FilePickerFileType("All Files (*.*)") { Patterns = ["*.*"] }
-                    ]
-                });
+                var files = await StorageProvider.OpenFilePickerAsync(CreateOpenArchivePickerOptions());
 
                 if (files.Count > 0)
                 {
@@ -175,24 +179,7 @@ public partial class MainWindow : Window
     {
         if (DataContext is not MainWindowViewModel vm) return;
 
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "Open Archive",
-            AllowMultiple = false,
-            FileTypeFilter =
-            [
-                new FilePickerFileType("Supported Archives (*.zrus, *.zip, *.rar, *.7z, *.gz, *.tar.gz, *.tgz, *.tar.zstd, *.tzstd)")
-                {
-                    Patterns = ["*.zrus", "*.zip", "*.rar", "*.7z", "*.gz", "*.tar.gz", "*.tgz", "*.tar", "*.tar.zstd", "*.tzstd"]
-                },
-                new FilePickerFileType("Zstandard Tar Archives (*.zrus, *.tar.zstd, *.tzstd)") { Patterns = ["*.zrus", "*.tar.zstd", "*.tzstd"] },
-                new FilePickerFileType("Zip Archives (*.zip)") { Patterns = ["*.zip"] },
-                new FilePickerFileType("7-Zip Archives (*.7z)") { Patterns = ["*.7z"] },
-                new FilePickerFileType("RAR Archives (*.rar)") { Patterns = ["*.rar"] },
-                new FilePickerFileType("GZip Archives (*.gz, *.tar.gz, *.tgz)") { Patterns = ["*.gz", "*.tar.gz", "*.tgz"] },
-                new FilePickerFileType("All Files (*.*)") { Patterns = ["*.*"] }
-            ]
-        });
+        var files = await StorageProvider.OpenFilePickerAsync(CreateOpenArchivePickerOptions());
 
         if (files.Count > 0)
         {

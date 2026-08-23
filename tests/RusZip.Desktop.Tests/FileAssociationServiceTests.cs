@@ -200,7 +200,7 @@ public class FileAssociationServiceTests : IDisposable
         Assert.Contains("Name=RusZip", content);
         Assert.Contains("Exec=/usr/bin/rus-zip %F", content);
         Assert.Contains("Icon=rus-zip", content);
-        Assert.Contains("MimeType=application/zip;application/x-tar;application/gzip;application/x-7z-compressed;application/vnd.rar;application/x-zstd-tar;", content);
+        Assert.Contains("MimeType=application/zip;application/x-tar;application/gzip;application/x-7z-compressed;application/vnd.rar;application/x-zstd-tar;application/zstd;", content);
         Assert.Contains("Actions=ExtractHere;ExtractTo;ExtractToSubfolder;", content);
 
         Assert.Contains("[Desktop Action ExtractHere]", content);
@@ -244,13 +244,18 @@ public class FileAssociationServiceTests : IDisposable
         Assert.Contains("[Default Applications]", mimeText);
         Assert.Contains("application/zip=rus-zip.desktop", mimeText);
         Assert.Contains("application/x-zstd-tar=rus-zip.desktop", mimeText);
+        Assert.Contains("application/zstd=rus-zip.desktop", mimeText);
         Assert.Contains("application/x-7z-compressed=rus-zip.desktop", mimeText);
 
         Assert.NotEmpty(executedCommands);
         Assert.Contains(executedCommands, c => c.Command == "xdg-mime" && c.Args.Contains("application/zip"));
+        Assert.Contains(executedCommands, c => c.Command == "xdg-mime" && c.Args.Contains("application/zstd"));
 
         Assert.True(await service.AreAllFormatsAssociatedAsync());
         Assert.True(await service.IsFormatAssociatedAsync(".zrus"));
+        Assert.True(await service.IsFormatAssociatedAsync(".tar.zstd"));
+        Assert.True(await service.IsFormatAssociatedAsync(".tzstd"));
+        Assert.True(await service.IsFormatAssociatedAsync(".zst"));
         Assert.True(await service.IsFormatAssociatedAsync(".zip"));
     }
 
@@ -350,6 +355,7 @@ public class FileAssociationServiceTests : IDisposable
 
         Assert.Contains("<key>CFBundleDocumentTypes</key>", plist);
         Assert.Contains("org.zstd.tar-archive", plist);
+        Assert.Contains("org.zstd.zstandard-archive", plist);
         Assert.Contains("public.zip-archive", plist);
         Assert.Contains("org.7-zip.7-zip-archive", plist);
         Assert.Contains("<key>LSHandlerRank</key>", plist);
@@ -374,8 +380,12 @@ public class FileAssociationServiceTests : IDisposable
 
         Assert.True(await service.AreAllFormatsAssociatedAsync());
         Assert.True(await service.IsFormatAssociatedAsync(".zrus"));
+        Assert.True(await service.IsFormatAssociatedAsync(".tar.zstd"));
+        Assert.True(await service.IsFormatAssociatedAsync(".tzstd"));
+        Assert.True(await service.IsFormatAssociatedAsync(".zst"));
         Assert.NotEmpty(executedCommands);
         Assert.Contains(executedCommands, c => c.Command == "duti" && c.Args.Contains("org.zstd.tar-archive"));
+        Assert.Contains(executedCommands, c => c.Command == "duti" && c.Args.Contains("org.zstd.zstandard-archive"));
 
         await service.RemoveAssociationsAsync([".zrus"]);
         Assert.False(await service.IsFormatAssociatedAsync(".zrus"));

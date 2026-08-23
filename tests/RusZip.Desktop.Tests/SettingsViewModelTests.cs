@@ -190,11 +190,14 @@ public class SettingsViewModelTests
     }
 
     [Fact]
-    public async Task LoadAssociationsAsync_WithAllManagedExtensions_DisplaysAllSevenFormats()
+    public async Task LoadAssociationsAsync_WithAllManagedExtensions_DisplaysAllTenFormats()
     {
-        var allSevenExtensions = new List<FileAssociationInfo>
+        var allTenExtensions = new List<FileAssociationInfo>
         {
             new(".zrus", "Zstandard TAR Archive (.zrus)", true, "RusZip"),
+            new(".tar.zstd", "Zstandard TAR Archive (.tar.zstd)", true, "RusZip"),
+            new(".tzstd", "Zstandard TAR Archive (.tzstd)", true, "RusZip"),
+            new(".zst", "Zstandard Compressed File (.zst)", true, "RusZip"),
             new(".zip", "Zip Archive (.zip)", false),
             new(".tar.gz", "Gzip Tarball (.tar.gz)", false),
             new(".tgz", "Gzip Tarball (.tgz)", false),
@@ -205,14 +208,17 @@ public class SettingsViewModelTests
 
         var service = new FakeFileAssociationService
         {
-            AssociationsToReturn = allSevenExtensions
+            AssociationsToReturn = allTenExtensions
         };
 
         var vm = new SettingsViewModel(service);
         await vm.LoadAssociationsAsync();
 
-        Assert.Equal(7, vm.Formats.Count);
+        Assert.Equal(10, vm.Formats.Count);
         Assert.Contains(vm.Formats, f => f.Extension == ".zrus" && f.IsAssociated && f.StatusText == "Default Handler");
+        Assert.Contains(vm.Formats, f => f.Extension == ".tar.zstd" && f.IsAssociated && f.StatusText == "Default Handler");
+        Assert.Contains(vm.Formats, f => f.Extension == ".tzstd" && f.IsAssociated && f.StatusText == "Default Handler");
+        Assert.Contains(vm.Formats, f => f.Extension == ".zst" && f.IsAssociated && f.StatusText == "Default Handler");
         Assert.Contains(vm.Formats, f => f.Extension == ".zip" && !f.IsAssociated && f.StatusText == "Not Associated");
         Assert.Contains(vm.Formats, f => f.Extension == ".tar.gz" && !f.IsAssociated);
         Assert.Contains(vm.Formats, f => f.Extension == ".tgz" && !f.IsAssociated);
