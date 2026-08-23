@@ -13,7 +13,7 @@ namespace RusZip.Cli.Commands;
 public sealed class AppendSettings : JsonCommandSettings
 {
     [CommandArgument(0, "<ARCHIVE>")]
-    [Description("Path to the target archive file (.zrus).")]
+    [Description("Path to the target archive file (.zrus, .zip).")]
     public string ArchivePath { get; init; } = string.Empty;
 
     [CommandArgument(1, "<SOURCES>")]
@@ -21,7 +21,7 @@ public sealed class AppendSettings : JsonCommandSettings
     public string[] SourcePaths { get; init; } = [];
 
     [CommandOption("-l|--level <LEVEL>")]
-    [Description("Compression level (1-22 for .zrus). Default: 9.")]
+    [Description("Compression level (0-9 for .zip where 0 = Store, 1-22 for .zrus). Default: 9.")]
     public int? Level { get; init; }
 
     [CommandOption("-p|--profile <PROFILE>")]
@@ -61,7 +61,7 @@ public sealed class AppendCommand(IArchiveEngine engine) : AsyncCommand<AppendSe
                 }
 
                 var formatDescriptor = ArchiveFormatRegistry.Detect(archivePath);
-                if (formatDescriptor.Format != ArchiveFormat.Zrus)
+                if (!formatDescriptor.CanCompress)
                 {
                     throw new NotSupportedException($"Appending to archive format '{formatDescriptor.Format}' is not supported.");
                 }
@@ -79,8 +79,9 @@ public sealed class AppendCommand(IArchiveEngine engine) : AsyncCommand<AppendSe
                 if (compressionLevel < formatDescriptor.MinCompressionLevel || compressionLevel > formatDescriptor.MaxCompressionLevel)
                 {
                     var formatName = formatDescriptor.PrimaryExtension.TrimStart('.');
+                    string rangeNote = formatDescriptor.MinCompressionLevel == 0 ? " (0 = Store)" : "";
                     throw new ArgumentException(
-                        $"Compression level {compressionLevel} is not valid for .{formatName} archives. Valid range: {formatDescriptor.MinCompressionLevel}-{formatDescriptor.MaxCompressionLevel}.");
+                        $"Compression level {compressionLevel} is not valid for .{formatName} archives. Valid range: {formatDescriptor.MinCompressionLevel}-{formatDescriptor.MaxCompressionLevel}{rangeNote}.");
                 }
 
                 var request = new ArchiveAppendRequest(

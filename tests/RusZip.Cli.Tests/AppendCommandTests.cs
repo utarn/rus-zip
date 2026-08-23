@@ -225,17 +225,217 @@ public sealed class AppendCommandTests : CliTestBase
     public async Task Append_UnsupportedFormat_ReturnsExitCode2_UnsupportedFormat()
     {
         var f1 = CreateTempFile("file.txt", "content");
-        var zipPath = Path.Combine(TempDirectory, "test.zip");
-        await RunCliAsync("compress", f1, zipPath);
+        var tarGzPath = Path.Combine(TempDirectory, "test.tar.gz");
+        await File.WriteAllTextAsync(tarGzPath, "dummy tar.gz content");
 
         var f2 = CreateTempFile("file2.txt", "content2");
 
-        var (exitCode, stdout) = await RunCliAsync("append", zipPath, f2, "--json");
+        var (exitCode, stdout) = await RunCliAsync("append", tarGzPath, f2, "--json");
 
         Assert.Equal(2, exitCode);
         var err = ParseJson<ErrorResult>(stdout);
         Assert.False(err.Success);
         Assert.Equal("UNSUPPORTED_FORMAT", err.Error.Code);
+    }
+
+    [Fact]
+    public async Task Append_FilesToZip_ReturnsExitCode0_AndValidJson()
+    {
+        // Arrange - Create base archive with 1 file
+        var file1 = CreateTempFile("initial_zip.txt", "Initial zip content");
+        var archivePath = Path.Combine(TempDirectory, "archive.zip");
+        var (cExit, _) = await RunCliAsync("compress", file1, archivePath);
+        Assert.Equal(0, cExit);
+
+        // Create new file to append
+        var file2 = CreateTempFile("appended_zip.txt", "Appended zip content");
+
+        // Act - Append
+        var (exitCode, stdout) = await RunCliAsync("append", archivePath, file2, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<AppendResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal("zip", result.Format);
+        Assert.Equal(1, result.AddedFiles);
+        Assert.Equal(0, result.UpdatedFiles);
+        Assert.Equal(1, result.RetainedFiles);
+        Assert.Equal(0, result.SkippedFiles);
+        Assert.Equal(2, result.TotalFiles);
+        Assert.True(result.UncompressedBytes > 0);
+        Assert.True(result.CompressedBytes > 0);
+
+        // Verify extraction
+        var extractDir = Path.Combine(TempDirectory, "extracted_zip_append");
+        var (xExit, _) = await RunCliAsync("extract", archivePath, "-o", extractDir);
+        Assert.Equal(0, xExit);
+        Assert.True(File.Exists(Path.Combine(extractDir, "initial_zip.txt")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "appended_zip.txt")));
+    }
+
+    [Fact]
+    public async Task Append_Zip_CollidingEntry_OverwritesByDefault()
+    {
+        // Arrange
+        var baseDir = Path.Combine(TempDirectory, "collide_zip_base");
+        Directory.CreateDirectory(baseDir);
+        var f1 = Path.Combine(baseDir, "data.txt");
+        await File.WriteAllTextAsync(f1, "Zip Version 1.0");
+
+        var archivePath = Path.Combine(TempDirectory, "collide.zip");
+        await RunCliAsync("compress", f1, archivePath);
+
+        var newDir = Path.Combine(TempDirectory, "collide_zip_new");
+        Directory.CreateDirectory(newDir);
+        var f2 = Path.Combine(newDir, "data.txt");
+        await File.WriteAllTextAsync(f2, "Zip Version 2.0 (Overwritten)");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("append", archivePath, f2, "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<AppendResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(0, result.AddedFiles);
+        Assert.Equal(1, result.UpdatedFiles);
+        Assert.Equal(0, result.RetainedFiles);
+        Assert.Equal(1, result.TotalFiles);
+
+        var extractDir = Path.Combine(TempDirectory, "extracted_zip_collide");
+        await RunCliAsync("extract", archivePath, "-o", extractDir);
+        Assert.Equal("Zip Version 2.0 (Overwritten)", await File.ReadAllTextAsync(Path.Combine(extractDir, "data.txt")));
+    }
+
+    [Fact]
+    public async Task Append_Zip_UpdateOnly_WhenOlder_RetainsExistingEntry()
+    {
+        // Arrange - Base archive with current timestamp
+        var baseDir = Path.Combine(TempDirectory, "update_zip_base");
+        Directory.CreateDirectory(baseDir);
+        var f1 = Path.Combine(baseDir, "doc.txt");
+        await File.WriteAllTextAsync(f1, "Original newer zip doc");
+        File.SetLastWriteTimeUtc(f1, DateTime.UtcNow);
+
+        var archivePath = Path.Combine(TempDirectory, "update_only.zip");
+        await RunCliAsync("compress", f1, archivePath);
+
+        // Older incoming file
+        var oldDir = Path.Combine(TempDirectory, "update_zip_old");
+        Directory.CreateDirectory(oldDir);
+        var f2 = Path.Combine(oldDir, "doc.txt");
+        await File.WriteAllTextAsync(f2, "Old zip doc that should be skipped");
+        File.SetLastWriteTimeUtc(f2, DateTime.UtcNow.AddHours(-1));
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("append", archivePath, f2, "-u", "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<AppendResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(0, result.UpdatedFiles);
+        Assert.Equal(1, result.RetainedFiles);
+        Assert.Equal(1, result.SkippedFiles);
+        Assert.Equal(1, result.TotalFiles);
+
+        var extractDir = Path.Combine(TempDirectory, "extracted_zip_update_old");
+        await RunCliAsync("extract", archivePath, "-o", extractDir);
+        Assert.Equal("Original newer zip doc", await File.ReadAllTextAsync(Path.Combine(extractDir, "doc.txt")));
+    }
+
+    [Fact]
+    public async Task Append_Zip_UpdateOnly_WhenNewer_OverwritesExistingEntry()
+    {
+        // Arrange - Base archive with older timestamp
+        var baseDir = Path.Combine(TempDirectory, "update_zip_newer_base");
+        Directory.CreateDirectory(baseDir);
+        var f1 = Path.Combine(baseDir, "doc.txt");
+        await File.WriteAllTextAsync(f1, "Original older zip doc");
+        File.SetLastWriteTimeUtc(f1, DateTime.UtcNow.AddHours(-2));
+
+        var archivePath = Path.Combine(TempDirectory, "update_only_newer.zip");
+        await RunCliAsync("compress", f1, archivePath);
+
+        // Newer incoming file
+        var newDir = Path.Combine(TempDirectory, "update_zip_newer_in");
+        Directory.CreateDirectory(newDir);
+        var f2 = Path.Combine(newDir, "doc.txt");
+        await File.WriteAllTextAsync(f2, "New zip doc that should replace old");
+        File.SetLastWriteTimeUtc(f2, DateTime.UtcNow);
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("append", archivePath, f2, "-u", "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<AppendResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(1, result.UpdatedFiles);
+        Assert.Equal(0, result.RetainedFiles);
+        Assert.Equal(0, result.SkippedFiles);
+        Assert.Equal(1, result.TotalFiles);
+
+        var extractDir = Path.Combine(TempDirectory, "extracted_zip_update_newer");
+        await RunCliAsync("extract", archivePath, "-o", extractDir);
+        Assert.Equal("New zip doc that should replace old", await File.ReadAllTextAsync(Path.Combine(extractDir, "doc.txt")));
+    }
+
+    [Fact]
+    public async Task CompressCommand_WithAppendFlag_Zip_AppendsToTargetArchive()
+    {
+        // Arrange
+        var f1 = CreateTempFile("c_zip_base.txt", "Compress zip base");
+        var archivePath = Path.Combine(TempDirectory, "compress_append.zip");
+        await RunCliAsync("compress", f1, "-o", archivePath);
+
+        var f2 = CreateTempFile("c_zip_appended.txt", "Compress zip appended");
+
+        // Act - use `compress ... -o archive.zip --append`
+        var (exitCode, stdout) = await RunCliAsync("compress", f2, "-o", archivePath, "--append", "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal("zip", result.Format);
+        Assert.Equal(2, result.TotalFiles);
+
+        var extractDir = Path.Combine(TempDirectory, "extracted_c_zip_append");
+        await RunCliAsync("extract", archivePath, "-o", extractDir);
+        Assert.True(File.Exists(Path.Combine(extractDir, "c_zip_base.txt")));
+        Assert.True(File.Exists(Path.Combine(extractDir, "c_zip_appended.txt")));
+    }
+
+    [Fact]
+    public async Task CompressCommand_WithAppendAndUpdateOnlyFlags_Zip_HonorsTimestamps()
+    {
+        // Arrange
+        var f1 = CreateTempFile("c_u_zip_base.txt", "Base zip doc");
+        File.SetLastWriteTimeUtc(f1, DateTime.UtcNow);
+        var archivePath = Path.Combine(TempDirectory, "compress_append_u.zip");
+        await RunCliAsync("compress", f1, "-o", archivePath);
+
+        var oldDir = Path.Combine(TempDirectory, "c_u_zip_old");
+        Directory.CreateDirectory(oldDir);
+        var f2 = Path.Combine(oldDir, "c_u_zip_base.txt");
+        await File.WriteAllTextAsync(f2, "Older zip attempt");
+        File.SetLastWriteTimeUtc(f2, DateTime.UtcNow.AddHours(-2));
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", f2, "-o", archivePath, "-a", "-u", "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal("zip", result.Format);
+        Assert.Equal(1, result.TotalFiles);
+
+        var extractDir = Path.Combine(TempDirectory, "extracted_c_u_zip");
+        await RunCliAsync("extract", archivePath, "-o", extractDir);
+        Assert.Equal("Base zip doc", await File.ReadAllTextAsync(Path.Combine(extractDir, "c_u_zip_base.txt")));
     }
 
     [Fact]
@@ -256,6 +456,24 @@ public sealed class AppendCommandTests : CliTestBase
     }
 
     [Fact]
+    public async Task Append_Zip_InvalidLevel_ReturnsExitCode2_ArgumentError()
+    {
+        var f1 = CreateTempFile("f1_zip.txt", "content");
+        var archivePath = Path.Combine(TempDirectory, "level_cli.zip");
+        await RunCliAsync("compress", f1, archivePath);
+
+        var f2 = CreateTempFile("f2_zip.txt", "content2");
+
+        var (exitCode, stdout) = await RunCliAsync("append", archivePath, f2, "-l", "15", "--json");
+
+        Assert.Equal(2, exitCode);
+        var err = ParseJson<ErrorResult>(stdout);
+        Assert.False(err.Success);
+        Assert.Equal("ARGUMENT_ERROR", err.Error.Code);
+        Assert.Contains("Compression level 15 is not valid for .zip archives", err.Error.Message);
+    }
+
+    [Fact]
     public async Task Append_Directory_ConsoleOutput_RendersSummary()
     {
         var f1 = CreateTempFile("f1.txt", "content");
@@ -263,6 +481,24 @@ public sealed class AppendCommandTests : CliTestBase
         await RunCliAsync("compress", f1, archivePath);
 
         var subDir = CreateTempDirectory("sub_append", fileCount: 2);
+
+        var (exitCode, stdout) = await RunCliAsync("append", archivePath, subDir);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Append Summary", stdout);
+        Assert.Contains("Added Files", stdout);
+        Assert.Contains("Retained Files", stdout);
+        Assert.Contains("Total Files", stdout);
+    }
+
+    [Fact]
+    public async Task Append_Zip_Directory_ConsoleOutput_RendersSummary()
+    {
+        var f1 = CreateTempFile("f1_zip.txt", "content");
+        var archivePath = Path.Combine(TempDirectory, "console_test.zip");
+        await RunCliAsync("compress", f1, archivePath);
+
+        var subDir = CreateTempDirectory("sub_zip_append", fileCount: 2);
 
         var (exitCode, stdout) = await RunCliAsync("append", archivePath, subDir);
 

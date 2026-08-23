@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics;
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Runtime.CompilerServices;
@@ -269,13 +270,470 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         }
     }
 
-    public Task<AppendResult> AppendAsync(
+    public async Task<AppendResult> AppendAsync(
         ArchiveAppendRequest request,
         IProgress<DomainProgressReport>? progress = null,
         CancellationToken ct = default)
     {
         var descriptor = ArchiveFormatRegistry.Detect(request.ArchivePath);
-        throw new NotSupportedException($"Appending to '{descriptor.Format}' archive format is not supported.");
+        if (descriptor.Format != ArchiveFormat.Zip)
+        {
+            throw new NotSupportedException($"Appending to '{descriptor.Format}' archive format is not supported.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(request.CompressionLevel, 0);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(request.CompressionLevel, 9);
+
+        if (request.SourcePaths is null or { Count: 0 })
+        {
+            throw new ArgumentException("At least one source path must be specified.", nameof(request));
+        }
+
+        var archivePath = Path.GetFullPath(request.ArchivePath);
+        if (!File.Exists(archivePath))
+        {
+            throw new FileNotFoundException($"Archive not found: {archivePath}", archivePath);
+        }
+
+        // Validate all sources upfront before creating any temporary files
+        var resolvedSources = new List<(string FullPath, string RawPath, bool IsDir)>();
+        foreach (var raw in request.SourcePaths)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                throw new ArgumentException("Source path cannot be empty.");
+            }
+
+            var fullPath = !string.IsNullOrEmpty(request.BaseDirectory) && !Path.IsPathRooted(raw)
+                ? Path.GetFullPath(Path.Combine(request.BaseDirectory, raw))
+                : Path.GetFullPath(raw);
+
+            var isDir = Directory.Exists(fullPath);
+            var isFile = File.Exists(fullPath);
+
+            if (!isDir && !isFile)
+            {
+                throw new FileNotFoundException($"Source path does not exist: {raw}", fullPath);
+            }
+
+            resolvedSources.Add((fullPath, raw, isDir));
+        }
+
+        // Collect incoming entries
+        var incomingEntries = new List<IncomingAppendEntry>();
+        var incomingByPath = new Dictionary<string, IncomingAppendEntry>(StringComparer.Ordinal);
+
+        foreach (var (fullPath, rawPath, isDir) in resolvedSources)
+        {
+            if (isDir)
+            {
+                var rootDirInfo = new DirectoryInfo(fullPath);
+                var dirPrefix = EntryNameSanitizer.SanitizeRelativePath(rawPath, fullPath, request.BaseDirectory);
+
+                if (!string.IsNullOrEmpty(dirPrefix))
+                {
+                    var normalizedPrefix = dirPrefix.TrimEnd('/') + "/";
+                    var topDirEntry = new IncomingAppendEntry(
+                        normalizedPrefix,
+                        fullPath,
+                        IsDirectory: true,
+                        Length: 0,
+                        rootDirInfo.LastWriteTimeUtc,
+                        OperatingSystem.IsWindows() ? default : rootDirInfo.UnixFileMode
+                    );
+                    incomingEntries.Add(topDirEntry);
+                    incomingByPath[normalizedPrefix] = topDirEntry;
+                    incomingByPath[dirPrefix.TrimEnd('/')] = topDirEntry;
+                }
+
+                foreach (var fsi in rootDirInfo.EnumerateFileSystemInfos("*", SearchOption.AllDirectories))
+                {
+                    var relativeFromDir = Path.GetRelativePath(rootDirInfo.FullName, fsi.FullName).Replace('\\', '/');
+                    var relPath = string.IsNullOrEmpty(dirPrefix)
+                        ? relativeFromDir
+                        : dirPrefix + "/" + relativeFromDir;
+
+                    if (fsi is DirectoryInfo dirInfo)
+                    {
+                        var normalizedDir = relPath.TrimEnd('/') + "/";
+                        var dirEntry = new IncomingAppendEntry(
+                            normalizedDir,
+                            dirInfo.FullName,
+                            IsDirectory: true,
+                            Length: 0,
+                            dirInfo.LastWriteTimeUtc,
+                            OperatingSystem.IsWindows() ? default : dirInfo.UnixFileMode
+                        );
+                        incomingEntries.Add(dirEntry);
+                        incomingByPath[normalizedDir] = dirEntry;
+                        incomingByPath[relPath.TrimEnd('/')] = dirEntry;
+                    }
+                    else if (fsi is FileInfo fileInfo)
+                    {
+                        var fileEntry = new IncomingAppendEntry(
+                            relPath,
+                            fileInfo.FullName,
+                            IsDirectory: false,
+                            Length: fileInfo.Length,
+                            fileInfo.LastWriteTimeUtc,
+                            OperatingSystem.IsWindows() ? default : fileInfo.UnixFileMode
+                        );
+                        incomingEntries.Add(fileEntry);
+                        incomingByPath[relPath] = fileEntry;
+                    }
+                }
+            }
+            else
+            {
+                var fileInfo = new FileInfo(fullPath);
+                var relPath = EntryNameSanitizer.SanitizeRelativePath(rawPath, fullPath, request.BaseDirectory);
+                var fileEntry = new IncomingAppendEntry(
+                    relPath,
+                    fileInfo.FullName,
+                    IsDirectory: false,
+                    Length: fileInfo.Length,
+                    fileInfo.LastWriteTimeUtc,
+                    OperatingSystem.IsWindows() ? default : fileInfo.UnixFileMode
+                );
+                incomingEntries.Add(fileEntry);
+                incomingByPath[relPath] = fileEntry;
+            }
+        }
+
+        // List existing entries to inspect collisions and calculate metrics upfront
+        var existingCdRecords = ParseZipCentralDirectory(archivePath);
+        var existingModesByPath = new Dictionary<string, ushort>(StringComparer.Ordinal);
+        foreach (var rec in existingCdRecords)
+        {
+            if ((rec.VersionMadeBy >> 8) == 3)
+            {
+                ushort mode16 = (ushort)(rec.ExternalFileAttributes >> 16);
+                if (mode16 != 0)
+                {
+                    existingModesByPath[rec.Name] = mode16;
+                    var trimmed = rec.Name.TrimEnd('/');
+                    if (trimmed.Length > 0)
+                    {
+                        existingModesByPath[trimmed] = mode16;
+                    }
+                }
+            }
+        }
+
+        var existingEntries = await ListEntriesAsync(archivePath, ct);
+
+        var existingActions = new Dictionary<string, AppendEntryAction>(StringComparer.Ordinal);
+        var incomingActions = new Dictionary<string, AppendEntryAction>(StringComparer.Ordinal);
+
+        foreach (var existingEntry in existingEntries)
+        {
+            var existingPath = existingEntry.RelativePath.Replace('\\', '/');
+            if (existingEntry.IsDirectory)
+            {
+                existingActions[existingPath] = AppendEntryAction.Retain;
+                existingActions[existingPath.TrimEnd('/')] = AppendEntryAction.Retain;
+            }
+            else
+            {
+                if (incomingByPath.TryGetValue(existingPath, out var incoming) ||
+                    incomingByPath.TryGetValue(existingPath.TrimStart('/'), out incoming))
+                {
+                    if (request.UpdateOnly)
+                    {
+                        var existingModTime = existingEntry.LastModified?.UtcDateTime;
+                        var isStrictlyNewer = !existingModTime.HasValue || incoming.LastWriteTimeUtc > existingModTime.Value;
+                        if (isStrictlyNewer)
+                        {
+                            existingActions[existingPath] = AppendEntryAction.Update;
+                            incomingActions[incoming.RelativePath] = AppendEntryAction.Update;
+                        }
+                        else
+                        {
+                            existingActions[existingPath] = AppendEntryAction.Retain;
+                            incomingActions[incoming.RelativePath] = AppendEntryAction.Skip;
+                        }
+                    }
+                    else
+                    {
+                        existingActions[existingPath] = AppendEntryAction.Update;
+                        incomingActions[incoming.RelativePath] = AppendEntryAction.Update;
+                    }
+                }
+                else
+                {
+                    existingActions[existingPath] = AppendEntryAction.Retain;
+                }
+            }
+        }
+
+        int addedFiles = 0;
+        int updatedFiles = 0;
+        int retainedFiles = 0;
+        int skippedFiles = 0;
+        long totalUncompressedBytes = 0;
+
+        foreach (var e in existingEntries)
+        {
+            if (e.IsDirectory) continue;
+
+            var normPath = e.RelativePath.Replace('\\', '/');
+            if (existingActions.TryGetValue(normPath, out var action) && action == AppendEntryAction.Retain)
+            {
+                retainedFiles++;
+                totalUncompressedBytes += e.UncompressedSize;
+            }
+        }
+
+        foreach (var inc in incomingEntries)
+        {
+            if (inc.IsDirectory) continue;
+
+            if (incomingActions.TryGetValue(inc.RelativePath, out var action))
+            {
+                if (action == AppendEntryAction.Skip)
+                {
+                    skippedFiles++;
+                }
+                else if (action == AppendEntryAction.Update)
+                {
+                    updatedFiles++;
+                    totalUncompressedBytes += inc.Length;
+                }
+            }
+            else
+            {
+                addedFiles++;
+                totalUncompressedBytes += inc.Length;
+            }
+        }
+
+        int totalFiles = retainedFiles + updatedFiles + addedFiles;
+        var tempOutput = archivePath + ".tmp." + Guid.NewGuid().ToString("N");
+        long processedBytes = 0;
+        int processedFiles = 0;
+        var writtenDirPaths = new HashSet<string>(StringComparer.Ordinal);
+        var modesByPath = new Dictionary<string, ushort>(StringComparer.Ordinal);
+        var sw = Stopwatch.StartNew();
+
+        try
+        {
+            await Task.Run(async () =>
+            {
+                var compressionType = request.CompressionLevel == 0 ? SharpCompress.Common.CompressionType.None : SharpCompress.Common.CompressionType.Deflate;
+                var writerOptions = new ZipWriterOptions(compressionType)
+                {
+                    UseZip64 = true,
+                    LeaveStreamOpen = false,
+                    ArchiveEncoding = new ArchiveEncoding
+                    {
+                        Default = Encoding.UTF8,
+                        UTF8 = Encoding.UTF8
+                    }
+                };
+
+                await using (var outputStream = new FileStream(
+                    tempOutput,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    BufferSize,
+                    useAsync: true))
+                {
+                    using var zipWriter = new ZipWriter(outputStream, writerOptions);
+
+                    // Phase 1: Stream preserved existing entries
+                    using (var existingArchive = SharpCompress.Archives.Zip.ZipArchive.OpenArchive(archivePath, new ReaderOptions { LeaveStreamOpen = false }))
+                    {
+                        List<IArchiveEntry> archiveEntries;
+                        try
+                        {
+                            archiveEntries = existingArchive.Entries.ToList();
+                        }
+                        catch (Exception ex) when (IsCorruptionException(ex))
+                        {
+                            throw new ArchiveIntegrityException($"Archive '{archivePath}' is corrupted or unparseable: {ex.Message}", innerException: ex);
+                        }
+                        catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
+                        {
+                            throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
+                        }
+
+                        foreach (var entry in archiveEntries)
+                        {
+                            ct.ThrowIfCancellationRequested();
+
+                            var entryKey = entry.Key ?? string.Empty;
+                            var normalizedKey = entryKey.Replace('\\', '/');
+                            bool isDir = entry.IsDirectory || normalizedKey.EndsWith('/');
+
+                            if (isDir)
+                            {
+                                var dirName = normalizedKey.TrimEnd('/') + "/";
+                                if (writtenDirPaths.Add(dirName))
+                                {
+                                    if (existingModesByPath.TryGetValue(normalizedKey, out var dirMode) ||
+                                        existingModesByPath.TryGetValue(dirName, out dirMode) ||
+                                        existingModesByPath.TryGetValue(dirName.TrimEnd('/'), out dirMode))
+                                    {
+                                        modesByPath[dirName] = dirMode;
+                                        modesByPath[dirName.TrimEnd('/')] = dirMode;
+                                    }
+                                    zipWriter.WriteDirectory(dirName, entry.LastModifiedTime?.ToUniversalTime() ?? DateTime.UtcNow);
+                                }
+                            }
+                            else
+                            {
+                                var action = existingActions.TryGetValue(normalizedKey, out var act) ? act : AppendEntryAction.Retain;
+                                if (action == AppendEntryAction.Retain)
+                                {
+                                    if (existingModesByPath.TryGetValue(normalizedKey, out var fileMode) ||
+                                        existingModesByPath.TryGetValue(entryKey, out fileMode))
+                                    {
+                                        modesByPath[normalizedKey] = fileMode;
+                                    }
+
+                                    var entryLength = entry.Size;
+                                    await using var entryStream = entry.OpenEntryStream();
+                                    await using var trackingStream = new ProgressReportingStream(
+                                        entryStream,
+                                        entryLength,
+                                        bytesRead =>
+                                        {
+                                            Interlocked.Add(ref processedBytes, bytesRead);
+                                            var currentTotal = Volatile.Read(ref processedBytes);
+                                            progress?.Report(new DomainProgressReport(
+                                                ProcessedBytes: currentTotal,
+                                                TotalBytes: totalUncompressedBytes,
+                                                CurrentFileName: normalizedKey,
+                                                Percentage: totalUncompressedBytes > 0 ? (double)currentTotal / totalUncompressedBytes * 100.0 : 0,
+                                                ProcessedFiles: Volatile.Read(ref processedFiles),
+                                                TotalFiles: totalFiles
+                                            ));
+                                        });
+
+                                    zipWriter.Write(normalizedKey, trackingStream, entry.LastModifiedTime?.ToUniversalTime() ?? DateTime.UtcNow);
+                                    Interlocked.Increment(ref processedFiles);
+                                }
+                            }
+                        }
+                    }
+
+                    // Phase 2: Stream incoming new & updated entries
+                    foreach (var inc in incomingEntries)
+                    {
+                        ct.ThrowIfCancellationRequested();
+
+                        if (inc.IsDirectory)
+                        {
+                            var dirName = inc.RelativePath.Replace('\\', '/').TrimEnd('/') + "/";
+                            if (writtenDirPaths.Add(dirName))
+                            {
+                                if (TryGetZipMode16(inc.FullPath, isDirectory: true) is ushort dirMode)
+                                {
+                                    modesByPath[dirName] = dirMode;
+                                    modesByPath[dirName.TrimEnd('/')] = dirMode;
+                                }
+                                zipWriter.WriteDirectory(dirName, inc.LastWriteTimeUtc);
+                            }
+                        }
+                        else
+                        {
+                            var action = incomingActions.TryGetValue(inc.RelativePath, out var act) ? act : AppendEntryAction.Update;
+                            if (action == AppendEntryAction.Skip)
+                            {
+                                continue;
+                            }
+
+                            if (TryGetZipMode16(inc.FullPath, isDirectory: false) is ushort fileMode)
+                            {
+                                modesByPath[inc.RelativePath] = fileMode;
+                            }
+
+                            await using var fileStream = new FileStream(
+                                inc.FullPath,
+                                FileMode.Open,
+                                FileAccess.Read,
+                                FileShare.Read,
+                                BufferSize,
+                                useAsync: true);
+
+                            await using var trackingStream = new ProgressReportingStream(
+                                fileStream,
+                                inc.Length,
+                                bytesRead =>
+                                {
+                                    Interlocked.Add(ref processedBytes, bytesRead);
+                                    var currentTotal = Volatile.Read(ref processedBytes);
+                                    progress?.Report(new DomainProgressReport(
+                                        ProcessedBytes: currentTotal,
+                                        TotalBytes: totalUncompressedBytes,
+                                        CurrentFileName: inc.RelativePath,
+                                        Percentage: totalUncompressedBytes > 0 ? (double)currentTotal / totalUncompressedBytes * 100.0 : 0,
+                                        ProcessedFiles: Volatile.Read(ref processedFiles),
+                                        TotalFiles: totalFiles
+                                    ));
+                                });
+
+                            zipWriter.Write(inc.RelativePath, trackingStream, inc.LastWriteTimeUtc);
+                            Interlocked.Increment(ref processedFiles);
+                        }
+                    }
+                }
+
+                if (modesByPath.Count > 0)
+                {
+                    PatchZipExternalAttributes(tempOutput, modesByPath);
+                }
+
+                File.Move(tempOutput, archivePath, overwrite: true);
+            }, ct);
+        }
+        catch (Exception ex) when (IsCorruptionException(ex))
+        {
+            throw new ArchiveIntegrityException($"Archive '{archivePath}' is corrupted or unparseable: {ex.Message}", innerException: ex);
+        }
+        finally
+        {
+            if (File.Exists(tempOutput))
+            {
+                try { File.Delete(tempOutput); } catch { /* Ignore */ }
+            }
+        }
+
+        var finalInfo = new FileInfo(archivePath);
+        double ratio = totalUncompressedBytes > 0 ? (double)finalInfo.Length / totalUncompressedBytes : 1.0;
+        sw.Stop();
+
+        return new AppendResult(
+            Success: true,
+            ArchivePath: archivePath,
+            Format: "zip",
+            AddedFiles: addedFiles,
+            UpdatedFiles: updatedFiles,
+            RetainedFiles: retainedFiles,
+            SkippedFiles: skippedFiles,
+            TotalFiles: totalFiles,
+            UncompressedBytes: totalUncompressedBytes,
+            CompressedBytes: finalInfo.Length,
+            CompressionRatio: Math.Round(ratio, 4),
+            ElapsedMilliseconds: sw.ElapsedMilliseconds
+        );
+    }
+
+    private sealed record IncomingAppendEntry(
+        string RelativePath,
+        string FullPath,
+        bool IsDirectory,
+        long Length,
+        DateTime LastWriteTimeUtc,
+        UnixFileMode UnixMode
+    );
+
+    private enum AppendEntryAction
+    {
+        Retain,
+        Update,
+        Skip
     }
 
     public async Task<ExtractionResult> ExtractAsync(
@@ -831,7 +1289,8 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             Span<byte> buf = stackalloc byte[4];
             foreach (var rec in records)
             {
-                if (!modeByPath.TryGetValue(rec.Name, out ushort mode16))
+                if (!modeByPath.TryGetValue(rec.Name, out ushort mode16) &&
+                    !modeByPath.TryGetValue(rec.Name.TrimEnd('/'), out mode16))
                     continue;
 
                 // version-made-by high byte = 3 (Unix) tells readers the external attributes hold a mode.
