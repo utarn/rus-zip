@@ -9,6 +9,11 @@ public interface IArchiveEngine
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default);
 
+    Task<AppendResult> AppendAsync(
+        ArchiveAppendRequest request,
+        IProgress<ProgressReport>? progress = null,
+        CancellationToken ct = default);
+
     Task<ExtractionResult> ExtractAsync(
         ArchiveExtractionRequest request,
         IProgress<ProgressReport>? progress = null,
