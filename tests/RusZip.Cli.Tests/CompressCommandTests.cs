@@ -381,6 +381,7 @@ public sealed class CompressCommandTests : CliTestBase
         Assert.Equal(2, result.SourcePaths.Count);
         Assert.Equal(Path.GetFullPath(file1), result.SourcePaths[0]);
         Assert.Equal(Path.GetFullPath(file2), result.SourcePaths[1]);
+        Assert.Equal($"{Path.GetFullPath(file1)}, {Path.GetFullPath(file2)}", result.SourcePath);
         Assert.Equal(Path.GetFullPath(destArchive), result.ArchivePath);
         Assert.Equal("zrus", result.Format);
         Assert.Equal(2, result.TotalFiles);
