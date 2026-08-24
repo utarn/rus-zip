@@ -159,4 +159,15 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
             _ => _sharpCompressEngine.IsEncryptedAsync(archivePath, ct)
         };
     }
+
+    public Task<IReadOnlyList<string>> GetVolumePartsAsync(
+        string archivePath,
+        CancellationToken ct = default)
+    {
+        if (VolumeNameResolver.IsMultiVolume(archivePath))
+        {
+            return Task.FromResult(VolumeNameResolver.DiscoverVolumeSequence(archivePath));
+        }
+        return Task.FromResult<IReadOnlyList<string>>([archivePath]);
+    }
 }

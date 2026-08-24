@@ -47,4 +47,8 @@ public interface IArchiveEngine
     Task<bool> IsEncryptedAsync(
         string archivePath,
         CancellationToken ct = default);
+
+    Task<IReadOnlyList<string>> GetVolumePartsAsync(
+        string archivePath,
+        CancellationToken ct = default);
 }

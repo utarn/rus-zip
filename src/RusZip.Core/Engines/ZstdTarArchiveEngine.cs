@@ -37,6 +37,17 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         return fileStream;
     }
 
+    private static Stream OpenZstdArchiveReadStream(string archivePath)
+    {
+        if (VolumeNameResolver.IsMultiVolume(archivePath))
+        {
+            var volumeFiles = VolumeNameResolver.DiscoverVolumeSequence(archivePath);
+            return new MultiVolumeReadStream(volumeFiles);
+        }
+
+        return new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, useAsync: true);
+    }
+
     public async Task CompressAsync(
         ArchiveCompressionRequest request,
         IProgress<ProgressReport>? progress = null,
@@ -220,16 +231,35 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             }
         }
 
-        try
+        Stream baseOutputStream;
+        MultiVolumeWriteStream? multiVolumeStream = null;
+        if (request.SplitSizeBytes.HasValue && request.SplitSizeBytes.Value > 0)
         {
-            await using (var fileStream = new FileStream(
+            if (request.SplitSizeBytes.Value < MultiVolumeWriteStream.MinimumVolumeBytes)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(request.SplitSizeBytes),
+                    request.SplitSizeBytes.Value,
+                    $"Split volume size must be at least {MultiVolumeWriteStream.MinimumVolumeBytes:N0} bytes (64 KB).");
+            }
+            multiVolumeStream = new MultiVolumeWriteStream(destination, request.SplitSizeBytes.Value);
+            baseOutputStream = multiVolumeStream;
+        }
+        else
+        {
+            baseOutputStream = new FileStream(
                 tempOutput,
                 FileMode.CreateNew,
                 FileAccess.Write,
                 FileShare.None,
                 BufferSize,
-                useAsync: true))
-            await using (var wrappedOut = OpenZstdOutputStream(fileStream, request.Password))
+                useAsync: true);
+        }
+
+        try
+        {
+            await using (baseOutputStream)
+            await using (var wrappedOut = OpenZstdOutputStream(baseOutputStream, request.Password))
             await using (var compressionStream = new CompressionStream(wrappedOut, request.CompressionLevel))
             {
                 compressionStream.SetParameter(ZSTD_cParameter.ZSTD_c_checksumFlag, 1);
@@ -418,11 +448,14 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                 }
             }
 
-            File.Move(tempOutput, destination, overwrite: true);
+            if (multiVolumeStream == null)
+            {
+                File.Move(tempOutput, destination, overwrite: true);
+            }
         }
         finally
         {
-            if (File.Exists(tempOutput))
+            if (multiVolumeStream == null && File.Exists(tempOutput))
             {
                 try { File.Delete(tempOutput); } catch { /* Ignore */ }
             }
@@ -452,6 +485,11 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         if (descriptor.Format == ArchiveFormat.Zst)
         {
             throw new NotSupportedException("Appending is not supported for single-file streams.");
+        }
+
+        if (VolumeNameResolver.IsMultiVolume(archivePath))
+        {
+            throw new NotSupportedException("Modifying multi-volume split archives is not supported.");
         }
 
         // Validate all sources upfront before creating any temporary files
@@ -949,6 +987,11 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             throw new NotSupportedException($"Deleting entries from '{descriptor.Format}' archive format is not supported.");
         }
 
+        if (VolumeNameResolver.IsMultiVolume(archivePath))
+        {
+            throw new NotSupportedException("Modifying multi-volume split archives is not supported.");
+        }
+
         var existingEntries = await ListEntriesAsync(archivePath, request.Password, ct);
 
         int deletedEntriesCount = 0;
@@ -1354,14 +1397,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
             try
             {
-                await using var fileStream = new FileStream(
-                    fullPath,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read,
-                    BufferSize,
-                    useAsync: true);
-
+                await using var fileStream = OpenZstdArchiveReadStream(fullPath);
                 await using var inStream = OpenZstdInputStream(fileStream, password);
                 await using var decompStream = new DecompressionStream(inStream);
 
@@ -1407,14 +1443,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
             try
             {
-                await using var fileStream = new FileStream(
-                    fullPath,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read,
-                    BufferSize,
-                    useAsync: true);
-
+                await using var fileStream = OpenZstdArchiveReadStream(fullPath);
                 await using var inStream = OpenZstdInputStream(fileStream, password);
                 await using var decompStream = new DecompressionStream(inStream);
                 var countingStream = new CountingReadStream(decompStream);
@@ -1530,10 +1559,10 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                 UnixMode: null,
                 OpenStreamAsync: _ =>
                 {
-                    FileStream inStream;
+                    Stream inStream;
                     try
                     {
-                        inStream = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, SafeArchiveExtractor.BufferSize, useAsync: true);
+                        inStream = OpenZstdArchiveReadStream(archivePath);
                     }
                     catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
                     {
@@ -1574,16 +1603,10 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
     {
         public async IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync([EnumeratorCancellation] CancellationToken ct = default)
         {
-            FileStream fileStream;
+            Stream fileStream;
             try
             {
-                fileStream = new FileStream(
-                    archivePath,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read,
-                    SafeArchiveExtractor.BufferSize,
-                    useAsync: true);
+                fileStream = OpenZstdArchiveReadStream(archivePath);
             }
             catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
             {
@@ -1894,14 +1917,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
 
         try
         {
-            await using var fileStream = new FileStream(
-                fullPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                BufferSize,
-                useAsync: true);
-
+            await using var fileStream = OpenZstdArchiveReadStream(fullPath);
             await using var inStream = OpenZstdInputStream(fileStream, password);
             await using var decompressionStream = new DecompressionStream(inStream);
             await using var countingStream = new CountingReadStream(decompressionStream);
@@ -1965,14 +1981,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
 
         try
         {
-            await using var fileStream = new FileStream(
-                fullPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                BufferSize,
-                useAsync: true);
-
+            await using var fileStream = OpenZstdArchiveReadStream(fullPath);
             await using var inStream = OpenZstdInputStream(fileStream, password);
             await using var decompressionStream = new DecompressionStream(inStream);
 
@@ -2009,5 +2018,14 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
     public Task<bool> IsEncryptedAsync(string archivePath, CancellationToken ct = default)
     {
         return Task.FromResult(ZrusCryptoEnvelope.IsEncryptedFile(archivePath));
+    }
+
+    public Task<IReadOnlyList<string>> GetVolumePartsAsync(string archivePath, CancellationToken ct = default)
+    {
+        if (VolumeNameResolver.IsMultiVolume(archivePath))
+        {
+            return Task.FromResult(VolumeNameResolver.DiscoverVolumeSequence(archivePath));
+        }
+        return Task.FromResult<IReadOnlyList<string>>([archivePath]);
     }
 }

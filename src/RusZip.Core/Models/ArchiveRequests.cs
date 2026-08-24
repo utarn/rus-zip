@@ -8,7 +8,8 @@ public sealed record ArchiveCompressionRequest(
     int CompressionLevel = 9,
     string? BaseDirectory = null,
     IReadOnlyCollection<string>? ExcludedPaths = null,
-    string? Password = null
+    string? Password = null,
+    long? SplitSizeBytes = null
 )
 {
     public ArchiveCompressionRequest(
@@ -17,8 +18,9 @@ public sealed record ArchiveCompressionRequest(
         int compressionLevel = 9,
         string? BaseDirectory = null,
         IReadOnlyCollection<string>? ExcludedPaths = null,
-        string? Password = null)
-        : this([sourcePath], destinationArchivePath, compressionLevel, BaseDirectory, ExcludedPaths, Password) { }
+        string? Password = null,
+        long? SplitSizeBytes = null)
+        : this([sourcePath], destinationArchivePath, compressionLevel, BaseDirectory, ExcludedPaths, Password, SplitSizeBytes) { }
 
     public string SourcePath => SourcePaths.Count > 0 ? SourcePaths[0] : string.Empty;
     public IReadOnlyCollection<string> ExcludedPaths { get; init; } = ExcludedPaths ?? Array.Empty<string>();

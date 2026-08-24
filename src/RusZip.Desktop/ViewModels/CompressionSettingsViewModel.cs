@@ -11,6 +11,9 @@ namespace RusZip.Desktop.ViewModels;
 public partial class CompressionSettingsViewModel : ObservableObject
 {
     public static readonly IReadOnlyList<string> AvailableFormats = [".zrus", ".zip"];
+    public static readonly IReadOnlyList<string> AvailableSplitPresets = ["100 MB", "250 MB", "1 GB", "2 GB", "4 GB", "10 GB", "Custom..."];
+
+    public IReadOnlyList<string> SplitPresets => AvailableSplitPresets;
 
     public static readonly IReadOnlyList<CompressionPreset> PresetProfiles =
     [
@@ -61,6 +64,67 @@ public partial class CompressionSettingsViewModel : ObservableObject
 
     [ObservableProperty] private bool _isPasswordVisible;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCompress))]
+    [NotifyPropertyChangedFor(nameof(SplitSizeErrorMessage))]
+    [NotifyPropertyChangedFor(nameof(HasSplitSizeError))]
+    [NotifyPropertyChangedFor(nameof(IsCustomSplitSize))]
+    [NotifyPropertyChangedFor(nameof(ResolvedSplitSizeBytes))]
+    private bool _isSplitVolume;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCompress))]
+    [NotifyPropertyChangedFor(nameof(SplitSizeErrorMessage))]
+    [NotifyPropertyChangedFor(nameof(HasSplitSizeError))]
+    [NotifyPropertyChangedFor(nameof(IsCustomSplitSize))]
+    [NotifyPropertyChangedFor(nameof(ResolvedSplitSizeBytes))]
+    private string _selectedSplitPreset = "100 MB";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCompress))]
+    [NotifyPropertyChangedFor(nameof(SplitSizeErrorMessage))]
+    [NotifyPropertyChangedFor(nameof(HasSplitSizeError))]
+    [NotifyPropertyChangedFor(nameof(ResolvedSplitSizeBytes))]
+    private string _customSplitSize = string.Empty;
+
+    public bool IsCustomSplitSize => IsSplitVolume && SelectedSplitPreset == "Custom...";
+    public bool HasSplitSizeError => SplitSizeErrorMessage != null;
+
+    public string? SplitSizeErrorMessage
+    {
+        get
+        {
+            if (!IsSplitVolume) return null;
+            if (SelectedSplitPreset == "Custom...")
+            {
+                if (string.IsNullOrWhiteSpace(CustomSplitSize))
+                    return "Custom split size cannot be empty.";
+                if (!DataSizeParser.TryParse(CustomSplitSize, out var bytes))
+                    return "Invalid size expression (e.g. 500MB, 1.5GB).";
+                if (bytes < DataSizeParser.MinimumSplitSizeBytes)
+                    return $"Split size must be at least {DataSizeParser.MinimumSplitSizeBytes:N0} bytes (64 KB).";
+            }
+            return null;
+        }
+    }
+
+    public long? ResolvedSplitSizeBytes
+    {
+        get
+        {
+            if (!IsSplitVolume) return null;
+            if (SelectedSplitPreset == "Custom...")
+            {
+                if (DataSizeParser.TryParse(CustomSplitSize, out var b) && b >= DataSizeParser.MinimumSplitSizeBytes)
+                    return b;
+                return null;
+            }
+            if (DataSizeParser.TryParse(SelectedSplitPreset, out var pb))
+                return pb;
+            return null;
+        }
+    }
+
     public bool HasPasswordError => PasswordErrorMessage != null;
 
     public string? PasswordErrorMessage
@@ -77,7 +141,8 @@ public partial class CompressionSettingsViewModel : ObservableObject
     public bool CanCompress =>
         !string.IsNullOrWhiteSpace(DestinationPath) &&
         (StagedItems.Count > 0 || !string.IsNullOrWhiteSpace(SourcePath)) &&
-        (!IsPasswordProtected || (!string.IsNullOrEmpty(Password) && Password == ConfirmPassword));
+        (!IsPasswordProtected || (!string.IsNullOrEmpty(Password) && Password == ConfirmPassword)) &&
+        (!IsSplitVolume || (ResolvedSplitSizeBytes.HasValue && SplitSizeErrorMessage == null));
 
     [ObservableProperty] private IHierarchicalModel? _gridSource;
     [ObservableProperty] private StagedSourceItemViewModel? _selectedItem;
@@ -837,7 +902,8 @@ public partial class CompressionSettingsViewModel : ObservableObject
             DestinationPath,
             CompressionLevel,
             ExcludedPaths: ExcludedPaths,
-            Password: IsPasswordProtected ? Password : null
+            Password: IsPasswordProtected ? Password : null,
+            SplitSizeBytes: ResolvedSplitSizeBytes
         );
     }
 }

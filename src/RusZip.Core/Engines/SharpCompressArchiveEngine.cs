@@ -142,13 +142,32 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 long processedBytes = 0;
                 int processedFiles = 0;
 
-                await using (var outputStream = new FileStream(
-                    tempOutput,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None,
-                    BufferSize,
-                    useAsync: true))
+                Stream outputStream;
+                MultiVolumeWriteStream? multiVolumeStream = null;
+                if (request.SplitSizeBytes.HasValue && request.SplitSizeBytes.Value > 0)
+                {
+                    if (request.SplitSizeBytes.Value < MultiVolumeWriteStream.MinimumVolumeBytes)
+                    {
+                        throw new ArgumentOutOfRangeException(
+                            nameof(request.SplitSizeBytes),
+                            request.SplitSizeBytes.Value,
+                            $"Split volume size must be at least {MultiVolumeWriteStream.MinimumVolumeBytes:N0} bytes (64 KB).");
+                    }
+                    multiVolumeStream = new MultiVolumeWriteStream(destination, request.SplitSizeBytes.Value);
+                    outputStream = multiVolumeStream;
+                }
+                else
+                {
+                    outputStream = new FileStream(
+                        tempOutput,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None,
+                        BufferSize,
+                        useAsync: true);
+                }
+
+                await using (outputStream)
                 {
                     var compressionType = request.CompressionLevel == 0 ? SharpCompress.Common.CompressionType.None : SharpCompress.Common.CompressionType.Deflate;
                     var writerOptions = new ZipWriterOptions(compressionType)
@@ -326,17 +345,20 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 // archive is fully written we patch the central directory in place: set the "version made
                 // by" upper byte to 3 (Unix) and store each source file's POSIX mode in the external
                 // attributes field (F-13 write side). Best-effort: a failure here never fails compression.
-                if (modesByPath.Count > 0)
+                if (modesByPath.Count > 0 && multiVolumeStream == null)
                 {
                     PatchZipExternalAttributes(tempOutput, modesByPath);
                 }
 
-                File.Move(tempOutput, destination, overwrite: true);
+                if (multiVolumeStream == null)
+                {
+                    File.Move(tempOutput, destination, overwrite: true);
+                }
             }, ct);
         }
         finally
         {
-            if (File.Exists(tempOutput))
+            if (multiVolumeStream == null && File.Exists(tempOutput))
             {
                 try { File.Delete(tempOutput); } catch { /* Ignore */ }
             }
@@ -458,7 +480,26 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             _ => CompressionLevel.SmallestSize
         };
 
-        await using var fs = new FileStream(tempOutput, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, useAsync: true);
+        Stream fs;
+        MultiVolumeWriteStream? multiVolumeStream = null;
+        if (request.SplitSizeBytes.HasValue && request.SplitSizeBytes.Value > 0)
+        {
+            if (request.SplitSizeBytes.Value < MultiVolumeWriteStream.MinimumVolumeBytes)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(request.SplitSizeBytes),
+                    request.SplitSizeBytes.Value,
+                    $"Split volume size must be at least {MultiVolumeWriteStream.MinimumVolumeBytes:N0} bytes (64 KB).");
+            }
+            multiVolumeStream = new MultiVolumeWriteStream(request.DestinationArchivePath, request.SplitSizeBytes.Value);
+            fs = multiVolumeStream;
+        }
+        else
+        {
+            fs = new FileStream(tempOutput, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, useAsync: true);
+        }
+
+        await using (fs)
         using var bw = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true);
 
         var centralDirectoryHeaders = new List<byte[]>();
@@ -592,7 +633,10 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         bw.Write((short)0);    // comment length
         bw.Flush();
 
-        File.Move(tempOutput, request.DestinationArchivePath, overwrite: true);
+        if (multiVolumeStream == null)
+        {
+            File.Move(tempOutput, request.DestinationArchivePath, overwrite: true);
+        }
     }
 
     public async Task<AppendResult> AppendAsync(
@@ -604,6 +648,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         if (descriptor.Format != ArchiveFormat.Zip)
         {
             throw new NotSupportedException($"Appending to '{descriptor.Format}' archive format is not supported.");
+        }
+
+        if (VolumeNameResolver.IsMultiVolume(request.ArchivePath))
+        {
+            throw new NotSupportedException("Modifying multi-volume split archives is not supported.");
         }
 
         ArgumentOutOfRangeException.ThrowIfLessThan(request.CompressionLevel, 0);
@@ -1074,6 +1123,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         if (descriptor.Format != ArchiveFormat.Zip)
         {
             throw new NotSupportedException($"Deleting entries from '{descriptor.Format}' archive format is not supported.");
+        }
+
+        if (VolumeNameResolver.IsMultiVolume(request.ArchivePath))
+        {
+            throw new NotSupportedException("Modifying multi-volume split archives is not supported.");
         }
 
         ArgumentOutOfRangeException.ThrowIfLessThan(request.CompressionLevel, 0);
@@ -1763,11 +1817,29 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
 
     private static IArchive OpenArchiveByFormat(string filePath, ArchiveFormat format, ReaderOptions options)
     {
+        if (VolumeNameResolver.IsMultiVolume(filePath))
+        {
+            var parts = VolumeNameResolver.DiscoverVolumeSequence(filePath);
+            var stream = new MultiVolumeReadStream(parts);
+            return OpenArchiveByStream(stream, format, options);
+        }
+
         return format switch
         {
             ArchiveFormat.Zip => SharpCompress.Archives.Zip.ZipArchive.OpenArchive(filePath, options),
             ArchiveFormat.Rar => RarArchive.OpenArchive(filePath, options),
             ArchiveFormat.SevenZip => SevenZipArchive.OpenArchive(filePath, options),
+            _ => throw new NotSupportedException($"Format '{format}' not directly supported via SharpCompress IArchive")
+        };
+    }
+
+    private static IArchive OpenArchiveByStream(Stream stream, ArchiveFormat format, ReaderOptions options)
+    {
+        return format switch
+        {
+            ArchiveFormat.Zip => SharpCompress.Archives.Zip.ZipArchive.OpenArchive(stream, options),
+            ArchiveFormat.Rar => RarArchive.OpenArchive(stream, options),
+            ArchiveFormat.SevenZip => SevenZipArchive.OpenArchive(stream, options),
             _ => throw new NotSupportedException($"Format '{format}' not directly supported via SharpCompress IArchive")
         };
     }
@@ -2555,5 +2627,14 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 return false;
             }
         }, ct);
+    }
+
+    public Task<IReadOnlyList<string>> GetVolumePartsAsync(string archivePath, CancellationToken ct = default)
+    {
+        if (VolumeNameResolver.IsMultiVolume(archivePath))
+        {
+            return Task.FromResult(VolumeNameResolver.DiscoverVolumeSequence(archivePath));
+        }
+        return Task.FromResult<IReadOnlyList<string>>([archivePath]);
     }
 }

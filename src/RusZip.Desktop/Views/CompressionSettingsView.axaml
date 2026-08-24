@@ -367,5 +367,46 @@
                 </StackPanel>
             </StackPanel>
         </Border>
+
+        <!-- Split Volume Section -->
+        <Border BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="16"
+                Background="{DynamicResource CardBackgroundFillColorSecondary}">
+            <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <PathIcon Data="{StaticResource Icon.FileArchive}" Width="16" Height="16" Foreground="{DynamicResource SystemAccentColor}" />
+                        <TextBlock Text="Split into Volumes:" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="1"
+                                  IsChecked="{Binding IsSplitVolume}"
+                                  OnContent="Enabled"
+                                  OffContent="Disabled" />
+                </Grid>
+
+                <StackPanel IsVisible="{Binding IsSplitVolume}" Spacing="10" Margin="0,4,0,0">
+                    <Grid ColumnDefinitions="*,*">
+                        <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,6,0">
+                            <TextBlock Text="Volume Size Preset:" FontSize="12" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <ComboBox ItemsSource="{Binding SplitPresets}"
+                                      SelectedItem="{Binding SelectedSplitPreset}"
+                                      HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="4" Margin="6,0,0,0" IsVisible="{Binding IsCustomSplitSize}">
+                            <TextBlock Text="Custom Volume Size (e.g. 500MB):" FontSize="12" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <TextBox Text="{Binding CustomSplitSize}"
+                                     PlaceholderText="e.g. 500MB, 1.5GB" />
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Text="{Binding SplitSizeErrorMessage}"
+                               Foreground="{DynamicResource SystemFillColorCritical}"
+                               FontSize="12"
+                               IsVisible="{Binding HasSplitSizeError}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
     </StackPanel>
 </UserControl>

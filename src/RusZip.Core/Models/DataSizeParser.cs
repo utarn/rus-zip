@@ -11,6 +11,18 @@ namespace RusZip.Core.Models;
 /// </summary>
 public static partial class DataSizeParser
 {
+    public const long MinimumSplitSizeBytes = 65536; // 64 KB
+
+    public static readonly IReadOnlyList<long> SplitSizePresets =
+    [
+        100L * 1024 * 1024,      // 100 MB
+        250L * 1024 * 1024,      // 250 MB
+        1024L * 1024 * 1024,     // 1 GB
+        2L * 1024 * 1024 * 1024, // 2 GB
+        4L * 1024 * 1024 * 1024, // 4 GB
+        10L * 1024 * 1024 * 1024 // 10 GB
+    ];
+
     [GeneratedRegex(@"^\s*([0-9]*\.?[0-9]+)\s*([a-zA-Z]*)\s*$", RegexOptions.Compiled)]
     private static partial Regex SizePattern();
 

@@ -75,7 +75,20 @@ public partial class MainWindowViewModel : ObservableObject
                     ? "Read-Write"
                     : "Read-Only";
                 var encryptedBadge = IsCurrentArchiveEncrypted ? " | 🔒 Encrypted" : "";
-                return $"[ {ext} | {capability}{encryptedBadge} ]";
+                var multiVolumeBadge = "";
+                if (VolumeNameResolver.IsMultiVolume(Browser.LoadedArchivePath))
+                {
+                    try
+                    {
+                        var parts = VolumeNameResolver.DiscoverVolumeSequence(Browser.LoadedArchivePath);
+                        multiVolumeBadge = $" | 📦 Multi-Volume ({parts.Count} parts)";
+                    }
+                    catch
+                    {
+                        multiVolumeBadge = " | 📦 Multi-Volume";
+                    }
+                }
+                return $"[ {ext} | {capability}{encryptedBadge}{multiVolumeBadge} ]";
             }
 
             return string.Empty;

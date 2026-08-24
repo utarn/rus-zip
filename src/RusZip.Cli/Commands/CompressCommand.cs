@@ -52,6 +52,10 @@ public sealed class CompressSettings : JsonCommandSettings
     [CommandOption("--password <PWD>")]
     [Description("Password for encrypting the archive.")]
     public string? Password { get; init; }
+
+    [CommandOption("-s|--split|--split-size <SIZE>")]
+    [Description("Split archive into volumes of specified size (e.g. 100MB, 1GB, 4GB). Minimum: 64KB.")]
+    public string? SplitSize { get; init; }
 }
 
 public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<CompressSettings>
@@ -205,11 +209,37 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     );
                 }
 
-                var request = new ArchiveCompressionRequest(sourceArgs, destination, compressionLevel, Password: settings.Password);
+                long? splitSizeBytes = null;
+                if (!string.IsNullOrWhiteSpace(settings.SplitSize))
+                {
+                    if (!DataSizeParser.TryParse(settings.SplitSize, out var parsedSize))
+                    {
+                        throw new ArgumentException($"Invalid split size '{settings.SplitSize}'. Use bytes or human units (e.g. 100MB, 1GB).");
+                    }
+                    if (parsedSize < DataSizeParser.MinimumSplitSizeBytes)
+                    {
+                        throw new ArgumentOutOfRangeException(
+                            nameof(settings.SplitSize),
+                            parsedSize,
+                            $"Split volume size must be at least {DataSizeParser.MinimumSplitSizeBytes:N0} bytes (64 KB).");
+                    }
+                    splitSizeBytes = parsedSize;
+                }
+
+                var request = new ArchiveCompressionRequest(sourceArgs, destination, compressionLevel, Password: settings.Password, SplitSizeBytes: splitSizeBytes);
 
                 await _engine.CompressAsync(request, progress, ct);
 
-                var destInfo = new FileInfo(destination);
+                var volumeParts = await _engine.GetVolumePartsAsync(destination, ct);
+                long totalCompressedBytes = 0;
+                foreach (var part in volumeParts)
+                {
+                    if (File.Exists(part))
+                    {
+                        totalCompressedBytes += new FileInfo(part).Length;
+                    }
+                }
+
                 long uncompressedSize = 0;
                 int fileCount = 0;
 
@@ -228,18 +258,20 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     }
                 }
 
-                double ratio = uncompressedSize > 0 ? (double)destInfo.Length / uncompressedSize : 1.0;
+                double ratio = uncompressedSize > 0 ? (double)totalCompressedBytes / uncompressedSize : 1.0;
                 formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
                 stopwatch.Stop();
+
+                var actualArchivePath = volumeParts.Count > 0 ? volumeParts[0] : destination;
 
                 return new CompressResult(
                     Success: true,
                     SourcePaths: resolvedSources,
-                    ArchivePath: destination,
+                    ArchivePath: actualArchivePath,
                     Format: formatStr,
                     TotalFiles: fileCount,
                     UncompressedBytes: uncompressedSize,
-                    CompressedBytes: destInfo.Length,
+                    CompressedBytes: totalCompressedBytes,
                     CompressionRatio: Math.Round(ratio, 4),
                     ElapsedMilliseconds: stopwatch.ElapsedMilliseconds,
                     SourcePath: string.Join(", ", resolvedSources)
