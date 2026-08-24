@@ -15,12 +15,16 @@ rus-zip is a single solution built around a headless **Core Engine** (`RusZip.Co
 
 | Direction | Formats |
 | --- | --- |
-| Compress & Decompress | `.zrus` (Tar+Zstd), `.zip` |
+| Compress & Decompress | `.zrus` (Tar+Zstd), `.tar.zstd`, `.tzstd`, `.zst` (Single-file Zstandard stream), `.zip` |
 | Decompress Only | `.rar`, `.7z`, `.gz`, `.tar.gz` |
 
-### `.zrus`
+### `.zrus`, `.tar.zstd`, and `.tzstd`
 
-`.zrus` is the default archive format of rus-zip. It combines a Tar container structure (preserving multi-file directory trees, POSIX permissions, and timestamps) with Zstandard (`zstd`) compression, supporting configurable compression levels 1–22.
+`.zrus` is the default archive format of rus-zip. It combines a Tar container structure (preserving multi-file directory trees, POSIX permissions, and timestamps) with Zstandard (`zstd`) compression, supporting configurable compression levels 1–22. rus-zip also supports standard Tar+Zstandard extensions (`.tar.zstd` and `.tzstd`) as first-class aliases with identical capabilities.
+
+### `.zst` (Single-File Zstandard Stream)
+
+`.zst` provides direct, headerless single-file Zstandard stream compression and decompression without a Tar container wrapper, supporting compression levels 1–22.
 
 ### Compression Profiles
 
@@ -77,14 +81,26 @@ dotnet build RusZip.slnx                  # Build the solution
 
 ## CLI Quick Start
 
-The CLI exposes three verbs — `compress`, `extract`, and `list` (aliases `c`, `x`, `l`). After installing the binary (see [Publishing & Installing](#publishing--installing)) you can call `rus-zip` directly; from a source checkout, prefix any example with `./run.sh cli` or `dotnet run --project src/RusZip.Cli --`.
+The CLI exposes four verbs — `compress`, `append`, `extract`, and `list` (aliases `c`, `a`/`add`, `x`, `l`). After installing the binary (see [Publishing & Installing](#publishing--installing)) you can call `rus-zip` directly; from a source checkout, prefix any example with `./run.sh cli` or `dotnet run --project src/RusZip.Cli --`.
 
 ```bash
 # Compress a directory into a .zrus archive using the "high" profile
 rus-zip compress ./docs backup.zrus --profile high
 
+# Compress multiple source files and directories into an archive
+rus-zip compress file1.txt ./data -o backup.zrus
+
+# Compress a single file to a .zst stream
+rus-zip compress report.json -o report.json.zst
+
 # Compress a single file into a .zip archive at a specific level
 rus-zip compress readme.txt archive.zip -l 9
+
+# Append files or directories to an existing archive (aliases: a, add)
+rus-zip append backup.zrus extra.txt ./more-docs
+
+# Append using compress with --append (-a) and update-only (-u) to only overwrite older entries
+rus-zip compress extra.txt -o backup.zrus --append --update-only
 
 # List archive contents (human-readable table)
 rus-zip list backup.zrus
@@ -94,11 +110,54 @@ rus-zip list backup.zrus --json
 
 # Extract an archive into a directory
 rus-zip extract backup.zrus -o ./restored
+
+# Extract with file conflict policy: overwrite (default), skip, or abort
+rus-zip extract backup.zrus -o ./restored --conflict skip
 ```
 
 ### Global options
 
 Every command accepts `--json` (`-j`) for machine-readable JSON output and `--verbose-errors` to include full exception stack traces in JSON error output (off by default; enable only when diagnosing failures).
+
+### CLI Command Options
+
+#### `compress` (alias: `c`)
+
+| Option | Flag | Default | Description |
+| --- | --- | --- | --- |
+| `<SOURCES...>` | Argument | (Required) | Files or directories to compress |
+| `-o`, `--output <PATH>` | Option | `<SOURCE>.zrus` | Destination archive path |
+| `-l`, `--level <LEVEL>` | Option | `9` (Zstd) / `9` (Zip) | Compression level (`0-9` for `.zip` where `0` = Store, `1-22` for `.zrus`) |
+| `-p`, `--profile <PROFILE>` | Option | `balanced` | Compression profile for `.zrus`: `fast` (3), `balanced` (9), `high` (15), `ultra` (22) |
+| `-a`, `--append` | Option | `off` | Append sources to an existing archive instead of overwriting |
+| `-u`, `--update-only` | Option | `off` | When appending, only replace existing entries if the source file is strictly newer |
+
+#### `append` (aliases: `a`, `add`)
+
+| Option | Flag | Default | Description |
+| --- | --- | --- | --- |
+| `<ARCHIVE>` | Argument | (Required) | Path to the target archive file (`.zrus`, `.zip`) |
+| `<SOURCES...>` | Argument | (Required) | Files or directories to append |
+| `-l`, `--level <LEVEL>` | Option | `9` | Compression level (`0-9` for `.zip`, `1-22` for `.zrus`) |
+| `-p`, `--profile <PROFILE>` | Option | `balanced` | Compression profile for `.zrus` |
+| `-u`, `--update-only` | Option | `off` | Only replace existing entries if the source file is strictly newer |
+
+#### `extract` (alias: `x`)
+
+| Option | Flag | Default | Description |
+| --- | --- | --- | --- |
+| `<ARCHIVE>` | Argument | (Required) | Path to the archive file |
+| `-o`, `--output <DESTINATION>` | Option | Current directory | Directory to extract contents into |
+| `-c`, `--conflict <POLICY>` | Option | `overwrite` | Conflict resolution policy: `overwrite`, `skip`, `abort` |
+| `--no-overwrite` | Option | `off` | Do not overwrite existing files; abort (exit 1) on conflict (equivalent to `--conflict abort`) |
+| `--max-uncompressed-size <SIZE>` | Option | `64GB` | Max cumulative uncompressed output; `0` = unlimited |
+| `--max-entries <COUNT>` | Option | `1,000,000` | Max entries processed; `0` = unlimited |
+
+#### `list` (alias: `l`)
+
+| Option | Flag | Default | Description |
+| --- | --- | --- | --- |
+| `<ARCHIVE>` | Argument | (Required) | Path to the archive file |
 
 ### Extraction guardrails
 
@@ -107,14 +166,15 @@ Every archive is treated as untrusted: extraction aborts hard when a guardrail i
 ```bash
 rus-zip extract archive.zip -o ./out --max-uncompressed-size 10GB
 rus-zip extract archive.zip -o ./out --max-entries 100000
-rus-zip extract archive.zip -o ./out --no-overwrite
+rus-zip extract archive.zip -o ./out --conflict abort
 ```
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--max-uncompressed-size <bytes\|human>` | `64GB` | Max cumulative uncompressed output; `0` = unlimited |
 | `--max-entries <n>` | `1,000,000` | Max entries processed; `0` = unlimited |
-| `--no-overwrite` | off | Never overwrite existing files; abort (exit 1) naming the conflicting path |
+| `-c`, `--conflict <overwrite\|skip\|abort>` | `overwrite` | Conflict handling policy for existing destination files |
+| `--no-overwrite` | off | Never overwrite existing files; abort (exit 1) naming conflicting path |
 
 ### Exit codes
 
