@@ -29,7 +29,22 @@ public interface IArchiveEngine
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default);
 
+    Task<ArchiveTestResult> TestArchiveAsync(
+        string archivePath,
+        string? password,
+        IProgress<ProgressReport>? progress = null,
+        CancellationToken ct = default);
+
     Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(
+        string archivePath,
+        CancellationToken ct = default);
+
+    Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(
+        string archivePath,
+        string? password,
+        CancellationToken ct = default);
+
+    Task<bool> IsEncryptedAsync(
         string archivePath,
         CancellationToken ct = default);
 }

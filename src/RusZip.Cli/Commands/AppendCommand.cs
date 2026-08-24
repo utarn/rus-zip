@@ -31,6 +31,10 @@ public sealed class AppendSettings : JsonCommandSettings
     [CommandOption("-u|--update-only")]
     [Description("Only replace existing entries if the source file is strictly newer.")]
     public bool UpdateOnly { get; init; }
+
+    [CommandOption("--password <PASSWORD>")]
+    [Description("Password for encrypting or unlocking the archive.")]
+    public string? Password { get; init; }
 }
 
 public sealed class AppendCommand(IArchiveEngine engine) : AsyncCommand<AppendSettings>
@@ -93,7 +97,8 @@ public sealed class AppendCommand(IArchiveEngine engine) : AsyncCommand<AppendSe
                     archivePath,
                     settings.SourcePaths,
                     compressionLevel,
-                    settings.UpdateOnly);
+                    settings.UpdateOnly,
+                    Password: settings.Password);
 
                 return await _engine.AppendAsync(request, progress, ct);
             },

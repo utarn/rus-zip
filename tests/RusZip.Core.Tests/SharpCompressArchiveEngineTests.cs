@@ -303,7 +303,7 @@ public class SharpCompressArchiveEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Zip_Extract_EncryptedZip_ThrowsNotSupportedException()
+    public async Task Zip_Extract_EncryptedZip_WithoutPassword_ThrowsArchiveIntegrityException()
     {
         var encZip = Path.Combine(_testDir, "encrypted.zip");
         TestArchiveFixtures.CreateEncryptedZipArchive(encZip, "secret.txt", "classified data");
@@ -311,7 +311,7 @@ public class SharpCompressArchiveEngineTests : IDisposable
         var extractDir = Path.Combine(_testDir, "enc_extracted");
 
         var req = new ArchiveExtractionRequest(encZip, extractDir);
-        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => _engine.ExtractAsync(req));
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() => _engine.ExtractAsync(req));
         Assert.Contains("password-protected", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -905,7 +905,7 @@ public class SharpCompressArchiveEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task SevenZip_Extract_EncryptedArchive_ThrowsNotSupportedException()
+    public async Task SevenZip_Extract_EncryptedArchive_ThrowsArchiveIntegrityException()
     {
         var enc7z = Path.Combine(_testDir, "encrypted.7z");
         TestArchiveFixtures.CreateEncryptedSevenZipArchive(enc7z);
@@ -913,17 +913,17 @@ public class SharpCompressArchiveEngineTests : IDisposable
         var extractDir = Path.Combine(_testDir, "7z_enc_dst");
         var req = new ArchiveExtractionRequest(enc7z, extractDir);
 
-        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => _engine.ExtractAsync(req));
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() => _engine.ExtractAsync(req));
         Assert.Contains("password-protected", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task SevenZip_ListEntries_EncryptedArchive_ThrowsNotSupportedException()
+    public async Task SevenZip_ListEntries_EncryptedArchive_ThrowsArchiveIntegrityException()
     {
         var enc7z = Path.Combine(_testDir, "encrypted_list.7z");
         TestArchiveFixtures.CreateEncryptedSevenZipArchive(enc7z);
 
-        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => _engine.ListEntriesAsync(enc7z));
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() => _engine.ListEntriesAsync(enc7z));
         Assert.Contains("password-protected", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -964,7 +964,7 @@ public class SharpCompressArchiveEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Rar4_Extract_EncryptedArchive_ThrowsNotSupportedException()
+    public async Task Rar4_Extract_EncryptedArchive_ThrowsArchiveIntegrityException()
     {
         var encRar = Path.Combine(_testDir, "encrypted_rar4.rar");
         TestArchiveFixtures.CreateRar4Archive(encRar, "locked.txt", "secret", encrypted: true);
@@ -972,7 +972,7 @@ public class SharpCompressArchiveEngineTests : IDisposable
         var extractDir = Path.Combine(_testDir, "rar4_enc_dst");
         var req = new ArchiveExtractionRequest(encRar, extractDir);
 
-        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => _engine.ExtractAsync(req));
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() => _engine.ExtractAsync(req));
         Assert.Contains("password-protected", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1008,7 +1008,7 @@ public class SharpCompressArchiveEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Rar5_Extract_EncryptedArchive_ThrowsNotSupportedException()
+    public async Task Rar5_Extract_EncryptedArchive_ThrowsArchiveIntegrityException()
     {
         var encRar5 = Path.Combine(_testDir, "encrypted_rar5.rar");
         TestArchiveFixtures.CreateRar5Archive(encRar5, "locked5.txt", "secret5", encrypted: true);
@@ -1016,7 +1016,7 @@ public class SharpCompressArchiveEngineTests : IDisposable
         var extractDir = Path.Combine(_testDir, "rar5_enc_dst");
         var req = new ArchiveExtractionRequest(encRar5, extractDir);
 
-        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => _engine.ExtractAsync(req));
+        var ex = await Assert.ThrowsAsync<ArchiveIntegrityException>(() => _engine.ExtractAsync(req));
         Assert.Contains("password-protected", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 

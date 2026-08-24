@@ -70,6 +70,12 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
 
         var tempOutput = destination + ".tmp." + Guid.NewGuid().ToString("N");
 
+        if (!string.IsNullOrEmpty(request.Password))
+        {
+            await CompressWinZipAesAsync(request, resolvedSources, tempOutput, progress, ct);
+            return;
+        }
+
         try
         {
             await Task.Run(async () =>
@@ -145,12 +151,6 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     useAsync: true))
                 {
                     var compressionType = request.CompressionLevel == 0 ? SharpCompress.Common.CompressionType.None : SharpCompress.Common.CompressionType.Deflate;
-                    // UTF-8 entry-name encoding: SharpCompress sets the EFS bit (bit 11) on both the
-                    // local and central headers only when GetEncoding() equals Encoding.UTF8. The
-                    // default ArchiveEncoding.Default is Encoding.Default, which is NOT object-equal to
-                    // Encoding.UTF8, so the EFS flag is never set (F-12). Point Default at Encoding.UTF8
-                    // so GetEncoding() returns UTF-8 (EFS bit set) and Encode() emits UTF-8 name bytes —
-                    // third-party readers (python zipfile, unzip) then decode names correctly.
                     var writerOptions = new ZipWriterOptions(compressionType)
                     {
                         UseZip64 = true,
@@ -341,6 +341,258 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 try { File.Delete(tempOutput); } catch { /* Ignore */ }
             }
         }
+    }
+
+    private static async Task CompressWinZipAesAsync(
+        ArchiveCompressionRequest request,
+        List<(string FullPath, string RawPath, bool IsDir)> resolvedSources,
+        string tempOutput,
+        IProgress<DomainProgressReport>? progress,
+        CancellationToken ct)
+    {
+        var isSingleDir = resolvedSources.Count == 1 && resolvedSources[0].IsDir;
+        var exclusionFilter = new CompressionExclusionFilter(request.ExcludedPaths, request.BaseDirectory);
+        var modesByPath = new Dictionary<string, ushort>(StringComparer.Ordinal);
+        var entriesToWrite = new List<(string RelPath, string? SourceFilePath, bool IsDir, DateTime LastModified)>();
+
+        void CollectFiles(DirectoryInfo dir, string rootPath, string dirPrefix)
+        {
+            var nonExcludedSubDirs = new List<(DirectoryInfo Dir, string RelPath, string RelFromDir)>();
+            var nonExcludedFiles = new List<(FileInfo File, string RelPath, string RelFromDir)>();
+
+            foreach (var subDir in dir.EnumerateDirectories())
+            {
+                ct.ThrowIfCancellationRequested();
+                var relativeFromDir = Path.GetRelativePath(rootPath, subDir.FullName).Replace('\\', '/');
+                var relPath = string.IsNullOrEmpty(dirPrefix) ? relativeFromDir : dirPrefix + "/" + relativeFromDir;
+                if (!exclusionFilter.IsExcluded(subDir.FullName, relPath, relativeFromDir))
+                {
+                    nonExcludedSubDirs.Add((subDir, relPath, relativeFromDir));
+                }
+            }
+
+            foreach (var fileInfo in dir.EnumerateFiles())
+            {
+                ct.ThrowIfCancellationRequested();
+                var relativeFromDir = Path.GetRelativePath(rootPath, fileInfo.FullName).Replace('\\', '/');
+                var relPath = string.IsNullOrEmpty(dirPrefix) ? relativeFromDir : dirPrefix + "/" + relativeFromDir;
+                if (!exclusionFilter.IsExcluded(fileInfo.FullName, relPath, relativeFromDir))
+                {
+                    nonExcludedFiles.Add((fileInfo, relPath, relativeFromDir));
+                }
+            }
+
+            if (nonExcludedSubDirs.Count == 0 && nonExcludedFiles.Count == 0)
+            {
+                var relativeFromDir = Path.GetRelativePath(rootPath, dir.FullName).Replace('\\', '/');
+                var dirRelPath = string.IsNullOrEmpty(dirPrefix) ? relativeFromDir : (relativeFromDir == "." ? dirPrefix : dirPrefix + "/" + relativeFromDir);
+                if (!string.IsNullOrEmpty(dirRelPath) && dirRelPath != ".")
+                {
+                    var normalized = dirRelPath.TrimEnd('/') + "/";
+                    entriesToWrite.Add((normalized, null, true, dir.LastWriteTimeUtc));
+                    if (TryGetZipMode16(dir.FullName, isDirectory: true) is ushort dirMode)
+                    {
+                        modesByPath[normalized] = dirMode;
+                    }
+                }
+            }
+
+            foreach (var (subDir, _, _) in nonExcludedSubDirs)
+            {
+                CollectFiles(subDir, rootPath, dirPrefix);
+            }
+
+            foreach (var (fileInfo, relPath, _) in nonExcludedFiles)
+            {
+                ct.ThrowIfCancellationRequested();
+                entriesToWrite.Add((relPath, fileInfo.FullName, false, fileInfo.LastWriteTimeUtc));
+                if (TryGetZipMode16(fileInfo.FullName, isDirectory: false) is ushort fileMode)
+                {
+                    modesByPath[relPath] = fileMode;
+                }
+            }
+        }
+
+        foreach (var (fullPath, rawPath, isDir) in resolvedSources)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (isDir)
+            {
+                var rootDirInfo = new DirectoryInfo(fullPath);
+                var dirPrefix = isSingleDir ? string.Empty : EntryNameSanitizer.SanitizeRelativePath(rawPath, fullPath, request.BaseDirectory);
+                if (exclusionFilter.IsExcluded(fullPath, dirPrefix, rawPath)) continue;
+                if (!string.IsNullOrEmpty(dirPrefix))
+                {
+                    var normalized = dirPrefix.TrimEnd('/') + "/";
+                    entriesToWrite.Add((normalized, null, true, rootDirInfo.LastWriteTimeUtc));
+                    if (TryGetZipMode16(rootDirInfo.FullName, isDirectory: true) is ushort dirMode)
+                    {
+                        modesByPath[normalized] = dirMode;
+                    }
+                }
+                CollectFiles(rootDirInfo, rootDirInfo.FullName, dirPrefix);
+            }
+            else
+            {
+                var fileInfo = new FileInfo(fullPath);
+                var relPath = EntryNameSanitizer.SanitizeRelativePath(rawPath, fullPath, request.BaseDirectory);
+                if (exclusionFilter.IsExcluded(fullPath, relPath, rawPath)) continue;
+                entriesToWrite.Add((relPath, fileInfo.FullName, false, fileInfo.LastWriteTimeUtc));
+                if (TryGetZipMode16(fileInfo.FullName, isDirectory: false) is ushort fileMode)
+                {
+                    modesByPath[relPath] = fileMode;
+                }
+            }
+        }
+
+        long totalBytes = entriesToWrite.Where(e => !e.IsDir && e.SourceFilePath != null).Sum(e => new FileInfo(e.SourceFilePath!).Length);
+        int totalFiles = entriesToWrite.Count(e => !e.IsDir);
+        long processedBytes = 0;
+        int processedFiles = 0;
+
+        var compLevel = request.CompressionLevel switch
+        {
+            0 => CompressionLevel.NoCompression,
+            <= 4 => CompressionLevel.Fastest,
+            <= 7 => CompressionLevel.Optimal,
+            _ => CompressionLevel.SmallestSize
+        };
+
+        await using var fs = new FileStream(tempOutput, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, useAsync: true);
+        using var bw = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true);
+
+        var centralDirectoryHeaders = new List<byte[]>();
+
+        foreach (var (relPath, sourceFilePath, isDir, lastModified) in entriesToWrite)
+        {
+            ct.ThrowIfCancellationRequested();
+            var nameBytes = Encoding.UTF8.GetBytes(relPath);
+            long localHeaderPos = fs.Position;
+
+            ushort time = (ushort)((lastModified.Hour << 11) | (lastModified.Minute << 5) | (lastModified.Second / 2));
+            ushort date = (ushort)(((lastModified.Year - 1980) << 9) | (lastModified.Month << 5) | lastModified.Day);
+
+            if (isDir)
+            {
+                // Write directory entry (uncompressed, no encryption)
+                bw.Write(0x04034b50); // local header signature
+                bw.Write((short)20);   // version needed (2.0)
+                bw.Write((short)0x0800); // flags: UTF-8
+                bw.Write((short)0);    // compression: stored
+                bw.Write(time);
+                bw.Write(date);
+                bw.Write((int)0);      // CRC-32
+                bw.Write((int)0);      // compressed size
+                bw.Write((int)0);      // uncompressed size
+                bw.Write((short)nameBytes.Length);
+                bw.Write((short)0);    // extra length
+                bw.Write(nameBytes);
+
+                // Build central directory record
+                using var cdMs = new MemoryStream();
+                using var cdBw = new BinaryWriter(cdMs, Encoding.UTF8);
+                cdBw.Write(0x02014b50); // CD signature
+                cdBw.Write((short)0x0314); // Version made by: Unix (3) + 2.0 (20)
+                cdBw.Write((short)20);   // Version needed (20)
+                cdBw.Write((short)0x0800); // flags: UTF-8
+                cdBw.Write((short)0);    // compression
+                cdBw.Write(time);
+                cdBw.Write(date);
+                cdBw.Write((int)0);      // CRC
+                cdBw.Write((int)0);      // compressed size
+                cdBw.Write((int)0);      // uncompressed size
+                cdBw.Write((short)nameBytes.Length);
+                cdBw.Write((short)0);    // extra length
+                cdBw.Write((short)0);    // comment length
+                cdBw.Write((short)0);    // disk number
+                cdBw.Write((short)0);    // internal attrs
+                uint extAttrs = (0x41EDu << 16) | 0x10u; // Directory attributes
+                cdBw.Write(extAttrs);
+                cdBw.Write((int)localHeaderPos);
+                cdBw.Write(nameBytes);
+                centralDirectoryHeaders.Add(cdMs.ToArray());
+            }
+            else
+            {
+                byte[] fileBytes = await File.ReadAllBytesAsync(sourceFilePath!, ct);
+                byte[] encryptedPayload = WinZipAesCrypto.EncryptPayload(fileBytes, request.Password!, compLevel);
+
+                bw.Write(0x04034b50); // local header signature
+                bw.Write((short)51);   // version needed (5.1 for AES)
+                bw.Write((short)(0x0800 | 1)); // flags: UTF-8 + encrypted
+                bw.Write(WinZipAesCrypto.WinZipAesCompressionMethod); // 99
+                bw.Write(time);
+                bw.Write(date);
+                bw.Write((int)0);      // CRC-32 (0 for AE-2)
+                bw.Write(encryptedPayload.Length);
+                bw.Write(fileBytes.Length);
+                bw.Write((short)nameBytes.Length);
+                bw.Write((short)WinZipAesCrypto.WinZipAesExtraField.Length);
+                bw.Write(nameBytes);
+                bw.Write(WinZipAesCrypto.WinZipAesExtraField);
+                bw.Write(encryptedPayload);
+
+                // Build central directory record
+                using var cdMs = new MemoryStream();
+                using var cdBw = new BinaryWriter(cdMs, Encoding.UTF8);
+                cdBw.Write(0x02014b50); // CD signature
+                cdBw.Write((short)0x0333); // Version made by: Unix (3) + 5.1 (51)
+                cdBw.Write((short)51);   // Version needed (51)
+                cdBw.Write((short)(0x0800 | 1)); // flags: UTF-8 + encrypted
+                cdBw.Write(WinZipAesCrypto.WinZipAesCompressionMethod); // 99
+                cdBw.Write(time);
+                cdBw.Write(date);
+                cdBw.Write((int)0);      // CRC
+                cdBw.Write(encryptedPayload.Length);
+                cdBw.Write(fileBytes.Length);
+                cdBw.Write((short)nameBytes.Length);
+                cdBw.Write((short)WinZipAesCrypto.WinZipAesExtraField.Length);
+                cdBw.Write((short)0);    // comment length
+                cdBw.Write((short)0);    // disk number
+                cdBw.Write((short)0);    // internal attrs
+                uint extAttrs = 0x81A4u << 16; // Regular file attributes (0644)
+                if (modesByPath.TryGetValue(relPath, out var customMode))
+                {
+                    extAttrs = ((uint)customMode << 16);
+                }
+                cdBw.Write(extAttrs);
+                cdBw.Write((int)localHeaderPos);
+                cdBw.Write(nameBytes);
+                cdBw.Write(WinZipAesCrypto.WinZipAesExtraField);
+                centralDirectoryHeaders.Add(cdMs.ToArray());
+
+                processedBytes += fileBytes.Length;
+                processedFiles++;
+                progress?.Report(new DomainProgressReport(
+                    ProcessedBytes: processedBytes,
+                    TotalBytes: totalBytes,
+                    CurrentFileName: relPath,
+                    Percentage: totalBytes > 0 ? (double)processedBytes / totalBytes * 100.0 : 0,
+                    ProcessedFiles: processedFiles,
+                    TotalFiles: totalFiles
+                ));
+            }
+        }
+
+        long centralDirStart = fs.Position;
+        foreach (var cdRecord in centralDirectoryHeaders)
+        {
+            bw.Write(cdRecord);
+        }
+        long centralDirEnd = fs.Position;
+
+        // Write EOCD
+        bw.Write(0x06054b50); // EOCD signature
+        bw.Write((short)0);    // disk number
+        bw.Write((short)0);    // disk with CD
+        bw.Write((short)centralDirectoryHeaders.Count); // entries on disk
+        bw.Write((short)centralDirectoryHeaders.Count); // total entries
+        bw.Write((int)(centralDirEnd - centralDirStart)); // CD size
+        bw.Write((int)centralDirStart); // CD offset
+        bw.Write((short)0);    // comment length
+        bw.Flush();
+
+        File.Move(tempOutput, request.DestinationArchivePath, overwrite: true);
     }
 
     public async Task<AppendResult> AppendAsync(
@@ -615,7 +867,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     using var zipWriter = new ZipWriter(outputStream, writerOptions);
 
                     // Phase 1: Stream preserved existing entries
-                    using (var existingArchive = SharpCompress.Archives.Zip.ZipArchive.OpenArchive(archivePath, new ReaderOptions { LeaveStreamOpen = false }))
+                    using (var existingArchive = SharpCompress.Archives.Zip.ZipArchive.OpenArchive(archivePath, new ReaderOptions { LeaveStreamOpen = false, Password = request.Password }))
                     {
                         List<IArchiveEntry> archiveEntries;
                         try
@@ -628,7 +880,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                         }
                         catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
                         {
-                            throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
+                            if (string.IsNullOrEmpty(request.Password))
+                            {
+                                throw new ArchiveIntegrityException($"The archive '{Path.GetFileName(archivePath)}' is password-protected. Password is required.", innerException: ex);
+                            }
+                            throw new ArchiveIntegrityException($"Invalid password for '{Path.GetFileName(archivePath)}'.", innerException: ex);
                         }
 
                         foreach (var entry in archiveEntries)
@@ -900,7 +1156,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 {
                     using var zipWriter = new ZipWriter(outputStream, writerOptions);
 
-                    using (var existingArchive = SharpCompress.Archives.Zip.ZipArchive.OpenArchive(archivePath, new ReaderOptions { LeaveStreamOpen = false }))
+                    using (var existingArchive = SharpCompress.Archives.Zip.ZipArchive.OpenArchive(archivePath, new ReaderOptions { LeaveStreamOpen = false, Password = request.Password }))
                     {
                         List<IArchiveEntry> archiveEntries;
                         try
@@ -913,7 +1169,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                         }
                         catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
                         {
-                            throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
+                            if (string.IsNullOrEmpty(request.Password))
+                            {
+                                throw new ArchiveIntegrityException($"The archive '{Path.GetFileName(archivePath)}' is password-protected. Password is required.", innerException: ex);
+                            }
+                            throw new ArchiveIntegrityException($"Invalid password for '{Path.GetFileName(archivePath)}'.", innerException: ex);
                         }
 
                         foreach (var entry in archiveEntries)
@@ -1055,7 +1315,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             return await ExtractGzAsync(archivePath, destDir, request.Overwrite, request.Limits, request.Entries, progress, ct, request.ConflictResolver);
         }
 
-        var readerOptions = new ReaderOptions { LeaveStreamOpen = false };
+        var readerOptions = new ReaderOptions { LeaveStreamOpen = false, Password = request.Password };
         IArchive archive;
         try
         {
@@ -1063,7 +1323,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         }
         catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
         {
-            throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
+            if (string.IsNullOrEmpty(request.Password))
+            {
+                throw new ArchiveIntegrityException($"The archive '{Path.GetFileName(archivePath)}' is password-protected. Password is required.", innerException: ex);
+            }
+            throw new ArchiveIntegrityException($"Invalid password for '{Path.GetFileName(archivePath)}'.", innerException: ex);
         }
 
         using (archive)
@@ -1110,9 +1374,9 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                         if (!EntryFilter.IsMatch(e.Key ?? string.Empty, request.Entries))
                             continue;
 
-                        if (e.IsEncrypted)
+                        if (e.IsEncrypted && string.IsNullOrEmpty(request.Password))
                         {
-                            throw new NotSupportedException($"The entry '{e.Key}' is password-protected. Encrypted archives are not supported.");
+                            throw new ArchiveIntegrityException($"The entry '{e.Key}' is password-protected. Password is required.");
                         }
 
                         if (!e.IsDirectory && e.Size > 0)
@@ -1131,7 +1395,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 }
                 catch (Exception ex) when (ex is not NotSupportedException && IsPasswordOrEncryptedException(ex))
                 {
-                    throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
+                    if (string.IsNullOrEmpty(request.Password))
+                    {
+                        throw new ArchiveIntegrityException($"The archive '{Path.GetFileName(archivePath)}' is password-protected. Password is required.", innerException: ex);
+                    }
+                    throw new ArchiveIntegrityException($"Invalid password for '{Path.GetFileName(archivePath)}'.", innerException: ex);
                 }
                 catch (NotSupportedException)
                 {
@@ -1142,7 +1410,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     totalBytes = -1;
                 }
 
-                var source = new SharpCompressExtractionSource(archive, archivePath, request.Entries);
+                var source = new SharpCompressExtractionSource(archive, archivePath, request.Entries, request.Password);
 
                 return await SafeArchiveExtractor.ExtractAllAsync(
                     source,
@@ -1157,13 +1425,26 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             }
             catch (Exception ex) when (ex is not SecurityException && ex is not NotSupportedException && ex is not InvalidOperationException && ex is not IOException && ex is not OperationCanceledException && IsPasswordOrEncryptedException(ex))
             {
-                throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
+                if (string.IsNullOrEmpty(request.Password))
+                {
+                    throw new ArchiveIntegrityException($"The archive '{Path.GetFileName(archivePath)}' is password-protected. Password is required.", innerException: ex);
+                }
+                throw new ArchiveIntegrityException($"Invalid password for '{Path.GetFileName(archivePath)}'.", innerException: ex);
             }
         }
     }
 
+    public Task<ArchiveTestResult> TestArchiveAsync(
+        string archivePath,
+        IProgress<DomainProgressReport>? progress = null,
+        CancellationToken ct = default)
+    {
+        return TestArchiveAsync(archivePath, password: null, progress, ct);
+    }
+
     public async Task<ArchiveTestResult> TestArchiveAsync(
         string archivePath,
+        string? password,
         IProgress<DomainProgressReport>? progress = null,
         CancellationToken ct = default)
     {
@@ -1272,7 +1553,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             {
                 await Task.Run(() =>
                 {
-                    var readerOptions = new ReaderOptions { LeaveStreamOpen = false };
+                    var readerOptions = new ReaderOptions { LeaveStreamOpen = false, Password = password };
                     IArchive? archive = null;
                     try
                     {
@@ -1280,7 +1561,14 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        errors.Add($"Failed to open archive: {ex.Message}");
+                        if (IsPasswordOrEncryptedException(ex))
+                        {
+                            errors.Add(string.IsNullOrEmpty(password) ? "Password required for encrypted archive." : "Invalid archive password.");
+                        }
+                        else
+                        {
+                            errors.Add($"Failed to open archive: {ex.Message}");
+                        }
                     }
 
                     if (archive != null)
@@ -1298,7 +1586,14 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                             }
                             catch (Exception ex) when (ex is not OperationCanceledException)
                             {
-                                errors.Add($"Failed to read archive entries: {ex.Message}");
+                                if (IsPasswordOrEncryptedException(ex))
+                                {
+                                    errors.Add(string.IsNullOrEmpty(password) ? "Password required for encrypted archive." : "Invalid archive password.");
+                                }
+                                else
+                                {
+                                    errors.Add($"Failed to read archive entries: {ex.Message}");
+                                }
                             }
 
                             if (entries != null)
@@ -1311,9 +1606,9 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
 
                                     if (entry.IsDirectory) continue;
 
-                                    if (entry.IsEncrypted)
+                                    if (entry.IsEncrypted && string.IsNullOrEmpty(password))
                                     {
-                                        errors.Add($"Entry '{entry.Key}' is encrypted (not supported).");
+                                        errors.Add($"Entry '{entry.Key}' is password-protected.");
                                         continue;
                                     }
 
@@ -1337,7 +1632,14 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                                     }
                                     catch (Exception ex) when (ex is not OperationCanceledException)
                                     {
-                                        errors.Add($"Entry '{entryName}' corrupted: {ex.Message}");
+                                        if (IsPasswordOrEncryptedException(ex))
+                                        {
+                                            errors.Add(string.IsNullOrEmpty(password) ? $"Entry '{entryName}' is password-protected." : $"Invalid password for entry '{entryName}'.");
+                                        }
+                                        else
+                                        {
+                                            errors.Add($"Entry '{entryName}' corrupted: {ex.Message}");
+                                        }
                                     }
                                 }
                             }
@@ -1373,6 +1675,14 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         string archivePath,
         CancellationToken ct = default)
     {
+        return await ListEntriesAsync(archivePath, password: null, ct);
+    }
+
+    public async Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(
+        string archivePath,
+        string? password,
+        CancellationToken ct = default)
+    {
         var fullPath = Path.GetFullPath(archivePath);
         if (!File.Exists(fullPath))
         {
@@ -1394,7 +1704,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         return await Task.Run(() =>
         {
             var results = new List<ArchiveEntry>();
-            var readerOptions = new ReaderOptions { LeaveStreamOpen = false };
+            var readerOptions = new ReaderOptions { LeaveStreamOpen = false, Password = password };
 
             try
             {
@@ -1440,7 +1750,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             }
             catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
             {
-                throw new NotSupportedException($"The archive '{Path.GetFileName(fullPath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
+                if (string.IsNullOrEmpty(password))
+                {
+                    throw new ArchiveIntegrityException($"The archive '{Path.GetFileName(fullPath)}' is password-protected. Password is required.", innerException: ex);
+                }
+                throw new ArchiveIntegrityException($"Invalid password for '{Path.GetFileName(fullPath)}'.", innerException: ex);
             }
 
             return (IReadOnlyList<ArchiveEntry>)results;
@@ -1573,7 +1887,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         }
     }
 
-    private sealed class SharpCompressExtractionSource(IArchive archive, string archivePath, IReadOnlyList<string>? entryFilter) : IArchiveExtractionSource
+    private sealed class SharpCompressExtractionSource(IArchive archive, string archivePath, IReadOnlyList<string>? entryFilter, string? password = null) : IArchiveExtractionSource
     {
         public async IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync([EnumeratorCancellation] CancellationToken ct = default)
         {
@@ -1588,7 +1902,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
             }
             catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
             {
-                throw new NotSupportedException($"The archive '{Path.GetFileName(archivePath)}' is password-protected or encrypted. Encrypted archives are not supported.", ex);
+                if (string.IsNullOrEmpty(password))
+                {
+                    throw new ArchiveIntegrityException($"The archive '{Path.GetFileName(archivePath)}' is password-protected. Password is required.", innerException: ex);
+                }
+                throw new ArchiveIntegrityException($"Invalid password for '{Path.GetFileName(archivePath)}'.", innerException: ex);
             }
 
             // ZIP entry names encode their POSIX mode in the central-directory external attributes, but
@@ -1615,9 +1933,9 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 if (entryFilter is { Count: > 0 } && !EntryFilter.IsMatch(key, entryFilter))
                     continue;
 
-                if (entry.IsEncrypted)
+                if (entry.IsEncrypted && string.IsNullOrEmpty(password))
                 {
-                    throw new NotSupportedException($"The entry '{entry.Key}' is password-protected. Encrypted archives are not supported.");
+                    throw new ArchiveIntegrityException($"The entry '{entry.Key}' is password-protected. Password is required.");
                 }
 
                 matchedAny = true;
@@ -1638,6 +1956,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     UnixMode: unixMode,
                     OpenStreamAsync: _ =>
                     {
+                        if (entry.IsEncrypted && string.IsNullOrEmpty(password))
+                        {
+                            throw new ArchiveIntegrityException($"The entry '{entry.Key}' is password-protected. Password is required.");
+                        }
+
                         try
                         {
                             var stream = entry.OpenEntryStream();
@@ -1664,7 +1987,11 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                         }
                         catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
                         {
-                            throw new NotSupportedException($"The entry '{entry.Key}' is password-protected. Encrypted archives are not supported.", ex);
+                            if (string.IsNullOrEmpty(password))
+                            {
+                                throw new ArchiveIntegrityException($"The entry '{entry.Key}' is password-protected. Password is required.", entry.Key, ex);
+                            }
+                            throw new ArchiveIntegrityException($"Invalid password for entry '{entry.Key}'.", entry.Key, ex);
                         }
                     }
                 );
@@ -2187,7 +2514,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
 
         private void VerifyAtEof()
         {
-            if (_eofReached)
+            if (_eofReached || _expectedCrc == 0)
                 return;
 
             _eofReached = true;
@@ -2203,5 +2530,30 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    public async Task<bool> IsEncryptedAsync(string archivePath, CancellationToken ct = default)
+    {
+        var fullPath = Path.GetFullPath(archivePath);
+        if (!File.Exists(fullPath)) return false;
+        var format = ArchiveFormatRegistry.Detect(fullPath).Format;
+        if (format is ArchiveFormat.TarGz or ArchiveFormat.Gz) return false;
+
+        return await Task.Run(() =>
+        {
+            try
+            {
+                using var archive = OpenArchiveByFormat(fullPath, format, new ReaderOptions { LeaveStreamOpen = false });
+                return archive.Entries.Any(e => e.IsEncrypted);
+            }
+            catch (Exception ex) when (IsPasswordOrEncryptedException(ex))
+            {
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }, ct);
     }
 }

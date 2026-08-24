@@ -105,6 +105,15 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default)
     {
+        return TestArchiveAsync(archivePath, password: null, progress, ct);
+    }
+
+    public Task<ArchiveTestResult> TestArchiveAsync(
+        string archivePath,
+        string? password,
+        IProgress<ProgressReport>? progress = null,
+        CancellationToken ct = default)
+    {
         var descriptor = ArchiveFormatRegistry.Detect(archivePath);
         if (!descriptor.CanDecompress)
         {
@@ -113,8 +122,8 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
 
         return descriptor.Format switch
         {
-            ArchiveFormat.Zrus or ArchiveFormat.Zst => _zstdEngine.TestArchiveAsync(archivePath, progress, ct),
-            _ => _sharpCompressEngine.TestArchiveAsync(archivePath, progress, ct)
+            ArchiveFormat.Zrus or ArchiveFormat.Zst => _zstdEngine.TestArchiveAsync(archivePath, password, progress, ct),
+            _ => _sharpCompressEngine.TestArchiveAsync(archivePath, password, progress, ct)
         };
     }
 
@@ -122,11 +131,32 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
         string archivePath,
         CancellationToken ct = default)
     {
+        return ListEntriesAsync(archivePath, password: null, ct);
+    }
+
+    public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(
+        string archivePath,
+        string? password,
+        CancellationToken ct = default)
+    {
         var descriptor = ArchiveFormatRegistry.Detect(archivePath);
         return descriptor.Format switch
         {
-            ArchiveFormat.Zrus or ArchiveFormat.Zst => _zstdEngine.ListEntriesAsync(archivePath, ct),
-            _ => _sharpCompressEngine.ListEntriesAsync(archivePath, ct)
+            ArchiveFormat.Zrus or ArchiveFormat.Zst => _zstdEngine.ListEntriesAsync(archivePath, password, ct),
+            _ => _sharpCompressEngine.ListEntriesAsync(archivePath, password, ct)
+        };
+    }
+
+    public Task<bool> IsEncryptedAsync(
+        string archivePath,
+        CancellationToken ct = default)
+    {
+        var descriptor = ArchiveFormatRegistry.Detect(archivePath);
+        return descriptor.Format switch
+        {
+            ArchiveFormat.Zrus => _zstdEngine.IsEncryptedAsync(archivePath, ct),
+            ArchiveFormat.Zst => Task.FromResult(false),
+            _ => _sharpCompressEngine.IsEncryptedAsync(archivePath, ct)
         };
     }
 }

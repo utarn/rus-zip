@@ -41,6 +41,44 @@ public partial class CompressionSettingsViewModel : ObservableObject
     [ObservableProperty] private string _selectedFormat = ".zrus";
     [ObservableProperty] private bool _isDestinationPinned;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCompress))]
+    [NotifyPropertyChangedFor(nameof(PasswordErrorMessage))]
+    [NotifyPropertyChangedFor(nameof(HasPasswordError))]
+    private bool _isPasswordProtected;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCompress))]
+    [NotifyPropertyChangedFor(nameof(PasswordErrorMessage))]
+    [NotifyPropertyChangedFor(nameof(HasPasswordError))]
+    private string _password = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCompress))]
+    [NotifyPropertyChangedFor(nameof(PasswordErrorMessage))]
+    [NotifyPropertyChangedFor(nameof(HasPasswordError))]
+    private string _confirmPassword = string.Empty;
+
+    [ObservableProperty] private bool _isPasswordVisible;
+
+    public bool HasPasswordError => PasswordErrorMessage != null;
+
+    public string? PasswordErrorMessage
+    {
+        get
+        {
+            if (!IsPasswordProtected) return null;
+            if (string.IsNullOrEmpty(Password)) return "Password cannot be empty.";
+            if (Password != ConfirmPassword) return "Passwords do not match.";
+            return null;
+        }
+    }
+
+    public bool CanCompress =>
+        !string.IsNullOrWhiteSpace(DestinationPath) &&
+        (StagedItems.Count > 0 || !string.IsNullOrWhiteSpace(SourcePath)) &&
+        (!IsPasswordProtected || (!string.IsNullOrEmpty(Password) && Password == ConfirmPassword));
+
     [ObservableProperty] private IHierarchicalModel? _gridSource;
     [ObservableProperty] private StagedSourceItemViewModel? _selectedItem;
 
@@ -784,5 +822,22 @@ public partial class CompressionSettingsViewModel : ObservableObject
                 DestinationPath = path;
             }
         }
+    }
+
+    [RelayCommand]
+    public void TogglePasswordVisibility()
+    {
+        IsPasswordVisible = !IsPasswordVisible;
+    }
+
+    public ArchiveCompressionRequest CreateCompressionRequest()
+    {
+        return new ArchiveCompressionRequest(
+            SourcePaths,
+            DestinationPath,
+            CompressionLevel,
+            ExcludedPaths: ExcludedPaths,
+            Password: IsPasswordProtected ? Password : null
+        );
     }
 }

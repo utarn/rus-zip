@@ -44,8 +44,17 @@ public sealed class SingleInstanceCoordinatorTests : IDisposable
         public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
             => Task.FromResult(new ArchiveTestResult(true, archivePath, "zrus", EntriesToReturn.Count, 0, 0.0, TimeSpan.Zero, []));
 
+        public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, string? password, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+            => Task.FromResult(new ArchiveTestResult(true, archivePath, "zrus", EntriesToReturn.Count, 0, 0.0, TimeSpan.Zero, []));
+
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ArchiveEntry>>(EntriesToReturn);
+
+        public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, string? password, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ArchiveEntry>>(EntriesToReturn);
+
+        public Task<bool> IsEncryptedAsync(string archivePath, CancellationToken ct = default)
+            => Task.FromResult(false);
     }
 
     [Fact]

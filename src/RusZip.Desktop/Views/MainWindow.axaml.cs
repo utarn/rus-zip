@@ -195,6 +195,14 @@ public partial class MainWindow : Window
                 await dialog.ShowDialog(this);
             };
 
+            vm.RequestPasswordPrompt = async (archiveName) =>
+            {
+                var dialogVm = new PasswordPromptViewModel(archiveName);
+                var dialog = new PasswordPromptDialog(dialogVm);
+                var result = await dialog.ShowDialog<string?>(this);
+                return result;
+            };
+
             vm.RequestExit = () =>
             {
                 Close();

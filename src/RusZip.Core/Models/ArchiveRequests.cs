@@ -7,7 +7,8 @@ public sealed record ArchiveCompressionRequest(
     string DestinationArchivePath,
     int CompressionLevel = 9,
     string? BaseDirectory = null,
-    IReadOnlyCollection<string>? ExcludedPaths = null
+    IReadOnlyCollection<string>? ExcludedPaths = null,
+    string? Password = null
 )
 {
     public ArchiveCompressionRequest(
@@ -15,8 +16,9 @@ public sealed record ArchiveCompressionRequest(
         string destinationArchivePath,
         int compressionLevel = 9,
         string? BaseDirectory = null,
-        IReadOnlyCollection<string>? ExcludedPaths = null)
-        : this([sourcePath], destinationArchivePath, compressionLevel, BaseDirectory, ExcludedPaths) { }
+        IReadOnlyCollection<string>? ExcludedPaths = null,
+        string? Password = null)
+        : this([sourcePath], destinationArchivePath, compressionLevel, BaseDirectory, ExcludedPaths, Password) { }
 
     public string SourcePath => SourcePaths.Count > 0 ? SourcePaths[0] : string.Empty;
     public IReadOnlyCollection<string> ExcludedPaths { get; init; } = ExcludedPaths ?? Array.Empty<string>();
@@ -26,11 +28,12 @@ public sealed record ArchiveAppendRequest(
     IReadOnlyList<string> SourcePaths,
     int CompressionLevel = 9,
     bool UpdateOnly = false,
-    string? BaseDirectory = null
+    string? BaseDirectory = null,
+    string? Password = null
 )
 {
-    public ArchiveAppendRequest(string archivePath, string sourcePath, int compressionLevel = 9, bool updateOnly = false, string? baseDirectory = null)
-        : this(archivePath, [sourcePath], compressionLevel, updateOnly, baseDirectory) { }
+    public ArchiveAppendRequest(string archivePath, string sourcePath, int compressionLevel = 9, bool updateOnly = false, string? baseDirectory = null, string? password = null)
+        : this(archivePath, [sourcePath], compressionLevel, updateOnly, baseDirectory, password) { }
 }
 
 public sealed record AppendResult(
@@ -51,11 +54,12 @@ public sealed record AppendResult(
 public sealed record ArchiveDeleteRequest(
     string ArchivePath,
     IReadOnlyList<string> EntryPaths,
-    int CompressionLevel = 9
+    int CompressionLevel = 9,
+    string? Password = null
 )
 {
-    public ArchiveDeleteRequest(string archivePath, string entryPath, int compressionLevel = 9)
-        : this(archivePath, [entryPath], compressionLevel) { }
+    public ArchiveDeleteRequest(string archivePath, string entryPath, int compressionLevel = 9, string? password = null)
+        : this(archivePath, [entryPath], compressionLevel, password) { }
 }
 
 public sealed record ArchiveDeleteResult(
@@ -88,13 +92,15 @@ public sealed record ArchiveDeleteResult(
 /// <c>RusZip.Core.Engines.EntryFilter</c>).
 /// </param>
 /// <param name="ConflictResolver">Optional conflict resolver for interactive or policy-driven file collision handling.</param>
+/// <param name="Password">Optional password for encrypted archives.</param>
 public sealed record ArchiveExtractionRequest(
     string ArchivePath,
     string DestinationDirectory,
     bool Overwrite = true,
     ExtractionLimits? Limits = null,
     IReadOnlyList<string>? Entries = null,
-    IFileConflictResolver? ConflictResolver = null
+    IFileConflictResolver? ConflictResolver = null,
+    string? Password = null
 );
 
 /// <summary>

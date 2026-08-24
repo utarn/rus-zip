@@ -62,8 +62,17 @@ public class QuickExtractViewModelTests : IDisposable
         public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
             => throw new NotImplementedException();
 
+        public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, string? password, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+            => throw new NotImplementedException();
+
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
             => throw new NotImplementedException();
+
+        public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, string? password, CancellationToken ct = default)
+            => throw new NotImplementedException();
+
+        public Task<bool> IsEncryptedAsync(string archivePath, CancellationToken ct = default)
+            => Task.FromResult(false);
     }
 
     [Fact]

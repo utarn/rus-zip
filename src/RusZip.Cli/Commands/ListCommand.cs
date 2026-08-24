@@ -3,6 +3,7 @@ using RusZip.Cli.Commands.Settings;
 using RusZip.Cli.Infrastructure;
 using RusZip.Cli.Models;
 using RusZip.Core.Abstractions;
+using RusZip.Core.Engines;
 using RusZip.Core.Models;
 using Spectre.Console;
 using Spectre.Console.Cli;
@@ -14,6 +15,10 @@ public sealed class ListSettings : JsonCommandSettings
     [CommandArgument(0, "<ARCHIVE>")]
     [Description("Path to the archive file (.zrus, .zip, .rar, .7z, .gz, .tar.gz, .zst).")]
     public string ArchivePath { get; init; } = string.Empty;
+
+    [CommandOption("-p|--password <PASSWORD>")]
+    [Description("Password for decrypting encrypted archives.")]
+    public string? Password { get; init; }
 }
 
 public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettings>
@@ -38,8 +43,22 @@ public sealed class ListCommand(IArchiveEngine engine) : AsyncCommand<ListSettin
                     throw new FileNotFoundException($"Archive file '{settings.ArchivePath}' was not found.", archivePath);
                 }
 
+                var password = settings.Password;
+                if (string.IsNullOrEmpty(password) && await _engine.IsEncryptedAsync(archivePath, ct))
+                {
+                    if (settings.Json || Console.IsInputRedirected || !AnsiConsole.Profile.Capabilities.Interactive)
+                    {
+                        throw new ArchiveIntegrityException("Password required for encrypted archive.");
+                    }
+
+                    password = AnsiConsole.Prompt(
+                        new TextPrompt<string>("Enter archive password:")
+                            .PromptStyle("teal")
+                            .Secret());
+                }
+
                 var formatDescriptor = ArchiveFormatRegistry.Detect(archivePath);
-                var entries = await _engine.ListEntriesAsync(archivePath);
+                var entries = await _engine.ListEntriesAsync(archivePath, password, ct);
 
                 string formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
                 var entryItems = entries.Select(e => new ListEntryItem(

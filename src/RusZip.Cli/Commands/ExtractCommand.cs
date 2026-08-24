@@ -40,6 +40,10 @@ public sealed class ExtractSettings : JsonCommandSettings
     [CommandOption("--max-entries <COUNT>")]
     [Description("Maximum number of entries to process before extraction aborts; 0 = unlimited. Default: 1,000,000.")]
     public long? MaxEntries { get; init; }
+
+    [CommandOption("-p|--password <PASSWORD>")]
+    [Description("Password for decrypting encrypted archives.")]
+    public string? Password { get; init; }
 }
 
 public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<ExtractSettings>
@@ -88,12 +92,27 @@ public sealed class ExtractCommand(IArchiveEngine engine) : AsyncCommand<Extract
                     };
                 }
 
+                var password = settings.Password;
+                if (string.IsNullOrEmpty(password) && await _engine.IsEncryptedAsync(archivePath, ct))
+                {
+                    if (settings.Json || Console.IsInputRedirected || !AnsiConsole.Profile.Capabilities.Interactive)
+                    {
+                        throw new ArchiveIntegrityException("Password required for encrypted archive.");
+                    }
+
+                    password = AnsiConsole.Prompt(
+                        new TextPrompt<string>("Enter archive password:")
+                            .PromptStyle("teal")
+                            .Secret());
+                }
+
                 var request = new ArchiveExtractionRequest(
                     archivePath,
                     destination,
                     settings.Overwrite && !settings.NoOverwrite,
                     BuildLimits(settings),
-                    ConflictResolver: conflictResolver);
+                    ConflictResolver: conflictResolver,
+                    Password: password);
 
                 var result = await _engine.ExtractAsync(request, progress, ct);
 

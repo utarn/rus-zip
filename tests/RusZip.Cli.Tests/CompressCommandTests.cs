@@ -754,8 +754,17 @@ public sealed class CompressCommandTests : CliTestBase
         public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
             => _inner.TestArchiveAsync(archivePath, progress, ct);
 
+        public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, string? password, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+            => _inner.TestArchiveAsync(archivePath, password, progress, ct);
+
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
             => _inner.ListEntriesAsync(archivePath, ct);
+
+        public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, string? password, CancellationToken ct = default)
+            => _inner.ListEntriesAsync(archivePath, password, ct);
+
+        public Task<bool> IsEncryptedAsync(string archivePath, CancellationToken ct = default)
+            => _inner.IsEncryptedAsync(archivePath, ct);
     }
 
     private sealed class EmptyRemainingArguments : IRemainingArguments

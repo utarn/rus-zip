@@ -74,7 +74,8 @@ public partial class MainWindowViewModel : ObservableObject
                 var capability = descriptor.CanCompress && descriptor.Format != ArchiveFormat.Zst
                     ? "Read-Write"
                     : "Read-Only";
-                return $"[ {ext} | {capability} ]";
+                var encryptedBadge = IsCurrentArchiveEncrypted ? " | 🔒 Encrypted" : "";
+                return $"[ {ext} | {capability}{encryptedBadge} ]";
             }
 
             return string.Empty;
@@ -173,6 +174,13 @@ public partial class MainWindowViewModel : ObservableObject
     public Func<ArchiveTestResult, Task>? RequestShowTestResultDialog { get; set; }
     public Func<ArchivePropertiesViewModel, Task>? RequestShowPropertiesDialog { get; set; }
     public Func<AboutViewModel, Task>? RequestShowAboutDialog { get; set; }
+    public Func<string, Task<string?>>? RequestPasswordPrompt { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FormatCapabilityBadge))]
+    private bool _isCurrentArchiveEncrypted;
+
+    [ObservableProperty] private string? _currentArchivePassword;
 
     public bool CanAppendToArchive => HasOpenArchive && Browser.CanCompress;
     public bool CanDeleteFromArchive => HasOpenArchive && Browser.CanCompress && (Browser.SelectedItem != null || Browser.SelectedItems.Count > 0);
@@ -377,11 +385,14 @@ public partial class MainWindowViewModel : ObservableObject
     {
         _ = _previewService.CleanupAsync();
         HasOpenArchive = false;
+        IsCurrentArchiveEncrypted = false;
+        CurrentArchivePassword = null;
         UnwireBrowser(Browser);
         Browser = new ArchiveBrowserViewModel();
         WireBrowser(Browser);
         StatusText = "Ready";
         OnBrowserSelectionChanged();
+        OnPropertyChanged(nameof(FormatCapabilityBadge));
     }
 
     [RelayCommand]
@@ -392,12 +403,32 @@ public partial class MainWindowViewModel : ObservableObject
         try
         {
             StatusText = FormatStatus($"Opening {Path.GetFileName(archivePath)}...");
-            var entries = await _engine.ListEntriesAsync(archivePath);
+
+            bool isEncrypted = await _engine.IsEncryptedAsync(archivePath);
+            string? password = null;
+            if (isEncrypted)
+            {
+                if (RequestPasswordPrompt != null)
+                {
+                    password = await RequestPasswordPrompt.Invoke(Path.GetFileName(archivePath));
+                    if (string.IsNullOrEmpty(password))
+                    {
+                        StatusText = FormatStatus("Archive opening cancelled: password required.");
+                        return;
+                    }
+                }
+            }
+
+            var entries = await _engine.ListEntriesAsync(archivePath, password);
+            IsCurrentArchiveEncrypted = isEncrypted;
+            CurrentArchivePassword = password;
+
             Browser.LoadEntries(archivePath, entries);
             HasOpenArchive = true;
             IsCompressDialogVisible = false;
             StatusText = FormatStatus($"Loaded {entries.Count} entries from {Path.GetFileName(archivePath)}");
             OnBrowserSelectionChanged();
+            OnPropertyChanged(nameof(FormatCapabilityBadge));
             await _recentArchivesService.AddRecentPathAsync(archivePath);
         }
         catch (Exception ex)
@@ -441,9 +472,10 @@ public partial class MainWindowViewModel : ObservableObject
             return;
 
         var archivePath = Browser.LoadedArchivePath;
-        var entries = await _engine.ListEntriesAsync(archivePath);
+        var entries = await _engine.ListEntriesAsync(archivePath, CurrentArchivePassword);
         Browser.LoadEntries(archivePath, entries);
         OnBrowserSelectionChanged();
+        OnPropertyChanged(nameof(FormatCapabilityBadge));
     }
 
     [RelayCommand(CanExecute = nameof(CanAppendToArchive))]
@@ -538,13 +570,7 @@ public partial class MainWindowViewModel : ObservableObject
         bool success = false;
         try
         {
-            var req = new ArchiveCompressionRequest(
-                sourcePaths,
-                Settings.DestinationPath,
-                Settings.CompressionLevel,
-                BaseDirectory: null,
-                ExcludedPaths: Settings.ExcludedPaths
-            );
+            var req = Settings.CreateCompressionRequest();
 
             await Task.Run(async () => await _engine.CompressAsync(req, progressHandler, cts.Token), cts.Token);
             success = true;
@@ -586,7 +612,8 @@ public partial class MainWindowViewModel : ObservableObject
                 Browser.LoadedArchivePath,
                 destinationDirectory,
                 Overwrite: true,
-                Limits: Browser.ExtractionSettings.BuildLimits());
+                Limits: Browser.ExtractionSettings.BuildLimits(),
+                Password: CurrentArchivePassword);
             await Task.Run(async () => await _engine.ExtractAsync(req, progressHandler, cts.Token), cts.Token);
             success = true;
             StatusText = FormatStatus($"Extracted to {destinationDirectory}");
@@ -626,7 +653,8 @@ public partial class MainWindowViewModel : ObservableObject
                 destinationDirectory,
                 Overwrite: true,
                 Limits: Browser.ExtractionSettings.BuildLimits(),
-                Entries: [item.RelativePath]);
+                Entries: [item.RelativePath],
+                Password: CurrentArchivePassword);
             await Task.Run(async () => await _engine.ExtractAsync(req, progressHandler, cts.Token), cts.Token);
             success = true;
             StatusText = FormatStatus($"Extracted {item.Name} to {destinationDirectory}");
@@ -663,7 +691,8 @@ public partial class MainWindowViewModel : ObservableObject
                 destinationDirectory,
                 Overwrite: true,
                 Limits: Browser.ExtractionSettings.BuildLimits(),
-                Entries: entryPaths);
+                Entries: entryPaths,
+                Password: CurrentArchivePassword);
             await Task.Run(async () => await _engine.ExtractAsync(req, progressHandler, cts.Token), cts.Token);
             success = true;
             StatusText = FormatStatus($"Extracted {items.Count} item{(items.Count == 1 ? "" : "s")} to {destinationDirectory}");
@@ -705,7 +734,8 @@ public partial class MainWindowViewModel : ObservableObject
             var req = new ArchiveAppendRequest(
                 archivePath,
                 sourcePaths,
-                CompressionLevel: descriptor.DefaultCompressionLevel);
+                CompressionLevel: descriptor.DefaultCompressionLevel,
+                Password: CurrentArchivePassword);
 
             var result = await Task.Run(async () => await _engine.AppendAsync(req, progressHandler, cts.Token), cts.Token);
             success = true;
@@ -749,7 +779,8 @@ public partial class MainWindowViewModel : ObservableObject
             var req = new ArchiveDeleteRequest(
                 archivePath,
                 entryPaths,
-                CompressionLevel: descriptor.DefaultCompressionLevel);
+                CompressionLevel: descriptor.DefaultCompressionLevel,
+                Password: CurrentArchivePassword);
 
             var result = await Task.Run(async () => await _engine.DeleteEntriesAsync(req, progressHandler, cts.Token), cts.Token);
             success = true;
@@ -888,7 +919,7 @@ public partial class MainWindowViewModel : ObservableObject
         try
         {
             StatusText = FormatStatus($"Testing archive integrity for {fileName}...");
-            var result = await Task.Run(async () => await _engine.TestArchiveAsync(archivePath, progressHandler, cts.Token), cts.Token);
+            var result = await Task.Run(async () => await _engine.TestArchiveAsync(archivePath, CurrentArchivePassword, progressHandler, cts.Token), cts.Token);
             success = result.IsSuccess;
             StatusText = FormatStatus(result.IsSuccess
                 ? $"Archive test passed: {result.TotalEntries} entries verified."

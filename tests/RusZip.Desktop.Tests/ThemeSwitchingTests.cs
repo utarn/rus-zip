@@ -19,8 +19,14 @@ public class ThemeSwitchingTests
             => Task.FromResult(new ExtractionResult(0, 0, 0));
         public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
             => Task.FromResult(new ArchiveTestResult(true, archivePath, "zrus", 0, 0, 0.0, TimeSpan.Zero, []));
+        public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, string? password, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+            => Task.FromResult(new ArchiveTestResult(true, archivePath, "zrus", 0, 0, 0.0, TimeSpan.Zero, []));
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ArchiveEntry>>([]);
+        public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, string? password, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ArchiveEntry>>([]);
+        public Task<bool> IsEncryptedAsync(string archivePath, CancellationToken ct = default)
+            => Task.FromResult(false);
     }
 
     [Fact]

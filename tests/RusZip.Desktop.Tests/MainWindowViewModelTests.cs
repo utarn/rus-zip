@@ -92,10 +92,31 @@ public class MainWindowViewModelTests
             return Task.FromResult(new ArchiveTestResult(true, archivePath, "zrus", EntriesToReturn.Count, 100, 10.0, TimeSpan.FromMilliseconds(10), []));
         }
 
+        public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, string? password, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+        {
+            if (ct.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(ct);
+            }
+            if (ExceptionToThrow != null) throw ExceptionToThrow;
+            return Task.FromResult(new ArchiveTestResult(true, archivePath, "zrus", EntriesToReturn.Count, 100, 10.0, TimeSpan.FromMilliseconds(10), []));
+        }
+
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
         {
             if (ExceptionToThrow != null) throw ExceptionToThrow;
             return Task.FromResult<IReadOnlyList<ArchiveEntry>>(EntriesToReturn);
+        }
+
+        public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, string? password, CancellationToken ct = default)
+        {
+            if (ExceptionToThrow != null) throw ExceptionToThrow;
+            return Task.FromResult<IReadOnlyList<ArchiveEntry>>(EntriesToReturn);
+        }
+
+        public Task<bool> IsEncryptedAsync(string archivePath, CancellationToken ct = default)
+        {
+            return Task.FromResult(false);
         }
     }
 

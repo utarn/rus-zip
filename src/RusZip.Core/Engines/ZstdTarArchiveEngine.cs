@@ -15,6 +15,28 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
     private const int BufferSize = 81920; // 80 KB
     public static readonly byte[] ZstdMagic = [0x28, 0xB5, 0x2F, 0xFD];
 
+    private static Stream OpenZstdInputStream(Stream fileStream, string? password)
+    {
+        if (ZrusCryptoEnvelope.IsEncrypted(fileStream))
+        {
+            if (string.IsNullOrEmpty(password))
+            {
+                throw new ArchiveIntegrityException("Password required for encrypted archive.");
+            }
+            return ZrusCryptoEnvelope.CreateDecryptionStream(fileStream, password, leaveOpen: true);
+        }
+        return fileStream;
+    }
+
+    private static Stream OpenZstdOutputStream(Stream fileStream, string? password)
+    {
+        if (!string.IsNullOrEmpty(password))
+        {
+            return ZrusCryptoEnvelope.CreateEncryptionStream(fileStream, password, leaveOpen: true);
+        }
+        return fileStream;
+    }
+
     public async Task CompressAsync(
         ArchiveCompressionRequest request,
         IProgress<ProgressReport>? progress = null,
@@ -148,7 +170,8 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                     FileShare.None,
                     BufferSize,
                     useAsync: true))
-                await using (var compressionStream = new CompressionStream(fileStream, request.CompressionLevel))
+                await using (var wrappedOut = OpenZstdOutputStream(fileStream, request.Password))
+                await using (var compressionStream = new CompressionStream(wrappedOut, request.CompressionLevel))
                 {
                     compressionStream.SetParameter(ZSTD_cParameter.ZSTD_c_checksumFlag, 1);
                     if (Environment.ProcessorCount > 1)
@@ -206,7 +229,8 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                 FileShare.None,
                 BufferSize,
                 useAsync: true))
-            await using (var compressionStream = new CompressionStream(fileStream, request.CompressionLevel))
+            await using (var wrappedOut = OpenZstdOutputStream(fileStream, request.Password))
+            await using (var compressionStream = new CompressionStream(wrappedOut, request.CompressionLevel))
             {
                 compressionStream.SetParameter(ZSTD_cParameter.ZSTD_c_checksumFlag, 1);
                 if (Environment.ProcessorCount > 1)
@@ -534,7 +558,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         }
 
         // List existing entries to inspect collisions and calculate metrics upfront
-        var existingEntries = await ListEntriesAsync(archivePath, ct);
+        var existingEntries = await ListEntriesAsync(archivePath, request.Password, ct);
 
         var existingActions = new Dictionary<string, AppendEntryAction>(StringComparer.Ordinal);
         var incomingActions = new Dictionary<string, AppendEntryAction>(StringComparer.Ordinal);
@@ -628,12 +652,21 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
 
         try
         {
+            var isEncrypted = ZrusCryptoEnvelope.IsEncryptedFile(archivePath);
+            if (isEncrypted && string.IsNullOrEmpty(request.Password))
+            {
+                throw new ArchiveIntegrityException("Password required for encrypted archive.");
+            }
+            var passwordToUse = isEncrypted ? request.Password : request.Password;
+
             await using (var fileStreamIn = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, useAsync: true))
-            await using (var decompStream = new DecompressionStream(fileStreamIn))
+            await using (var wrappedIn = OpenZstdInputStream(fileStreamIn, request.Password))
+            await using (var decompStream = new DecompressionStream(wrappedIn))
             await using (var countingStream = new CountingReadStream(decompStream))
             await using (var tarReader = new TarReader(countingStream, leaveOpen: false))
             await using (var fileStreamOut = new FileStream(tempOutput, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, useAsync: true))
-            await using (var compStream = new CompressionStream(fileStreamOut, request.CompressionLevel))
+            await using (var wrappedOut = OpenZstdOutputStream(fileStreamOut, passwordToUse))
+            await using (var compStream = new CompressionStream(wrappedOut, request.CompressionLevel))
             {
                 compStream.SetParameter(ZSTD_cParameter.ZSTD_c_checksumFlag, 1);
                 if (Environment.ProcessorCount > 1)
@@ -916,7 +949,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             throw new NotSupportedException($"Deleting entries from '{descriptor.Format}' archive format is not supported.");
         }
 
-        var existingEntries = await ListEntriesAsync(archivePath, ct);
+        var existingEntries = await ListEntriesAsync(archivePath, request.Password, ct);
 
         int deletedEntriesCount = 0;
         int retainedEntriesCount = 0;
@@ -949,12 +982,21 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
 
         try
         {
+            var isEncrypted = ZrusCryptoEnvelope.IsEncryptedFile(archivePath);
+            if (isEncrypted && string.IsNullOrEmpty(request.Password))
+            {
+                throw new ArchiveIntegrityException("Password required for encrypted archive.");
+            }
+            var passwordToUse = isEncrypted ? request.Password : request.Password;
+
             await using (var fileStreamIn = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, useAsync: true))
-            await using (var decompStream = new DecompressionStream(fileStreamIn))
+            await using (var wrappedIn = OpenZstdInputStream(fileStreamIn, request.Password))
+            await using (var decompStream = new DecompressionStream(wrappedIn))
             await using (var countingStream = new CountingReadStream(decompStream))
             await using (var tarReader = new TarReader(countingStream, leaveOpen: false))
             await using (var fileStreamOut = new FileStream(tempOutput, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, useAsync: true))
-            await using (var compStream = new CompressionStream(fileStreamOut, request.CompressionLevel))
+            await using (var wrappedOut = OpenZstdOutputStream(fileStreamOut, passwordToUse))
+            await using (var compStream = new CompressionStream(wrappedOut, request.CompressionLevel))
             {
                 compStream.SetParameter(ZSTD_cParameter.ZSTD_c_checksumFlag, 1);
                 if (Environment.ProcessorCount > 1)
@@ -1152,7 +1194,13 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         var descriptor = ArchiveFormatRegistry.Detect(archivePath);
         if (descriptor.Format == ArchiveFormat.Zst)
         {
-            return await ExtractZstAsync(archivePath, request.DestinationDirectory, request.Overwrite, request.Limits, request.Entries, progress, ct, request.ConflictResolver);
+            return await ExtractZstAsync(archivePath, request.DestinationDirectory, request.Overwrite, request.Limits, request.Entries, progress, ct, request.ConflictResolver, request.Password);
+        }
+
+        var isEncrypted = ZrusCryptoEnvelope.IsEncryptedFile(archivePath);
+        if (isEncrypted && string.IsNullOrEmpty(request.Password))
+        {
+            throw new ArchiveIntegrityException("Password required for encrypted archive.");
         }
 
         // Pre-scan uncompressed total size. These totals are derived from header metadata and are
@@ -1163,7 +1211,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         long totalBytes = 0;
         try
         {
-            var entries = await ListEntriesAsync(archivePath, ct);
+            var entries = await ListEntriesAsync(archivePath, request.Password, ct);
             totalBytes = entries
                 .Where(e => !e.IsDirectory && EntryFilter.IsMatch(e.RelativePath, request.Entries))
                 .Sum(e => e.UncompressedSize);
@@ -1184,7 +1232,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             totalBytes = -1;
         }
 
-        var source = new ZstdTarExtractionSource(archivePath, request.Entries);
+        var source = new ZstdTarExtractionSource(archivePath, request.Entries, request.Password);
 
         try
         {
@@ -1213,12 +1261,13 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         IReadOnlyList<string>? entries,
         IProgress<ProgressReport>? progress,
         CancellationToken ct,
-        IFileConflictResolver? conflictResolver = null)
+        IFileConflictResolver? conflictResolver = null,
+        string? password = null)
     {
         long totalBytes = 0;
         try
         {
-            var list = await ListZstEntryAsync(archivePath, ct);
+            var list = await ListZstEntryAsync(archivePath, password, ct);
             totalBytes = list
                 .Where(e => !e.IsDirectory && EntryFilter.IsMatch(e.RelativePath, entries))
                 .Sum(e => e.UncompressedSize);
@@ -1236,7 +1285,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             totalBytes = -1;
         }
 
-        var source = new ZstExtractionSource(archivePath, entries);
+        var source = new ZstExtractionSource(archivePath, entries, password);
         try
         {
             return await SafeArchiveExtractor.ExtractAllAsync(
@@ -1256,8 +1305,17 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         }
     }
 
+    public Task<ArchiveTestResult> TestArchiveAsync(
+        string archivePath,
+        IProgress<ProgressReport>? progress = null,
+        CancellationToken ct = default)
+    {
+        return TestArchiveAsync(archivePath, password: null, progress, ct);
+    }
+
     public async Task<ArchiveTestResult> TestArchiveAsync(
         string archivePath,
+        string? password,
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default)
     {
@@ -1274,6 +1332,23 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         long uncompressedBytes = 0;
         var sw = Stopwatch.StartNew();
 
+        var isEncrypted = ZrusCryptoEnvelope.IsEncryptedFile(fullPath);
+        if (isEncrypted && string.IsNullOrEmpty(password))
+        {
+            errors.Add("Password required for encrypted archive.");
+            sw.Stop();
+            return new ArchiveTestResult(
+                IsSuccess: false,
+                ArchivePath: fullPath,
+                Format: formatName,
+                TotalEntries: 0,
+                UncompressedBytes: 0,
+                ThroughputMBps: 0.0,
+                Duration: sw.Elapsed,
+                Errors: errors
+            );
+        }
+
         if (descriptor.Format == ArchiveFormat.Zst)
         {
             byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
@@ -1287,7 +1362,8 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                     BufferSize,
                     useAsync: true);
 
-                await using var decompStream = new DecompressionStream(fileStream);
+                await using var inStream = OpenZstdInputStream(fileStream, password);
+                await using var decompStream = new DecompressionStream(inStream);
 
                 int read;
                 while ((read = await decompStream.ReadAsync(buffer.AsMemory(0, BufferSize), ct)) > 0)
@@ -1319,7 +1395,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             int estimatedTotalFiles = 0;
             try
             {
-                var listed = await ListEntriesAsync(fullPath, ct);
+                var listed = await ListEntriesAsync(fullPath, password, ct);
                 estimatedTotalFiles = listed.Count(e => !e.IsDirectory);
                 estimatedTotalBytes = listed.Where(e => !e.IsDirectory).Sum(e => e.UncompressedSize);
             }
@@ -1339,7 +1415,8 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                     BufferSize,
                     useAsync: true);
 
-                await using var decompStream = new DecompressionStream(fileStream);
+                await using var inStream = OpenZstdInputStream(fileStream, password);
+                await using var decompStream = new DecompressionStream(inStream);
                 var countingStream = new CountingReadStream(decompStream);
                 await using (countingStream)
                 await using (var tarReader = new TarReader(countingStream, leaveOpen: false))
@@ -1433,7 +1510,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         );
     }
 
-    private sealed class ZstExtractionSource(string archivePath, IReadOnlyList<string>? entryFilter) : IArchiveExtractionSource
+    private sealed class ZstExtractionSource(string archivePath, IReadOnlyList<string>? entryFilter, string? password = null) : IArchiveExtractionSource
     {
         public async IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync([EnumeratorCancellation] CancellationToken ct = default)
         {
@@ -1463,14 +1540,25 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                         throw new ArchiveIntegrityException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", outFileName, ex);
                     }
 
+                    Stream decryptedStream;
+                    try
+                    {
+                        decryptedStream = OpenZstdInputStream(inStream, password);
+                    }
+                    catch (Exception ex) when (ex is ZstdException or EndOfStreamException or ArchiveIntegrityException)
+                    {
+                        inStream.Dispose();
+                        throw;
+                    }
+
                     DecompressionStream zstdStream;
                     try
                     {
-                        zstdStream = new DecompressionStream(inStream);
+                        zstdStream = new DecompressionStream(decryptedStream);
                     }
                     catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
                     {
-                        inStream.Dispose();
+                        decryptedStream.Dispose();
                         throw new ArchiveIntegrityException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", outFileName, ex);
                     }
 
@@ -1482,7 +1570,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         }
     }
 
-    private sealed class ZstdTarExtractionSource(string archivePath, IReadOnlyList<string>? entryFilter) : IArchiveExtractionSource
+    private sealed class ZstdTarExtractionSource(string archivePath, IReadOnlyList<string>? entryFilter, string? password = null) : IArchiveExtractionSource
     {
         public async IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync([EnumeratorCancellation] CancellationToken ct = default)
         {
@@ -1504,17 +1592,29 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
 
             await using (fileStream)
             {
-                DecompressionStream decompressionStream;
+                Stream inStream;
                 try
                 {
-                    decompressionStream = new DecompressionStream(fileStream);
+                    inStream = OpenZstdInputStream(fileStream, password);
                 }
-                catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+                catch
                 {
-                    throw new ArchiveIntegrityException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", innerException: ex);
+                    throw;
                 }
 
-                await using (decompressionStream)
+                await using (inStream)
+                {
+                    DecompressionStream decompressionStream;
+                    try
+                    {
+                        decompressionStream = new DecompressionStream(inStream);
+                    }
+                    catch (Exception ex) when (ex is ZstdException or EndOfStreamException)
+                    {
+                        throw new ArchiveIntegrityException($"Zstandard frame corrupted in '{archivePath}': {ex.Message}", innerException: ex);
+                    }
+
+                    await using (decompressionStream)
                 {
                     var countingStream = new CountingReadStream(decompressionStream);
                     await using (countingStream)
@@ -1622,6 +1722,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                 }
             }
         }
+    }
     }
 
     /// <summary>
@@ -1763,6 +1864,14 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         string archivePath,
         CancellationToken ct = default)
     {
+        return await ListEntriesAsync(archivePath, password: null, ct);
+    }
+
+    public async Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(
+        string archivePath,
+        string? password,
+        CancellationToken ct = default)
+    {
         var fullPath = Path.GetFullPath(archivePath);
         if (!File.Exists(fullPath))
         {
@@ -1772,7 +1881,13 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         var descriptor = ArchiveFormatRegistry.Detect(fullPath);
         if (descriptor.Format == ArchiveFormat.Zst)
         {
-            return await ListZstEntryAsync(fullPath, ct);
+            return await ListZstEntryAsync(fullPath, password, ct);
+        }
+
+        var isEncrypted = ZrusCryptoEnvelope.IsEncryptedFile(fullPath);
+        if (isEncrypted && string.IsNullOrEmpty(password))
+        {
+            throw new ArchiveIntegrityException("Password required for encrypted archive.");
         }
 
         var results = new List<ArchiveEntry>();
@@ -1787,7 +1902,8 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                 BufferSize,
                 useAsync: true);
 
-            await using var decompressionStream = new DecompressionStream(fileStream);
+            await using var inStream = OpenZstdInputStream(fileStream, password);
+            await using var decompressionStream = new DecompressionStream(inStream);
             await using var countingStream = new CountingReadStream(decompressionStream);
             await using var tarReader = new TarReader(countingStream, leaveOpen: false);
 
@@ -1802,7 +1918,7 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                         CompressedSize: null,
                         LastModified: entry.ModificationTime,
                         IsDirectory: entry.EntryType == TarEntryType.Directory,
-                        IsEncrypted: false,
+                        IsEncrypted: isEncrypted,
                         Attributes: entry.Mode.ToString()
                     ));
                 }
@@ -1840,11 +1956,12 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         return results;
     }
 
-    private static async Task<IReadOnlyList<ArchiveEntry>> ListZstEntryAsync(string fullPath, CancellationToken ct)
+    private static async Task<IReadOnlyList<ArchiveEntry>> ListZstEntryAsync(string fullPath, string? password, CancellationToken ct)
     {
         var fileName = Path.GetFileNameWithoutExtension(fullPath);
         var fileInfo = new FileInfo(fullPath);
         long uncompressedBytes = 0;
+        var isEncrypted = ZrusCryptoEnvelope.IsEncryptedFile(fullPath);
 
         try
         {
@@ -1856,7 +1973,8 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
                 BufferSize,
                 useAsync: true);
 
-            await using var decompressionStream = new DecompressionStream(fileStream);
+            await using var inStream = OpenZstdInputStream(fileStream, password);
+            await using var decompressionStream = new DecompressionStream(inStream);
 
             byte[] drainBuffer = ArrayPool<byte>.Shared.Rent(BufferSize);
             try
@@ -1883,8 +2001,13 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
             CompressedSize: fileInfo.Length,
             LastModified: fileInfo.LastWriteTimeUtc,
             IsDirectory: false,
-            IsEncrypted: false,
+            IsEncrypted: isEncrypted,
             Attributes: ""
         )];
+    }
+
+    public Task<bool> IsEncryptedAsync(string archivePath, CancellationToken ct = default)
+    {
+        return Task.FromResult(ZrusCryptoEnvelope.IsEncryptedFile(archivePath));
     }
 }

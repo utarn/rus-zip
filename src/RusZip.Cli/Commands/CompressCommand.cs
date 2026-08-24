@@ -48,6 +48,10 @@ public sealed class CompressSettings : JsonCommandSettings
     [CommandOption("-u|--update-only")]
     [Description("When appending, only replace existing entries if the source file is strictly newer.")]
     public bool UpdateOnly { get; init; }
+
+    [CommandOption("--password <PWD>")]
+    [Description("Password for encrypting the archive.")]
+    public string? Password { get; init; }
 }
 
 public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<CompressSettings>
@@ -183,7 +187,7 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
 
                 if (settings.Append)
                 {
-                    var appendRequest = new ArchiveAppendRequest(destination, sourceArgs, compressionLevel, settings.UpdateOnly);
+                    var appendRequest = new ArchiveAppendRequest(destination, sourceArgs, compressionLevel, settings.UpdateOnly, Password: settings.Password);
                     var appendResult = await _engine.AppendAsync(appendRequest, progress, ct);
                     stopwatch.Stop();
 
@@ -201,7 +205,7 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     );
                 }
 
-                var request = new ArchiveCompressionRequest(sourceArgs, destination, compressionLevel);
+                var request = new ArchiveCompressionRequest(sourceArgs, destination, compressionLevel, Password: settings.Password);
 
                 await _engine.CompressAsync(request, progress, ct);
 
