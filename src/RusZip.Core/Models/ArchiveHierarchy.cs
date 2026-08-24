@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace RusZip.Core.Models;
 
 public sealed class ArchiveTreeNode
@@ -23,15 +25,86 @@ public sealed class ArchiveTreeNode
 
 public static class ArchiveHierarchy
 {
+    public static bool MatchPattern(string text, string pattern)
+    {
+        if (string.IsNullOrWhiteSpace(pattern)) return true;
+        pattern = pattern.Trim();
+
+        bool isNegated = pattern.StartsWith('!');
+        if (isNegated)
+        {
+            pattern = pattern.Substring(1).Trim();
+            if (string.IsNullOrEmpty(pattern)) return true;
+        }
+
+        var normalizedText = text.Replace('\\', '/').Trim('/');
+        var normalizedPattern = pattern.Replace('\\', '/').Trim('/');
+
+        bool matches;
+        if (normalizedPattern.Contains('*') || normalizedPattern.Contains('?'))
+        {
+            if (!normalizedPattern.Contains('/'))
+            {
+                var fileName = Path.GetFileName(normalizedText);
+                var fileNameRegex = "^" + Regex.Escape(normalizedPattern)
+                    .Replace(@"\*", ".*")
+                    .Replace(@"\?", ".") + "$";
+
+                var fullPathRegex = "^" + Regex.Escape(normalizedPattern)
+                    .Replace(@"\*", ".*")
+                    .Replace(@"\?", ".") + "$";
+
+                matches = Regex.IsMatch(fileName, fileNameRegex, RegexOptions.IgnoreCase)
+                    || Regex.IsMatch(normalizedText, fullPathRegex, RegexOptions.IgnoreCase);
+            }
+            else
+            {
+                var escaped = Regex.Escape(normalizedPattern);
+                escaped = escaped.Replace(@"/\*\*/", @"/(?:.*/)?");
+                escaped = escaped.Replace(@"\*\*/", @"(?:.*/)?");
+                escaped = escaped.Replace(@"/\*\*", @"(?:/.*)?");
+                escaped = escaped.Replace(@"\*\*", @".*");
+                escaped = escaped.Replace(@"\*", @"[^/]*");
+                escaped = escaped.Replace(@"\?", @".");
+
+                var regexPattern = "^" + escaped + "$";
+                matches = Regex.IsMatch(normalizedText, regexPattern, RegexOptions.IgnoreCase);
+            }
+        }
+        else
+        {
+            matches = normalizedText.Contains(normalizedPattern, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return isNegated ? !matches : matches;
+    }
+
+    public static bool MatchesFilter(ArchiveEntry entry, string? filterText, Func<string, bool, bool>? categoryPredicate = null)
+    {
+        if (!entry.IsDirectory && categoryPredicate != null && !categoryPredicate(entry.RelativePath, entry.IsDirectory))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(filterText))
+        {
+            return true;
+        }
+
+        return MatchPattern(entry.RelativePath, filterText);
+    }
+
     public static IReadOnlyList<ArchiveTreeNode> BuildTree(
         IEnumerable<ArchiveEntry> entries,
-        string? filterText = null)
+        string? filterText = null,
+        Func<string, bool, bool>? categoryPredicate = null)
     {
-        var filtered = entries;
-        if (!string.IsNullOrWhiteSpace(filterText))
-        {
-            filtered = entries.Where(e => e.RelativePath.Contains(filterText, StringComparison.OrdinalIgnoreCase));
-        }
+        var allEntriesList = entries.ToList();
+        var isFiltered = !string.IsNullOrWhiteSpace(filterText) || categoryPredicate != null;
+
+        var filtered = isFiltered
+            ? allEntriesList.Where(e => MatchesFilter(e, filterText, categoryPredicate)).ToList()
+            : allEntriesList;
 
         var rootNodes = new List<ArchiveTreeNode>();
         var lookup = new Dictionary<string, ArchiveTreeNode>(StringComparer.OrdinalIgnoreCase);
@@ -45,9 +118,6 @@ public static class ArchiveHierarchy
             string currentPath = string.Empty;
             ArchiveTreeNode? parent = null;
 
-            // F-20: when the same full path has already been materialized, this entry is a
-            // duplicate. Its size must be counted once in ancestor rollups (first-wins) so
-            // directory totals never exceed the sum of their displayed children.
             bool isDuplicatePath = lookup.ContainsKey(normalizedPath);
 
             for (int i = 0; i < segments.Length; i++)
@@ -81,15 +151,10 @@ public static class ArchiveHierarchy
                 {
                     if (isLeaf)
                     {
-                        // Duplicate leaf path: first-wins keeps the original entry's data
-                        // (size and metadata) so the displayed tree stays self-consistent;
-                        // surface the extra copy via DuplicateCount.
                         node.DuplicateCount++;
                     }
                     else if (isTarget)
                     {
-                        // Existing node re-declared as a directory. Refresh directory metadata
-                        // (last-wins for timestamps/attributes), but never re-add size.
                         node.IsDirectory = true;
                         if (entry.LastModified.HasValue)
                         {
@@ -102,9 +167,6 @@ public static class ArchiveHierarchy
                     }
                 }
 
-                // Roll file sizes up to every ancestor directory, once per distinct path.
-                // Directory entries carry metadata but no content size, so their declared size
-                // is never added — a directory's displayed size is the sum of its children.
                 if (!isLeaf && !isDuplicatePath && !entry.IsDirectory)
                 {
                     node.UncompressedSize += entry.UncompressedSize;

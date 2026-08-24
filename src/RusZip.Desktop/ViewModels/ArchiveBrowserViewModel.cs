@@ -23,8 +23,16 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     [ObservableProperty] private long _totalUncompressedBytes;
     [ObservableProperty] private long? _totalCompressedBytes;
     [ObservableProperty] private string _filterText = string.Empty;
+    [ObservableProperty] private FileCategory _selectedCategory = FileCategory.All;
     [ObservableProperty] private ArchiveItemViewModel? _selectedItem;
     [ObservableProperty] private bool _canCompress;
+
+    public bool IsCategoryAll => SelectedCategory == FileCategory.All;
+    public bool IsCategoryDocuments => SelectedCategory == FileCategory.Documents;
+    public bool IsCategoryImages => SelectedCategory == FileCategory.Images;
+    public bool IsCategoryCode => SelectedCategory == FileCategory.Code;
+    public bool IsCategoryMedia => SelectedCategory == FileCategory.Media;
+    public bool IsCategoryArchives => SelectedCategory == FileCategory.Archives;
 
     public ObservableCollection<ArchiveItemViewModel> SelectedItems { get; } = [];
 
@@ -171,6 +179,30 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     partial void OnFilterTextChanged(string value)
     {
         RebuildGridSource();
+    }
+
+    partial void OnSelectedCategoryChanged(FileCategory value)
+    {
+        OnPropertyChanged(nameof(IsCategoryAll));
+        OnPropertyChanged(nameof(IsCategoryDocuments));
+        OnPropertyChanged(nameof(IsCategoryImages));
+        OnPropertyChanged(nameof(IsCategoryCode));
+        OnPropertyChanged(nameof(IsCategoryMedia));
+        OnPropertyChanged(nameof(IsCategoryArchives));
+        RebuildGridSource();
+    }
+
+    [RelayCommand]
+    public void SetCategory(object? parameter)
+    {
+        if (parameter is FileCategory cat)
+        {
+            SelectedCategory = cat;
+        }
+        else if (parameter is string catName && Enum.TryParse<FileCategory>(catName, ignoreCase: true, out var parsed))
+        {
+            SelectedCategory = parsed;
+        }
     }
 
     partial void OnSelectedItemChanged(ArchiveItemViewModel? value)
@@ -603,8 +635,12 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         }
 
         _expansionAnchor = null;
-        bool isFiltered = !string.IsNullOrWhiteSpace(FilterText);
-        RootItems = BuildTree(_allEntries, FilterText, autoExpand: isFiltered, factory: ItemFactory);
+        bool isFiltered = !string.IsNullOrWhiteSpace(FilterText) || SelectedCategory != FileCategory.All;
+        Func<string, bool, bool>? categoryPredicate = SelectedCategory == FileCategory.All
+            ? null
+            : (path, isDir) => isDir || FileIconCategorizer.GetFileCategory(path, isDir) == SelectedCategory;
+
+        RootItems = BuildTree(_allEntries, FilterText, autoExpand: isFiltered, factory: ItemFactory, categoryPredicate: categoryPredicate);
         GridSource = CreateGridSource(RootItems);
         HookExpansionNotifications(RootItems);
         UpdateBreadcrumbsFromNavigation();
@@ -715,7 +751,7 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         string? filterText,
         bool autoExpand = false)
     {
-        return BuildTree(entries, filterText, autoExpand, factory: null);
+        return BuildTree(entries, filterText, autoExpand, factory: null, categoryPredicate: null);
     }
 
     /// <summary>
@@ -727,9 +763,10 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         IEnumerable<ArchiveEntry> entries,
         string? filterText,
         bool autoExpand,
-        Func<ArchiveTreeNode, bool, ArchiveItemViewModel>? factory)
+        Func<ArchiveTreeNode, bool, ArchiveItemViewModel>? factory,
+        Func<string, bool, bool>? categoryPredicate = null)
     {
-        var treeNodes = ArchiveHierarchy.BuildTree(entries, filterText);
+        var treeNodes = ArchiveHierarchy.BuildTree(entries, filterText, categoryPredicate);
         var result = new ObservableCollection<ArchiveItemViewModel>();
         var create = factory ?? ArchiveItemViewModel.FromTreeNode;
         foreach (var node in treeNodes)

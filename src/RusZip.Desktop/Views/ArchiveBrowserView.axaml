@@ -43,11 +43,11 @@
                 </StackPanel>
 
                 <!-- Bottom Row: Filter Box + Action Buttons -->
-                <Grid Grid.Row="1" Grid.Column="0" ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
+                <Grid Grid.Row="1" Grid.Column="0" ColumnDefinitions="Auto,Auto" Margin="0,4,0,0">
                     <TextBox x:Name="FilterTextBox"
                              Grid.Column="0"
-                             Width="260"
-                             PlaceholderText="Filter contents..."
+                             Width="220"
+                             PlaceholderText="Filter (*.log, !*.tmp)..."
                              Text="{Binding FilterText, Mode=TwoWay}"
                              VerticalAlignment="Center">
                         <TextBox.InnerLeftContent>
@@ -67,6 +67,40 @@
                             </Button>
                         </TextBox.InnerRightContent>
                     </TextBox>
+
+                    <!-- Category Filter Chips -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="8,0,0,0">
+                        <Button Command="{Binding SetCategoryCommand}" CommandParameter="All"
+                                Classes.accent="{Binding IsCategoryAll}"
+                                Padding="8,3" CornerRadius="12" FontSize="11">
+                            <TextBlock Text="All" VerticalAlignment="Center" />
+                        </Button>
+                        <Button Command="{Binding SetCategoryCommand}" CommandParameter="Documents"
+                                Classes.accent="{Binding IsCategoryDocuments}"
+                                Padding="8,3" CornerRadius="12" FontSize="11">
+                            <TextBlock Text="Documents" VerticalAlignment="Center" />
+                        </Button>
+                        <Button Command="{Binding SetCategoryCommand}" CommandParameter="Images"
+                                Classes.accent="{Binding IsCategoryImages}"
+                                Padding="8,3" CornerRadius="12" FontSize="11">
+                            <TextBlock Text="Images" VerticalAlignment="Center" />
+                        </Button>
+                        <Button Command="{Binding SetCategoryCommand}" CommandParameter="Code"
+                                Classes.accent="{Binding IsCategoryCode}"
+                                Padding="8,3" CornerRadius="12" FontSize="11">
+                            <TextBlock Text="Code" VerticalAlignment="Center" />
+                        </Button>
+                        <Button Command="{Binding SetCategoryCommand}" CommandParameter="Media"
+                                Classes.accent="{Binding IsCategoryMedia}"
+                                Padding="8,3" CornerRadius="12" FontSize="11">
+                            <TextBlock Text="Media" VerticalAlignment="Center" />
+                        </Button>
+                        <Button Command="{Binding SetCategoryCommand}" CommandParameter="Archives"
+                                Classes.accent="{Binding IsCategoryArchives}"
+                                Padding="8,3" CornerRadius="12" FontSize="11">
+                            <TextBlock Text="Archives" VerticalAlignment="Center" />
+                        </Button>
+                    </StackPanel>
                 </Grid>
 
                 <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
