@@ -213,6 +213,7 @@
 
         <!-- Top-Level Application Menu Bar -->
         <Border Grid.Row="1"
+                x:Name="AppMenuBarBorder"
                 Background="{DynamicResource CardBackgroundFillColorDefault}"
                 BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
                 BorderThickness="0,0,0,1"

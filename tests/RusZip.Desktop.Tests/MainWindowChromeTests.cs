@@ -124,6 +124,26 @@ public class MainWindowChromeTests
     }
 
     [AvaloniaFact]
+    public void MainWindow_ApplyPlatformWindowChrome_HidesInWindowMenuRowOnMacOS_ShowsOnOtherPlatforms()
+    {
+        var window = new MainWindow();
+
+        // macOS: in-window menu bar border is hidden, native menu remains configured
+        window.ApplyPlatformWindowChrome(isMacOSOverride: true);
+        var menuBarBorder = window.FindControl<Border>("AppMenuBarBorder");
+        Assert.NotNull(menuBarBorder);
+        Assert.False(menuBarBorder.IsVisible);
+
+        var nativeMenu = NativeMenu.GetMenu(window);
+        Assert.NotNull(nativeMenu);
+        Assert.Equal(6, nativeMenu.Items.Count);
+
+        // Windows/Linux: in-window menu bar border is visible
+        window.ApplyPlatformWindowChrome(isMacOSOverride: false);
+        Assert.True(menuBarBorder.IsVisible);
+    }
+
+    [AvaloniaFact]
     public void MainWindow_Properties_MatchExtendedChromeConfiguration()
     {
         var window = new MainWindow();

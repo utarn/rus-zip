@@ -40,6 +40,12 @@ public partial class MainWindow : Window
         {
             contentGrid.Margin = GetPlatformTitleBarMargin(isMacOS);
         }
+
+        var menuBarBorder = this.FindControl<Border>("AppMenuBarBorder");
+        if (menuBarBorder != null)
+        {
+            menuBarBorder.IsVisible = !isMacOS;
+        }
     }
 
     public static Thickness GetPlatformTitleBarMargin(bool isMacOS)
