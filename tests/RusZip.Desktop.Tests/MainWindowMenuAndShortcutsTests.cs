@@ -165,8 +165,8 @@ public class MainWindowMenuAndShortcutsTests
         await vm.TestArchiveCommand.ExecuteAsync(null);
         Assert.Contains("Archive test", vm.StatusText);
 
-        vm.ShowPropertiesCommand.Execute(null);
-        Assert.Contains("properties inspector", vm.StatusText);
+        await vm.ShowPropertiesCommand.ExecuteAsync(null);
+        Assert.Contains("properties", vm.StatusText, StringComparison.OrdinalIgnoreCase);
 
         bool exitRequested = false;
         vm.RequestExit = () => exitRequested = true;

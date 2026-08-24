@@ -94,6 +94,7 @@ public partial class MainWindowViewModel : ObservableObject
     public Func<Task<IReadOnlyList<string>?>>? RequestAppendSourcePaths { get; set; }
     public Func<int, IReadOnlyList<string>, Task<bool>>? ConfirmDeleteAsync { get; set; }
     public Func<ArchiveTestResult, Task>? RequestShowTestResultDialog { get; set; }
+    public Func<ArchivePropertiesViewModel, Task>? RequestShowPropertiesDialog { get; set; }
 
     public bool CanAppendToArchive => HasOpenArchive && Browser.CanCompress;
     public bool CanDeleteFromArchive => HasOpenArchive && Browser.CanCompress && (Browser.SelectedItem != null || Browser.SelectedItems.Count > 0);
@@ -164,6 +165,7 @@ public partial class MainWindowViewModel : ObservableObject
         browser.AppendRequested += OnBrowserAppendRequestedAsync;
         browser.DeleteRequested += OnBrowserDeleteRequestedAsync;
         browser.PreviewItemRequested += OnBrowserPreviewItemRequestedAsync;
+        browser.PropertiesRequested += OnBrowserPropertiesRequestedAsync;
         browser.PropertyChanged += OnBrowserPropertyChanged;
         browser.SelectedItems.CollectionChanged += OnBrowserSelectedItemsCollectionChanged;
         if (ConfirmDeleteAsync != null)
@@ -180,8 +182,14 @@ public partial class MainWindowViewModel : ObservableObject
         browser.AppendRequested -= OnBrowserAppendRequestedAsync;
         browser.DeleteRequested -= OnBrowserDeleteRequestedAsync;
         browser.PreviewItemRequested -= OnBrowserPreviewItemRequestedAsync;
+        browser.PropertiesRequested -= OnBrowserPropertiesRequestedAsync;
         browser.PropertyChanged -= OnBrowserPropertyChanged;
         browser.SelectedItems.CollectionChanged -= OnBrowserSelectedItemsCollectionChanged;
+    }
+
+    private async Task OnBrowserPropertiesRequestedAsync(ArchiveItemViewModel? item)
+    {
+        await ShowPropertiesAsync(item);
     }
 
     private async Task OnBrowserPreviewItemRequestedAsync(ArchiveItemViewModel item)
@@ -817,10 +825,25 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public void ShowProperties()
+    public async Task ShowPropertiesAsync(ArchiveItemViewModel? specificItem = null)
     {
-        if (!HasOpenArchive) return;
-        StatusText = FormatStatus("Archive properties inspector opened.");
+        if (!HasOpenArchive || string.IsNullOrEmpty(Browser.LoadedArchivePath))
+            return;
+
+        try
+        {
+            var targetItem = specificItem ?? Browser.SelectedItem;
+            var propertiesVm = await ArchivePropertiesViewModel.CreateAsync(Browser.LoadedArchivePath, _engine, targetItem);
+            StatusText = FormatStatus($"Properties loaded for {Path.GetFileName(Browser.LoadedArchivePath)}");
+            if (RequestShowPropertiesDialog != null)
+            {
+                await RequestShowPropertiesDialog.Invoke(propertiesVm);
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText = FormatStatus($"Failed to load properties: {ex.Message}");
+        }
     }
 
     [RelayCommand]

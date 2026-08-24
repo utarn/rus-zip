@@ -1,0 +1,118 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RusZip.Desktop.ViewModels"
+        x:Class="RusZip.Desktop.Views.ArchivePropertiesDialog"
+        x:DataType="vm:ArchivePropertiesViewModel"
+        Title="Archive &amp; Entry Properties - rus-zip"
+        Width="540" Height="480"
+        MinWidth="480" MinHeight="380"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="40"
+        WindowDecorations="Full"
+        Background="Transparent">
+
+    <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource SolidBackgroundFillColorBase}">
+        <!-- Custom Title Bar -->
+        <Border Grid.Row="0"
+                Background="{DynamicResource CardBackgroundFillColorDefault}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="0,0,0,1"
+                Padding="16,10">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Data="{StaticResource Icon.FileArchive}"
+                          Width="16" Height="16"
+                          Foreground="{DynamicResource TextFillColorSecondary}" />
+                <TextBlock Text="Archive &amp; Entry Properties"
+                           FontWeight="SemiBold"
+                           FontSize="14"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <!-- Main Body -->
+        <ScrollViewer Grid.Row="1" Margin="20,16">
+            <StackPanel Spacing="16">
+                <!-- Section 1: Container Properties -->
+                <TextBlock Text="Archive Container Properties" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource TextFillColorPrimary}" />
+                <Border Padding="16"
+                        CornerRadius="8"
+                        Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                        BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                        BorderThickness="1">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Archive Path:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ArchivePath}" FontSize="12" Margin="0,3,0,3" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ArchivePath}" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Container Format:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ContainerFormat}" FontSize="12" Margin="0,3,0,3" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Compression Engine:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding CompressionMethod}" FontSize="12" Margin="0,3,0,3" />
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Uncompressed Size:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding FormattedUncompressedSize}" FontSize="12" Margin="0,3,0,3" />
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Compressed Size:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding FormattedCompressedSize}" FontSize="12" Margin="0,3,0,3" />
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Compression Ratio:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding FormattedCompressionRatio}" FontSize="12" Margin="0,3,0,3" />
+
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Total Entries:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding TotalEntries, StringFormat='{}{0:N0} ({1} files, {2} directories)', ConverterParameter={Binding TotalFiles}}" FontSize="12" Margin="0,3,0,3" />
+                    </Grid>
+                </Border>
+
+                <!-- Section 2: Selected Entry Properties (Visible when an item is selected) -->
+                <StackPanel IsVisible="{Binding HasSelectedItem}" Spacing="8">
+                    <TextBlock Text="Selected Entry Properties" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource TextFillColorPrimary}" />
+                    <Border Padding="16"
+                            CornerRadius="8"
+                            Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                            BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                            BorderThickness="1">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Relative Path:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SelectedItemRelativePath}" FontSize="12" Margin="0,3,0,3" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding SelectedItemRelativePath}" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Entry Type:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedItemType}" FontSize="12" Margin="0,3,0,3" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Uncompressed Size:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding FormattedSelectedItemUncompressedSize}" FontSize="12" Margin="0,3,0,3" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Compressed Size:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding FormattedSelectedItemCompressedSize}" FontSize="12" Margin="0,3,0,3" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Compression Ratio:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding FormattedSelectedItemRatio}" FontSize="12" Margin="0,3,0,3" />
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Last Modified:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SelectedItemLastModified}" FontSize="12" Margin="0,3,0,3" />
+
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="POSIX Mode / Attributes:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                            <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding SelectedItemPosixMode}" FontSize="12" Margin="0,3,0,3" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Actions Footer -->
+        <Border Grid.Row="2"
+                Background="{DynamicResource CardBackgroundFillColorDefault}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="0,1,0,0"
+                Padding="16,12">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                <Button Command="{Binding CloseCommand}"
+                        Content="Close"
+                        Classes="accent"
+                        Padding="24,7"
+                        CornerRadius="6" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

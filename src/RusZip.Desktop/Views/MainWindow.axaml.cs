@@ -156,6 +156,12 @@ public partial class MainWindow : Window
                 await dialog.ShowDialog(this);
             };
 
+            vm.RequestShowPropertiesDialog = async (propertiesVm) =>
+            {
+                var dialog = new ArchivePropertiesDialog(propertiesVm);
+                await dialog.ShowDialog(this);
+            };
+
             vm.RequestExit = () =>
             {
                 Close();
