@@ -1162,6 +1162,213 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         }
     }
 
+    public async Task<ArchiveTestResult> TestArchiveAsync(
+        string archivePath,
+        IProgress<DomainProgressReport>? progress = null,
+        CancellationToken ct = default)
+    {
+        var fullPath = Path.GetFullPath(archivePath);
+        if (!File.Exists(fullPath))
+        {
+            throw new FileNotFoundException($"Archive not found: {fullPath}", fullPath);
+        }
+
+        var descriptor = ArchiveFormatRegistry.Detect(fullPath);
+        var format = descriptor.Format;
+        var formatName = format.ToString().ToLowerInvariant();
+        var errors = new List<string>();
+        int totalEntries = 0;
+        long uncompressedBytes = 0;
+        var sw = Stopwatch.StartNew();
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+
+        try
+        {
+            if (format == ArchiveFormat.Gz)
+            {
+                try
+                {
+                    await using var fileStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, useAsync: true);
+                    await using var gzStream = new GZipStream(fileStream, CompressionMode.Decompress);
+
+                    int read;
+                    while ((read = await gzStream.ReadAsync(buffer.AsMemory(0, BufferSize), ct)) > 0)
+                    {
+                        uncompressedBytes += read;
+                        progress?.Report(new DomainProgressReport(
+                            ProcessedBytes: uncompressedBytes,
+                            TotalBytes: fileStream.Length,
+                            CurrentFileName: Path.GetFileNameWithoutExtension(fullPath),
+                            Percentage: fileStream.Length > 0 ? (double)fileStream.Position / fileStream.Length * 100.0 : 0,
+                            ProcessedFiles: 1,
+                            TotalFiles: 1
+                        ));
+                    }
+                    totalEntries = 1;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    errors.Add($"GZip stream error: {ex.Message}");
+                }
+            }
+            else if (format == ArchiveFormat.TarGz)
+            {
+                try
+                {
+                    await using var fileStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, useAsync: true);
+                    await using var gzStream = new GZipStream(fileStream, CompressionMode.Decompress);
+                    await using var tarReader = new TarReader(gzStream, leaveOpen: false);
+
+                    while (true)
+                    {
+                        TarEntry? entry = null;
+                        try
+                        {
+                            entry = await tarReader.GetNextEntryAsync(copyData: false, ct);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            errors.Add($"Tar header error: {ex.Message}");
+                            break;
+                        }
+
+                        if (entry is null) break;
+
+                        totalEntries++;
+                        var entryName = entry.Name;
+                        var isDir = entry.EntryType == TarEntryType.Directory || entryName.Replace('\\', '/').EndsWith('/');
+
+                        if (!isDir && entry.DataStream is not null)
+                        {
+                            try
+                            {
+                                int bytesRead;
+                                while ((bytesRead = await entry.DataStream.ReadAsync(buffer.AsMemory(0, BufferSize), ct)) > 0)
+                                {
+                                    uncompressedBytes += bytesRead;
+                                    progress?.Report(new DomainProgressReport(
+                                        ProcessedBytes: uncompressedBytes,
+                                        TotalBytes: fileStream.Length,
+                                        CurrentFileName: entryName,
+                                        Percentage: fileStream.Length > 0 ? (double)fileStream.Position / fileStream.Length * 100.0 : 0,
+                                        ProcessedFiles: totalEntries,
+                                        TotalFiles: totalEntries
+                                    ));
+                                }
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException)
+                            {
+                                errors.Add($"Entry '{entryName}' corrupted: {ex.Message}");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    errors.Add($"Archive stream error: {ex.Message}");
+                }
+            }
+            else
+            {
+                await Task.Run(() =>
+                {
+                    var readerOptions = new ReaderOptions { LeaveStreamOpen = false };
+                    IArchive? archive = null;
+                    try
+                    {
+                        archive = OpenArchiveByFormat(fullPath, format, readerOptions);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        errors.Add($"Failed to open archive: {ex.Message}");
+                    }
+
+                    if (archive != null)
+                    {
+                        using (archive)
+                        {
+                            List<IArchiveEntry>? entries = null;
+                            try
+                            {
+                                entries = archive.Entries.ToList();
+                                if (entries.Count == 0 && format == ArchiveFormat.Zip && ZipDeclaresEntries(fullPath))
+                                {
+                                    errors.Add("ZIP central directory declared entries but none could be read.");
+                                }
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException)
+                            {
+                                errors.Add($"Failed to read archive entries: {ex.Message}");
+                            }
+
+                            if (entries != null)
+                            {
+                                long totalSize = entries.Where(e => !e.IsDirectory).Sum(e => e.Size);
+                                foreach (var entry in entries)
+                                {
+                                    ct.ThrowIfCancellationRequested();
+                                    totalEntries++;
+
+                                    if (entry.IsDirectory) continue;
+
+                                    if (entry.IsEncrypted)
+                                    {
+                                        errors.Add($"Entry '{entry.Key}' is encrypted (not supported).");
+                                        continue;
+                                    }
+
+                                    var entryName = entry.Key ?? $"Entry_{totalEntries}";
+                                    try
+                                    {
+                                        using var entryStream = entry.OpenEntryStream();
+                                        int read;
+                                        while ((read = entryStream.Read(buffer, 0, BufferSize)) > 0)
+                                        {
+                                            uncompressedBytes += read;
+                                            progress?.Report(new DomainProgressReport(
+                                                ProcessedBytes: uncompressedBytes,
+                                                TotalBytes: totalSize > 0 ? totalSize : uncompressedBytes,
+                                                CurrentFileName: entryName,
+                                                Percentage: totalSize > 0 ? Math.Min(100.0, (double)uncompressedBytes / totalSize * 100.0) : 0,
+                                                ProcessedFiles: totalEntries,
+                                                TotalFiles: entries.Count
+                                            ));
+                                        }
+                                    }
+                                    catch (Exception ex) when (ex is not OperationCanceledException)
+                                    {
+                                        errors.Add($"Entry '{entryName}' corrupted: {ex.Message}");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }, ct);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+
+        sw.Stop();
+        var duration = sw.Elapsed;
+        double throughputMBps = duration.TotalSeconds > 0
+            ? (uncompressedBytes / (1024.0 * 1024.0)) / duration.TotalSeconds
+            : 0.0;
+
+        return new ArchiveTestResult(
+            IsSuccess: errors.Count == 0,
+            ArchivePath: fullPath,
+            Format: formatName,
+            TotalEntries: totalEntries,
+            UncompressedBytes: uncompressedBytes,
+            ThroughputMBps: Math.Round(throughputMBps, 2),
+            Duration: duration,
+            Errors: errors
+        );
+    }
+
     public async Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(
         string archivePath,
         CancellationToken ct = default)

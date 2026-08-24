@@ -69,6 +69,11 @@ public sealed class DesktopEndToEndRegressionTests : IDisposable
             return Task.FromResult(new ExtractionResult(1000, 1, 1));
         }
 
+        public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+        {
+            return Task.FromResult(new ArchiveTestResult(true, archivePath, "zrus", EntriesToReturn.Count, 1000, 50.0, TimeSpan.FromMilliseconds(20), []));
+        }
+
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
         {
             return Task.FromResult<IReadOnlyList<ArchiveEntry>>(EntriesToReturn);

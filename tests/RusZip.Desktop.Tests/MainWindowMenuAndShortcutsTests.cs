@@ -125,7 +125,7 @@ public class MainWindowMenuAndShortcutsTests
     }
 
     [AvaloniaFact]
-    public void MainWindowViewModel_MenuCommands_ExecuteCorrectly()
+    public async Task MainWindowViewModel_MenuCommands_ExecuteCorrectly()
     {
         var engine = new UnifiedArchiveEngine();
         var vm = new MainWindowViewModel(engine);
@@ -161,8 +161,9 @@ public class MainWindowMenuAndShortcutsTests
 
         // Test archive state commands
         vm.HasOpenArchive = true;
-        vm.TestArchiveCommand.Execute(null);
-        Assert.Contains("Testing archive integrity", vm.StatusText);
+        vm.Browser.LoadedArchivePath = "dummy.zrus";
+        await vm.TestArchiveCommand.ExecuteAsync(null);
+        Assert.Contains("Archive test", vm.StatusText);
 
         vm.ShowPropertiesCommand.Execute(null);
         Assert.Contains("properties inspector", vm.StatusText);

@@ -1,0 +1,119 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RusZip.Desktop.ViewModels"
+        x:Class="RusZip.Desktop.Views.ArchiveTestResultDialog"
+        x:DataType="vm:ArchiveTestResultViewModel"
+        Title="Archive Integrity Test - rus-zip"
+        Width="520" Height="420"
+        MinWidth="460" MinHeight="340"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="40"
+        WindowDecorations="Full"
+        Background="Transparent">
+
+    <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource SolidBackgroundFillColorBase}">
+        <!-- Custom Title Bar -->
+        <Border Grid.Row="0"
+                Background="{DynamicResource CardBackgroundFillColorDefault}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="0,0,0,1"
+                Padding="16,10">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Panel Width="18" Height="18">
+                    <PathIcon Data="{StaticResource Icon.Checkmark}"
+                              Width="16" Height="16"
+                              Foreground="{DynamicResource SystemFillColorSuccess}"
+                              IsVisible="{Binding IsSuccess}" />
+                    <PathIcon Data="{StaticResource Icon.Alert}"
+                              Width="16" Height="16"
+                              Foreground="{DynamicResource SystemFillColorCritical}"
+                              IsVisible="{Binding !IsSuccess}" />
+                </Panel>
+                <TextBlock Text="{Binding HeaderTitle}"
+                           FontWeight="SemiBold"
+                           FontSize="14"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <!-- Main Body -->
+        <ScrollViewer Grid.Row="1" Margin="20,16">
+            <StackPanel Spacing="16">
+                <!-- Status Summary Banner -->
+                <Border Padding="14,10"
+                        CornerRadius="8"
+                        Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                        BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                        BorderThickness="1">
+                    <TextBlock Text="{Binding StatusSummary}"
+                               TextWrapping="Wrap"
+                               FontSize="13"
+                               Foreground="{DynamicResource TextFillColorPrimary}" />
+                </Border>
+
+                <!-- Metrics Grid -->
+                <Border Padding="16"
+                        CornerRadius="8"
+                        Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                        BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                        BorderThickness="1">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Total Entries:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding TotalEntriesText}" FontSize="12" Margin="0,3,0,3" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Uncompressed Bytes:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding UncompressedBytesText}" FontSize="12" Margin="0,3,0,3" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Verification Throughput:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ThroughputText}" FontSize="12" Margin="0,3,0,3" />
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Duration:" FontWeight="SemiBold" FontSize="12" Margin="0,3,16,3" Foreground="{DynamicResource TextFillColorSecondary}" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DurationText}" FontSize="12" Margin="0,3,0,3" />
+                    </Grid>
+                </Border>
+
+                <!-- Error Diagnostic List (if any) -->
+                <StackPanel IsVisible="{Binding HasErrors}" Spacing="8">
+                    <TextBlock Text="Integrity Diagnostics / Errors:" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource SystemFillColorCritical}" />
+                    <Border MaxHeight="140"
+                            Padding="8"
+                            CornerRadius="8"
+                            Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                            BorderBrush="{DynamicResource SystemFillColorCritical}"
+                            BorderThickness="1">
+                        <ScrollViewer>
+                            <ItemsControl ItemsSource="{Binding Errors}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="x:String">
+                                        <TextBlock Text="{Binding}"
+                                                   TextWrapping="Wrap"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource SystemFillColorCritical}"
+                                                   Margin="2,2" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Action Buttons Footer -->
+        <Border Grid.Row="2"
+                Background="{DynamicResource CardBackgroundFillColorDefault}"
+                BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                BorderThickness="0,1,0,0"
+                Padding="16,12">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                <Button Command="{Binding CloseCommand}"
+                        Content="Close"
+                        Classes="accent"
+                        Padding="24,7"
+                        CornerRadius="6" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

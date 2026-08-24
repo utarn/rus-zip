@@ -17,6 +17,8 @@ public class ThemeSwitchingTests
             => Task.FromResult(new ArchiveDeleteResult(true, request.ArchivePath, 0, 0, 0, 0, 0));
         public Task<ExtractionResult> ExtractAsync(ArchiveExtractionRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
             => Task.FromResult(new ExtractionResult(0, 0, 0));
+        public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+            => Task.FromResult(new ArchiveTestResult(true, archivePath, "zrus", 0, 0, 0.0, TimeSpan.Zero, []));
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ArchiveEntry>>([]);
     }

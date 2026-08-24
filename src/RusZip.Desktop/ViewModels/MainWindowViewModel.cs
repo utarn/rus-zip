@@ -91,6 +91,7 @@ public partial class MainWindowViewModel : ObservableObject
     public Func<Task<string?>>? RequestOpenArchivePicker { get; set; }
     public Func<Task<IReadOnlyList<string>?>>? RequestAppendSourcePaths { get; set; }
     public Func<int, IReadOnlyList<string>, Task<bool>>? ConfirmDeleteAsync { get; set; }
+    public Func<ArchiveTestResult, Task>? RequestShowTestResultDialog { get; set; }
 
     public bool CanAppendToArchive => HasOpenArchive && Browser.CanCompress;
     public bool CanDeleteFromArchive => HasOpenArchive && Browser.CanCompress && (Browser.SelectedItem != null || Browser.SelectedItems.Count > 0);
@@ -742,10 +743,45 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public void TestArchive()
+    public async Task TestArchiveAsync()
     {
-        if (!HasOpenArchive) return;
-        StatusText = FormatStatus("Testing archive integrity...");
+        if (!HasOpenArchive || string.IsNullOrEmpty(Browser.LoadedArchivePath))
+            return;
+
+        var archivePath = Browser.LoadedArchivePath;
+        var fileName = Path.GetFileName(archivePath);
+
+        var cts = Progress.CreateCancellationTokenSource();
+        Progress.OperationTitle = $"Testing {fileName}...";
+        var progressHandler = new Progress<ProgressReport>(Progress.ReportProgress);
+
+        bool success = false;
+        try
+        {
+            StatusText = FormatStatus($"Testing archive integrity for {fileName}...");
+            var result = await Task.Run(async () => await _engine.TestArchiveAsync(archivePath, progressHandler, cts.Token), cts.Token);
+            success = result.IsSuccess;
+            StatusText = FormatStatus(result.IsSuccess
+                ? $"Archive test passed: {result.TotalEntries} entries verified."
+                : $"Archive test failed: {result.Errors.Count} error(s) found.");
+
+            if (RequestShowTestResultDialog != null)
+            {
+                await RequestShowTestResultDialog.Invoke(result);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = FormatStatus("Archive testing cancelled.");
+        }
+        catch (Exception ex)
+        {
+            StatusText = FormatStatus($"Archive testing failed: {ex.Message}");
+        }
+        finally
+        {
+            await Progress.FinishOperationAsync(success, StatusText);
+        }
     }
 
     [RelayCommand]

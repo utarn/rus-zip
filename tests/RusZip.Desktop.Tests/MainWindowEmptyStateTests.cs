@@ -34,6 +34,11 @@ public class MainWindowEmptyStateTests
             return Task.FromResult(new ExtractionResult(0, 0, 0));
         }
 
+        public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+        {
+            return Task.FromResult(new ArchiveTestResult(true, archivePath, "zrus", EntriesToReturn.Count, 0, 0.0, TimeSpan.Zero, []));
+        }
+
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
         {
             return Task.FromResult<IReadOnlyList<ArchiveEntry>>(EntriesToReturn);

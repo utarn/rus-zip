@@ -82,6 +82,16 @@ public class MainWindowViewModelTests
             return Task.FromResult(new ExtractionResult(100, 1, 1));
         }
 
+        public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+        {
+            if (ct.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(ct);
+            }
+            if (ExceptionToThrow != null) throw ExceptionToThrow;
+            return Task.FromResult(new ArchiveTestResult(true, archivePath, "zrus", EntriesToReturn.Count, 100, 10.0, TimeSpan.FromMilliseconds(10), []));
+        }
+
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
         {
             if (ExceptionToThrow != null) throw ExceptionToThrow;

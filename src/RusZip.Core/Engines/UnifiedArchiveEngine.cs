@@ -100,6 +100,24 @@ public sealed class UnifiedArchiveEngine : IArchiveEngine
         };
     }
 
+    public Task<ArchiveTestResult> TestArchiveAsync(
+        string archivePath,
+        IProgress<ProgressReport>? progress = null,
+        CancellationToken ct = default)
+    {
+        var descriptor = ArchiveFormatRegistry.Detect(archivePath);
+        if (!descriptor.CanDecompress)
+        {
+            throw new NotSupportedException($"Testing of '{descriptor.Format}' archive format is not supported.");
+        }
+
+        return descriptor.Format switch
+        {
+            ArchiveFormat.Zrus or ArchiveFormat.Zst => _zstdEngine.TestArchiveAsync(archivePath, progress, ct),
+            _ => _sharpCompressEngine.TestArchiveAsync(archivePath, progress, ct)
+        };
+    }
+
     public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(
         string archivePath,
         CancellationToken ct = default)
