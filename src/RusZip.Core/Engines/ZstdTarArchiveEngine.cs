@@ -1256,6 +1256,183 @@ public sealed class ZstdTarArchiveEngine : IArchiveEngine
         }
     }
 
+    public async Task<ArchiveTestResult> TestArchiveAsync(
+        string archivePath,
+        IProgress<ProgressReport>? progress = null,
+        CancellationToken ct = default)
+    {
+        var fullPath = Path.GetFullPath(archivePath);
+        if (!File.Exists(fullPath))
+        {
+            throw new FileNotFoundException($"Archive not found: {fullPath}", fullPath);
+        }
+
+        var descriptor = ArchiveFormatRegistry.Detect(fullPath);
+        var formatName = descriptor.Format.ToString().ToLowerInvariant();
+        var errors = new List<string>();
+        int totalEntries = 0;
+        long uncompressedBytes = 0;
+        var sw = Stopwatch.StartNew();
+
+        if (descriptor.Format == ArchiveFormat.Zst)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+            try
+            {
+                await using var fileStream = new FileStream(
+                    fullPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    BufferSize,
+                    useAsync: true);
+
+                await using var decompStream = new DecompressionStream(fileStream);
+
+                int read;
+                while ((read = await decompStream.ReadAsync(buffer.AsMemory(0, BufferSize), ct)) > 0)
+                {
+                    uncompressedBytes += read;
+                    progress?.Report(new ProgressReport(
+                        ProcessedBytes: uncompressedBytes,
+                        TotalBytes: fileStream.Length,
+                        CurrentFileName: Path.GetFileNameWithoutExtension(fullPath),
+                        Percentage: fileStream.Length > 0 ? (double)fileStream.Position / fileStream.Length * 100.0 : 0,
+                        ProcessedFiles: 1,
+                        TotalFiles: 1
+                    ));
+                }
+                totalEntries = 1;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                errors.Add($"Zstandard decompression error: {ex.Message}");
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+        else
+        {
+            long estimatedTotalBytes = 0;
+            int estimatedTotalFiles = 0;
+            try
+            {
+                var listed = await ListEntriesAsync(fullPath, ct);
+                estimatedTotalFiles = listed.Count(e => !e.IsDirectory);
+                estimatedTotalBytes = listed.Where(e => !e.IsDirectory).Sum(e => e.UncompressedSize);
+            }
+            catch
+            {
+                // Proceed to streaming test even if listing fails
+            }
+
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+            try
+            {
+                await using var fileStream = new FileStream(
+                    fullPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    BufferSize,
+                    useAsync: true);
+
+                await using var decompStream = new DecompressionStream(fileStream);
+                var countingStream = new CountingReadStream(decompStream);
+                await using (countingStream)
+                await using (var tarReader = new TarReader(countingStream, leaveOpen: false))
+                {
+                    while (true)
+                    {
+                        TarEntry? entry = null;
+                        try
+                        {
+                            entry = await tarReader.GetNextEntryAsync(copyData: false, ct);
+                        }
+                        catch (EndOfStreamException) when (countingStream.TotalBytesRead == 0)
+                        {
+                            break;
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            errors.Add($"Tar header reading error: {ex.Message}");
+                            break;
+                        }
+
+                        if (entry is null) break;
+
+                        totalEntries++;
+                        var entryName = entry.Name;
+                        var isDir = entry.EntryType == TarEntryType.Directory || entryName.Replace('\\', '/').EndsWith('/');
+
+                        if (!isDir && entry.DataStream is not null)
+                        {
+                            try
+                            {
+                                int bytesRead;
+                                while ((bytesRead = await entry.DataStream.ReadAsync(buffer.AsMemory(0, BufferSize), ct)) > 0)
+                                {
+                                    uncompressedBytes += bytesRead;
+                                    progress?.Report(new ProgressReport(
+                                        ProcessedBytes: uncompressedBytes,
+                                        TotalBytes: estimatedTotalBytes > 0 ? estimatedTotalBytes : fileStream.Length,
+                                        CurrentFileName: entryName,
+                                        Percentage: estimatedTotalBytes > 0 ? Math.Min(100.0, (double)uncompressedBytes / estimatedTotalBytes * 100.0) : 0,
+                                        ProcessedFiles: totalEntries,
+                                        TotalFiles: estimatedTotalFiles > 0 ? estimatedTotalFiles : totalEntries
+                                    ));
+                                }
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException)
+                            {
+                                errors.Add($"Entry '{entryName}' corrupted: {ex.Message}");
+                            }
+                        }
+                    }
+
+                    if (errors.Count == 0)
+                    {
+                        try
+                        {
+                            while (await decompStream.ReadAsync(buffer.AsMemory(0, BufferSize), ct) > 0) { }
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            errors.Add($"Zstandard frame checksum error: {ex.Message}");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                errors.Add($"Archive stream error: {ex.Message}");
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        sw.Stop();
+        var duration = sw.Elapsed;
+        double throughputMBps = duration.TotalSeconds > 0
+            ? (uncompressedBytes / (1024.0 * 1024.0)) / duration.TotalSeconds
+            : 0.0;
+
+        return new ArchiveTestResult(
+            IsSuccess: errors.Count == 0,
+            ArchivePath: fullPath,
+            Format: formatName,
+            TotalEntries: totalEntries,
+            UncompressedBytes: uncompressedBytes,
+            ThroughputMBps: Math.Round(throughputMBps, 2),
+            Duration: duration,
+            Errors: errors
+        );
+    }
+
     private sealed class ZstExtractionSource(string archivePath, IReadOnlyList<string>? entryFilter) : IArchiveExtractionSource
     {
         public async IAsyncEnumerable<ExtractionEntry> ReadEntriesAsync([EnumeratorCancellation] CancellationToken ct = default)

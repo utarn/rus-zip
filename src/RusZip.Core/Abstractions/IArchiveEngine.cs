@@ -24,6 +24,11 @@ public interface IArchiveEngine
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default);
 
+    Task<ArchiveTestResult> TestArchiveAsync(
+        string archivePath,
+        IProgress<ProgressReport>? progress = null,
+        CancellationToken ct = default);
+
     Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(
         string archivePath,
         CancellationToken ct = default);

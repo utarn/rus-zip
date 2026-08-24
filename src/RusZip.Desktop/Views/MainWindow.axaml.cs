@@ -149,6 +149,13 @@ public partial class MainWindow : Window
                 return result;
             };
 
+            vm.RequestShowTestResultDialog = async (result) =>
+            {
+                var dialogVm = new ArchiveTestResultViewModel(result);
+                var dialog = new ArchiveTestResultDialog(dialogVm);
+                await dialog.ShowDialog(this);
+            };
+
             vm.RequestExit = () =>
             {
                 Close();

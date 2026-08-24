@@ -59,6 +59,9 @@ public class QuickExtractViewModelTests : IDisposable
         public Task<ArchiveDeleteResult> DeleteEntriesAsync(ArchiveDeleteRequest request, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
             => throw new NotImplementedException();
 
+        public Task<ArchiveTestResult> TestArchiveAsync(string archivePath, IProgress<ProgressReport>? progress = null, CancellationToken ct = default)
+            => throw new NotImplementedException();
+
         public Task<IReadOnlyList<ArchiveEntry>> ListEntriesAsync(string archivePath, CancellationToken ct = default)
             => throw new NotImplementedException();
     }
