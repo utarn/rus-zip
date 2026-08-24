@@ -3,6 +3,7 @@ using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RusZip.Core.Abstractions;
+using RusZip.Core.Engines;
 using RusZip.Core.Models;
 using RusZip.Desktop.Models;
 using RusZip.Desktop.Services;
@@ -35,6 +36,82 @@ public partial class MainWindowViewModel : ObservableObject
     public bool HasRecentArchives => RecentArchives.Count > 0;
     public IRecentArchivesService RecentArchivesService => _recentArchivesService;
     public IArchivePreviewService PreviewService => _previewService;
+
+    public string SelectionMetricsText
+    {
+        get
+        {
+            if (!HasOpenArchive)
+                return string.Empty;
+
+            var selected = Browser.GetEffectiveSelectedItems();
+            if (selected.Count == 0)
+                return "No items selected";
+
+            long totalBytes = selected.Where(i => !i.IsDirectory).Sum(i => i.UncompressedSize);
+            if (selected.Count == 1)
+            {
+                var single = selected[0];
+                return single.IsDirectory
+                    ? "1 directory selected"
+                    : $"1 item selected ({DataMetricsFormatter.FormatBytes(single.UncompressedSize)})";
+            }
+
+            return $"{selected.Count:N0} items selected ({DataMetricsFormatter.FormatBytes(totalBytes)})";
+        }
+    }
+
+    public string FormatCapabilityBadge
+    {
+        get
+        {
+            if (!HasOpenArchive || string.IsNullOrEmpty(Browser.LoadedArchivePath))
+                return string.Empty;
+
+            if (ArchiveFormatRegistry.TryDetect(Browser.LoadedArchivePath, out var descriptor))
+            {
+                var ext = descriptor.PrimaryExtension;
+                var capability = descriptor.CanCompress && descriptor.Format != ArchiveFormat.Zst
+                    ? "Read-Write"
+                    : "Read-Only";
+                return $"[ {ext} | {capability} ]";
+            }
+
+            return string.Empty;
+        }
+    }
+
+    public string GuardrailLimitBadge
+    {
+        get
+        {
+            if (!HasOpenArchive)
+                return string.Empty;
+
+            var limits = Browser.ExtractionSettings.BuildLimits();
+            if (limits == null)
+            {
+                return $"[ Limit: {DataMetricsFormatter.FormatBytes(SafeArchiveExtractor.DefaultMaxCumulativeUncompressedBytes)} ]";
+            }
+
+            if (!limits.MaxCumulativeUncompressedBytes.HasValue && !limits.MaxEntryCount.HasValue)
+            {
+                return "[ Limit: Unlimited ]";
+            }
+
+            if (limits.MaxCumulativeUncompressedBytes.HasValue)
+            {
+                return $"[ Limit: {DataMetricsFormatter.FormatBytes(limits.MaxCumulativeUncompressedBytes.Value)} ]";
+            }
+
+            if (limits.MaxEntryCount.HasValue)
+            {
+                return $"[ Limit: {limits.MaxEntryCount.Value:N0} entries ]";
+            }
+
+            return $"[ Limit: {DataMetricsFormatter.FormatBytes(SafeArchiveExtractor.DefaultMaxCumulativeUncompressedBytes)} ]";
+        }
+    }
 
     public bool IsDarkTheme => CurrentTheme == ThemeMode.Dark;
     public bool IsLightTheme => CurrentTheme == ThemeMode.Light;
@@ -168,6 +245,7 @@ public partial class MainWindowViewModel : ObservableObject
         browser.PropertiesRequested += OnBrowserPropertiesRequestedAsync;
         browser.PropertyChanged += OnBrowserPropertyChanged;
         browser.SelectedItems.CollectionChanged += OnBrowserSelectedItemsCollectionChanged;
+        browser.ExtractionSettings.PropertyChanged += OnExtractionSettingsPropertyChanged;
         if (ConfirmDeleteAsync != null)
         {
             browser.ConfirmDeleteAsync = ConfirmDeleteAsync;
@@ -185,6 +263,12 @@ public partial class MainWindowViewModel : ObservableObject
         browser.PropertiesRequested -= OnBrowserPropertiesRequestedAsync;
         browser.PropertyChanged -= OnBrowserPropertyChanged;
         browser.SelectedItems.CollectionChanged -= OnBrowserSelectedItemsCollectionChanged;
+        browser.ExtractionSettings.PropertyChanged -= OnExtractionSettingsPropertyChanged;
+    }
+
+    private void OnExtractionSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(GuardrailLimitBadge));
     }
 
     private async Task OnBrowserPropertiesRequestedAsync(ArchiveItemViewModel? item)
@@ -216,7 +300,8 @@ public partial class MainWindowViewModel : ObservableObject
     private void OnBrowserPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(ArchiveBrowserViewModel.CanCompress)
-            or nameof(ArchiveBrowserViewModel.SelectedItem))
+            or nameof(ArchiveBrowserViewModel.SelectedItem)
+            or nameof(ArchiveBrowserViewModel.LoadedArchivePath))
         {
             OnBrowserSelectionChanged();
         }
@@ -226,6 +311,9 @@ public partial class MainWindowViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(CanAppendToArchive));
         OnPropertyChanged(nameof(CanDeleteFromArchive));
+        OnPropertyChanged(nameof(SelectionMetricsText));
+        OnPropertyChanged(nameof(FormatCapabilityBadge));
+        OnPropertyChanged(nameof(GuardrailLimitBadge));
         AppendFilesCommand.NotifyCanExecuteChanged();
         DeleteSelectedCommand.NotifyCanExecuteChanged();
         ExtractSelectedItemCommand.NotifyCanExecuteChanged();

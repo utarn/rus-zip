@@ -416,13 +416,64 @@
                                       IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasOpenArchive}" />
         </Grid>
 
-        <!-- Status Bar -->
+        <!-- 3-Segment Status Bar -->
         <Border Grid.Row="3"
                 Background="{DynamicResource CardBackgroundFillColorSecondary}"
                 BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
                 BorderThickness="0,1,0,0"
                 Padding="12,4">
-            <TextBlock Text="{Binding StatusText}" FontSize="12" Foreground="{DynamicResource TextFillColorSecondary}" />
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <!-- Segment 1: Operational Status (Left) -->
+                <TextBlock Grid.Column="0"
+                           Text="{Binding StatusText}"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextFillColorSecondary}"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+
+                <!-- Segment 2: Selection Metrics (Middle) -->
+                <Border Grid.Column="1"
+                        Margin="16,0"
+                        Padding="8,1"
+                        CornerRadius="4"
+                        Background="{DynamicResource CardBackgroundFillColorDefault}"
+                        BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                        BorderThickness="1"
+                        IsVisible="{Binding HasOpenArchive}">
+                    <TextBlock Text="{Binding SelectionMetricsText}"
+                               FontSize="11"
+                               FontWeight="Medium"
+                               Foreground="{DynamicResource TextFillColorSecondary}"
+                               VerticalAlignment="Center" />
+                </Border>
+
+                <!-- Segment 3: Format & Guardrail Badges (Right) -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Border Padding="6,1"
+                            CornerRadius="4"
+                            Background="{DynamicResource CardBackgroundFillColorDefault}"
+                            BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                            BorderThickness="1"
+                            IsVisible="{Binding FormatCapabilityBadge, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <TextBlock Text="{Binding FormatCapabilityBadge}"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource SystemAccentColor}"
+                                   VerticalAlignment="Center" />
+                    </Border>
+                    <Border Padding="6,1"
+                            CornerRadius="4"
+                            Background="{DynamicResource CardBackgroundFillColorDefault}"
+                            BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                            BorderThickness="1"
+                            IsVisible="{Binding GuardrailLimitBadge, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <TextBlock Text="{Binding GuardrailLimitBadge}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource TextFillColorTertiary}"
+                                   VerticalAlignment="Center" />
+                    </Border>
+                </StackPanel>
+            </Grid>
         </Border>
 
         <!-- Mode 3: Compress Dialog Overlay (spans entire window for true modal backdrop and top z-index) -->

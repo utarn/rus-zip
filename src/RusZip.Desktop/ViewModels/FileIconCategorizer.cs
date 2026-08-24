@@ -2,32 +2,52 @@ using RusZip.Core.Models;
 
 namespace RusZip.Desktop.ViewModels;
 
+public enum FileCategory
+{
+    All,
+    Documents,
+    Images,
+    Code,
+    Media,
+    Archives
+}
+
 /// <summary>
-/// Presentation-layer file icon categorization (ADR-0005 note).
-///
-/// Format <em>capabilities</em> live exclusively in <see cref="ArchiveFormatRegistry"/>; this
-/// type is a rendering concern and deliberately contains no detection or dispatch logic.
-/// Archive-like rendering is derived from the registry first, then a small alias table covers
-/// well-known archive file extensions the registry does not model (e.g. <c>.tar</c>, <c>.iso</c>).
-/// That alias table is presentation aliasing only — it must never be consulted for format
-/// decisions. Extensions the registry recognizes are always classified through the registry.
+/// Presentation-layer file icon categorization and category filtering.
 /// </summary>
 public static class FileIconCategorizer
 {
-    // Presentation-only aliases for well-known archive file names outside the registry.
-    // These carry NO capability claim: they exist so such files render with an archive icon
-    // even though the Core registry cannot open them. Additions here are purely cosmetic.
     private static readonly HashSet<string> ArchiveExtensionAliases = new(StringComparer.OrdinalIgnoreCase)
     {
         ".tar", ".bz2", ".xz", ".cab", ".iso", ".7zip", ".tbz2", ".txz"
     };
 
-    /// <summary>
-    /// Determines whether <paramref name="fileName"/> should render with an archive icon.
-    /// Registry-recognized formats match first (covering multi-part extensions such as
-    /// <c>.tar.gz</c> and <c>.tgz</c>); non-registry archive-like extensions fall back to the
-    /// presentation alias table.
-    /// </summary>
+    private static readonly HashSet<string> CodeExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".cs", ".rs", ".py", ".js", ".ts", ".jsx", ".tsx", ".vue", ".svelte",
+        ".json", ".xml", ".yaml", ".yml", ".toml", ".html", ".css", ".scss", ".sass", ".less",
+        ".sh", ".bash", ".zsh", ".cpp", ".c", ".cc", ".cxx", ".h", ".hpp", ".hh",
+        ".go", ".java", ".kt", ".kts", ".swift", ".php", ".rb", ".lua", ".m", ".mm",
+        ".scala", ".sql", ".ps1", ".bat", ".cmd"
+    };
+
+    private static readonly HashSet<string> DocumentExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdf", ".doc", ".docx", ".txt", ".md", ".rtf", ".log", ".csv", ".odt",
+        ".xlsx", ".xls", ".pptx", ".ppt"
+    };
+
+    private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".bmp", ".ico",
+        ".tiff", ".tif", ".heic", ".avif"
+    };
+
+    private static readonly HashSet<string> MediaExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp3", ".wav", ".flac", ".ogg", ".mp4", ".mkv", ".avi", ".mov", ".aac", ".m4a", ".webm"
+    };
+
     public static bool IsArchiveFile(string? fileName)
     {
         if (string.IsNullOrWhiteSpace(fileName))
@@ -43,6 +63,32 @@ public static class FileIconCategorizer
         return ArchiveExtensionAliases.Contains(Path.GetExtension(fileName));
     }
 
+    public static FileCategory GetFileCategory(string fileName, bool isDirectory = false)
+    {
+        if (isDirectory)
+        {
+            return FileCategory.All;
+        }
+
+        if (IsArchiveFile(fileName))
+        {
+            return FileCategory.Archives;
+        }
+
+        var ext = Path.GetExtension(fileName);
+        if (string.IsNullOrEmpty(ext))
+        {
+            return FileCategory.All;
+        }
+
+        if (CodeExtensions.Contains(ext)) return FileCategory.Code;
+        if (DocumentExtensions.Contains(ext)) return FileCategory.Documents;
+        if (ImageExtensions.Contains(ext)) return FileCategory.Images;
+        if (MediaExtensions.Contains(ext)) return FileCategory.Media;
+
+        return FileCategory.All;
+    }
+
     public static string GetFileIcon(string fileName)
     {
         if (IsArchiveFile(fileName))
@@ -51,15 +97,13 @@ public static class FileIconCategorizer
         }
 
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        return ext switch
-        {
-            ".cs" or ".rs" or ".py" or ".js" or ".ts" or ".jsx" or ".tsx" or ".vue" or ".svelte" or ".json" or ".xml" or ".yaml" or ".yml" or ".toml" or ".html" or ".css" or ".scss" or ".sass" or ".less" or ".sh" or ".bash" or ".zsh" or ".cpp" or ".c" or ".cc" or ".cxx" or ".h" or ".hpp" or ".hh" or ".go" or ".java" or ".kt" or ".kts" or ".swift" or ".php" or ".rb" or ".lua" or ".m" or ".mm" or ".scala" or ".sql" or ".ps1" or ".bat" or ".cmd" => "📝",
-            ".png" or ".jpg" or ".jpeg" or ".svg" or ".webp" or ".gif" or ".bmp" or ".ico" or ".tiff" or ".tif" or ".heic" or ".avif" => "🖼️",
-            ".pdf" or ".doc" or ".docx" or ".txt" or ".md" or ".rtf" or ".log" or ".csv" or ".odt" or ".xlsx" or ".xls" or ".pptx" or ".ppt" => "📄",
-            ".exe" or ".dll" or ".so" or ".dylib" or ".bin" => "⚙️",
-            ".mp3" or ".wav" or ".flac" or ".ogg" or ".mp4" or ".mkv" or ".avi" or ".mov" => "🎬",
-            _ => "📄"
-        };
+        if (CodeExtensions.Contains(ext)) return "📝";
+        if (ImageExtensions.Contains(ext)) return "🖼️";
+        if (DocumentExtensions.Contains(ext)) return "📄";
+        if (MediaExtensions.Contains(ext)) return "🎬";
+        if (ext is ".exe" or ".dll" or ".so" or ".dylib" or ".bin") return "⚙️";
+
+        return "📄";
     }
 
     public static string GetIconKey(string fileName, bool isDirectory = false)
@@ -75,21 +119,10 @@ public static class FileIconCategorizer
         }
 
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        return ext switch
-        {
-            ".cs" or ".rs" or ".py" or ".js" or ".ts" or ".jsx" or ".tsx" or ".vue" or ".svelte" or
-            ".json" or ".xml" or ".yaml" or ".yml" or ".toml" or ".html" or ".css" or ".scss" or ".sass" or ".less" or
-            ".sh" or ".bash" or ".zsh" or ".cpp" or ".c" or ".cc" or ".cxx" or ".h" or ".hpp" or ".hh" or
-            ".go" or ".java" or ".kt" or ".kts" or ".swift" or ".php" or ".rb" or ".lua" or ".m" or ".mm" or
-            ".scala" or ".sql" or ".ps1" or ".bat" or ".cmd" => "Icon.FileCode",
+        if (CodeExtensions.Contains(ext)) return "Icon.FileCode";
+        if (DocumentExtensions.Contains(ext)) return "Icon.FileDoc";
+        if (ImageExtensions.Contains(ext)) return "Icon.FileImage";
 
-            ".txt" or ".md" or ".pdf" or ".doc" or ".docx" or ".rtf" or ".log" or ".csv" or ".odt" or
-            ".xlsx" or ".xls" or ".pptx" or ".ppt" => "Icon.FileDoc",
-
-            ".png" or ".jpg" or ".jpeg" or ".svg" or ".webp" or ".gif" or ".bmp" or ".ico" or
-            ".tiff" or ".tif" or ".heic" or ".avif" => "Icon.FileImage",
-
-            _ => "Icon.FileGeneric"
-        };
+        return "Icon.FileGeneric";
     }
 }
