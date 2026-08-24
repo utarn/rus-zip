@@ -30,6 +30,7 @@ public partial class ArchiveBrowserView : UserControl
         ApplyColumnSortComparers();
 
         ArchiveGrid.CellPointerPressed += OnArchiveGridCellPointerPressed;
+        ArchiveGrid.DoubleTapped += OnArchiveGridDoubleTapped;
         ArchiveGrid.KeyDown += OnArchiveGridKeyDown;
         if (ArchiveGrid.ContextMenu is { } menu)
         {
@@ -81,13 +82,38 @@ public partial class ArchiveBrowserView : UserControl
 
     private void OnArchiveGridKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key is Key.Delete or Key.Back && DataContext is ArchiveBrowserViewModel vm)
+        if (DataContext is not ArchiveBrowserViewModel vm)
+            return;
+
+        if (e.Key is Key.Delete or Key.Back)
         {
             if (vm.DeleteSelectedCommand.CanExecute(null))
             {
                 vm.DeleteSelectedCommand.Execute(null);
                 e.Handled = true;
             }
+        }
+        else if (e.Key is Key.Enter)
+        {
+            var target = ExtractArchiveItem(ArchiveGrid.SelectedItem);
+            if (target != null)
+            {
+                _ = vm.ActivateItemAsync(target);
+                e.Handled = true;
+            }
+        }
+    }
+
+    private void OnArchiveGridDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (DataContext is not ArchiveBrowserViewModel vm)
+            return;
+
+        var target = ExtractArchiveItem(ArchiveGrid.SelectedItem);
+        if (target != null)
+        {
+            _ = vm.ActivateItemAsync(target);
+            e.Handled = true;
         }
     }
 

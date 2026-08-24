@@ -14,6 +14,7 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly IArchiveEngine _engine;
     private readonly IFileAssociationService _associationService;
     private readonly IRecentArchivesService _recentArchivesService;
+    private readonly IArchivePreviewService _previewService;
 
     public static IReadOnlyCollection<string> SupportedExtensions => ArchiveFormatRegistry.SupportedExtensions;
 
@@ -33,6 +34,7 @@ public partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<RecentArchiveItemViewModel> RecentArchives { get; } = [];
     public bool HasRecentArchives => RecentArchives.Count > 0;
     public IRecentArchivesService RecentArchivesService => _recentArchivesService;
+    public IArchivePreviewService PreviewService => _previewService;
 
     public bool IsDarkTheme => CurrentTheme == ThemeMode.Dark;
     public bool IsLightTheme => CurrentTheme == ThemeMode.Light;
@@ -103,20 +105,30 @@ public partial class MainWindowViewModel : ObservableObject
     private static string FormatStatus(string message) => EntryNameSanitizer.SingleLine(message);
 
     public MainWindowViewModel(IArchiveEngine engine)
-        : this(engine, FileAssociationServiceFactory.CreateDefault(), new JsonRecentArchivesService())
+        : this(engine, FileAssociationServiceFactory.CreateDefault(), new JsonRecentArchivesService(), new ArchivePreviewService(engine))
     {
     }
 
     public MainWindowViewModel(IArchiveEngine engine, IFileAssociationService associationService)
-        : this(engine, associationService, new JsonRecentArchivesService())
+        : this(engine, associationService, new JsonRecentArchivesService(), new ArchivePreviewService(engine))
     {
     }
 
     public MainWindowViewModel(IArchiveEngine engine, IFileAssociationService associationService, IRecentArchivesService recentArchivesService)
+        : this(engine, associationService, recentArchivesService, new ArchivePreviewService(engine))
+    {
+    }
+
+    public MainWindowViewModel(
+        IArchiveEngine engine,
+        IFileAssociationService associationService,
+        IRecentArchivesService recentArchivesService,
+        IArchivePreviewService previewService)
     {
         _engine = engine;
         _associationService = associationService;
         _recentArchivesService = recentArchivesService;
+        _previewService = previewService;
         _settingsViewModel = new SettingsViewModel(associationService);
         _browser = new ArchiveBrowserViewModel();
         _settings = new CompressionSettingsViewModel();
@@ -151,6 +163,7 @@ public partial class MainWindowViewModel : ObservableObject
         browser.ExtractItemsRequested += OnBrowserExtractItemsRequestedAsync;
         browser.AppendRequested += OnBrowserAppendRequestedAsync;
         browser.DeleteRequested += OnBrowserDeleteRequestedAsync;
+        browser.PreviewItemRequested += OnBrowserPreviewItemRequestedAsync;
         browser.PropertyChanged += OnBrowserPropertyChanged;
         browser.SelectedItems.CollectionChanged += OnBrowserSelectedItemsCollectionChanged;
         if (ConfirmDeleteAsync != null)
@@ -166,8 +179,25 @@ public partial class MainWindowViewModel : ObservableObject
         browser.ExtractItemsRequested -= OnBrowserExtractItemsRequestedAsync;
         browser.AppendRequested -= OnBrowserAppendRequestedAsync;
         browser.DeleteRequested -= OnBrowserDeleteRequestedAsync;
+        browser.PreviewItemRequested -= OnBrowserPreviewItemRequestedAsync;
         browser.PropertyChanged -= OnBrowserPropertyChanged;
         browser.SelectedItems.CollectionChanged -= OnBrowserSelectedItemsCollectionChanged;
+    }
+
+    private async Task OnBrowserPreviewItemRequestedAsync(ArchiveItemViewModel item)
+    {
+        if (string.IsNullOrEmpty(Browser.LoadedArchivePath))
+            return;
+
+        try
+        {
+            StatusText = FormatStatus($"Previewing {item.Name}...");
+            await _previewService.PreviewEntryAsync(Browser.LoadedArchivePath, item.RelativePath);
+        }
+        catch (Exception ex)
+        {
+            StatusText = FormatStatus($"Preview failed: {ex.Message}");
+        }
     }
 
     private void OnBrowserSelectedItemsCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
@@ -248,6 +278,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand]
     public void CloseArchive()
     {
+        _ = _previewService.CleanupAsync();
         HasOpenArchive = false;
         UnwireBrowser(Browser);
         Browser = new ArchiveBrowserViewModel();
@@ -719,6 +750,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand]
     public void ExitApplication()
     {
+        _ = _previewService.CleanupAsync();
         RequestExit?.Invoke();
     }
 
