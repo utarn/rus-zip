@@ -97,6 +97,7 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     public event Func<Task>? AppendRequested;
     public event Func<IReadOnlyList<ArchiveItemViewModel>, Task>? DeleteRequested;
     public event Func<string, Task>? CopyPathRequested;
+    public event Func<ArchiveItemViewModel, Task>? PreviewItemRequested;
 
     public Func<int, IReadOnlyList<string>, Task<bool>>? ConfirmDeleteAsync { get; set; }
     public Func<string, Task>? CopyToClipboardService { get; set; }
@@ -377,6 +378,32 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         else if (target.Count == 0 && ExtractRequested != null)
         {
             await ExtractRequested.Invoke();
+        }
+    }
+
+    [RelayCommand]
+    public async Task PreviewFileAsync(object? parameter = null)
+    {
+        var target = parameter as ArchiveItemViewModel ?? SelectedItem;
+        if (target != null && !target.IsDirectory && PreviewItemRequested != null)
+        {
+            await PreviewItemRequested.Invoke(target);
+        }
+    }
+
+    [RelayCommand]
+    public async Task ActivateItemAsync(object? parameter = null)
+    {
+        var target = parameter as ArchiveItemViewModel ?? SelectedItem;
+        if (target == null) return;
+
+        if (target.IsDirectory)
+        {
+            target.IsExpanded = !target.IsExpanded;
+        }
+        else
+        {
+            await PreviewFileAsync(target);
         }
     }
 
