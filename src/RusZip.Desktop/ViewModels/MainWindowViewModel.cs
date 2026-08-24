@@ -1,10 +1,10 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RusZip.Core.Abstractions;
 using RusZip.Core.Models;
 using RusZip.Desktop.Models;
-
 using RusZip.Desktop.Services;
 
 namespace RusZip.Desktop.ViewModels;
@@ -13,6 +13,7 @@ public partial class MainWindowViewModel : ObservableObject
 {
     private readonly IArchiveEngine _engine;
     private readonly IFileAssociationService _associationService;
+    private readonly IRecentArchivesService _recentArchivesService;
 
     public static IReadOnlyCollection<string> SupportedExtensions => ArchiveFormatRegistry.SupportedExtensions;
 
@@ -28,6 +29,10 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _isDragOver;
     [ObservableProperty] private string _statusText = "Ready";
     [ObservableProperty] private ThemeMode _currentTheme = ThemeMode.System;
+
+    public ObservableCollection<RecentArchiveItemViewModel> RecentArchives { get; } = [];
+    public bool HasRecentArchives => RecentArchives.Count > 0;
+    public IRecentArchivesService RecentArchivesService => _recentArchivesService;
 
     public bool IsDarkTheme => CurrentTheme == ThemeMode.Dark;
     public bool IsLightTheme => CurrentTheme == ThemeMode.Light;
@@ -97,20 +102,45 @@ public partial class MainWindowViewModel : ObservableObject
     private static string FormatStatus(string message) => EntryNameSanitizer.SingleLine(message);
 
     public MainWindowViewModel(IArchiveEngine engine)
-        : this(engine, FileAssociationServiceFactory.CreateDefault())
+        : this(engine, FileAssociationServiceFactory.CreateDefault(), new JsonRecentArchivesService())
     {
     }
 
     public MainWindowViewModel(IArchiveEngine engine, IFileAssociationService associationService)
+        : this(engine, associationService, new JsonRecentArchivesService())
+    {
+    }
+
+    public MainWindowViewModel(IArchiveEngine engine, IFileAssociationService associationService, IRecentArchivesService recentArchivesService)
     {
         _engine = engine;
         _associationService = associationService;
+        _recentArchivesService = recentArchivesService;
         _settingsViewModel = new SettingsViewModel(associationService);
         _browser = new ArchiveBrowserViewModel();
         _settings = new CompressionSettingsViewModel();
         _progress = new OperationProgressViewModel();
 
         WireBrowser(_browser);
+
+        _recentArchivesService.RecentPathsChanged += (_, _) => SyncRecentArchives();
+        SyncRecentArchives();
+    }
+
+    public async Task InitializeRecentArchivesAsync()
+    {
+        await _recentArchivesService.LoadAsync();
+        SyncRecentArchives();
+    }
+
+    public void SyncRecentArchives()
+    {
+        RecentArchives.Clear();
+        foreach (var path in _recentArchivesService.RecentPaths)
+        {
+            RecentArchives.Add(new RecentArchiveItemViewModel(path, OpenRecentArchiveCommand, RemoveRecentArchiveCommand));
+        }
+        OnPropertyChanged(nameof(HasRecentArchives));
     }
 
     private void WireBrowser(ArchiveBrowserViewModel browser)
@@ -239,11 +269,41 @@ public partial class MainWindowViewModel : ObservableObject
             IsCompressDialogVisible = false;
             StatusText = FormatStatus($"Loaded {entries.Count} entries from {Path.GetFileName(archivePath)}");
             OnBrowserSelectionChanged();
+            await _recentArchivesService.AddRecentPathAsync(archivePath);
         }
         catch (Exception ex)
         {
             StatusText = FormatStatus($"Failed to open archive: {ex.Message}");
         }
+    }
+
+    [RelayCommand]
+    public async Task OpenRecentArchiveAsync(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+
+        if (!File.Exists(path))
+        {
+            StatusText = FormatStatus($"Recent archive not found: {Path.GetFileName(path)}. Removed from recent history.");
+            await _recentArchivesService.RemoveRecentPathAsync(path);
+            return;
+        }
+
+        await OpenArchiveAsync(path);
+    }
+
+    [RelayCommand]
+    public async Task RemoveRecentArchiveAsync(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        await _recentArchivesService.RemoveRecentPathAsync(path);
+    }
+
+    [RelayCommand]
+    public async Task ClearRecentArchivesAsync()
+    {
+        await _recentArchivesService.ClearRecentPathsAsync();
+        StatusText = FormatStatus("Recent archives history cleared.");
     }
 
     public async Task RefreshArchiveAsync()
