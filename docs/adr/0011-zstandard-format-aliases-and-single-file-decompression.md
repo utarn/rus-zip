@@ -9,7 +9,7 @@ While `rus-zip` uses `.zrus` as its primary Tar+Zstd format, users frequently en
 
 ## Decision
 1. **Tar+Zstandard Aliases (`.zrus`, `.tar.zstd`, `.tzstd`)**:
-   - Update `ArchiveFormatRegistry.Zrus` in [`src/RusZip.Core/Models/ArchiveFormatRegistry.cs`](file:///Users/utarn/projects/rus-zip/src/RusZip.Core/Models/ArchiveFormatRegistry.cs):
+   - Update `ArchiveFormatRegistry.Zrus` in [`src/RusZip.Core/Models/ArchiveFormatRegistry.cs`](../../src/RusZip.Core/Models/ArchiveFormatRegistry.cs):
      ```csharp
      public static readonly ArchiveFormatDescriptor Zrus = new(
          Format: ArchiveFormat.Zrus,
@@ -25,11 +25,11 @@ While `rus-zip` uses `.zrus` as its primary Tar+Zstd format, users frequently en
          CategoryDescription: "High-performance POSIX Tar with Zstandard streaming compression"
      );
      ```
-   - Extraction, listing, and appending are handled by [`ZstdTarArchiveEngine`](file:///Users/utarn/projects/rus-zip/src/RusZip.Core/Engines/ZstdTarArchiveEngine.cs).
+   - Extraction, listing, and appending are handled by [`ZstdTarArchiveEngine`](../../src/RusZip.Core/Engines/ZstdTarArchiveEngine.cs).
    - Compound extension stripping detects `.tar.zstd` to extract `name.tar.zstd` into directory `name/` rather than `name.tar/`.
 
 2. **Single-File Zstandard Stream (`.zst`)**:
-   - Add `ArchiveFormat.Zst` to [`src/RusZip.Core/Models/ArchiveFormat.cs`](file:///Users/utarn/projects/rus-zip/src/RusZip.Core/Models/ArchiveFormat.cs) and register descriptor in [`ArchiveFormatRegistry.cs`](file:///Users/utarn/projects/rus-zip/src/RusZip.Core/Models/ArchiveFormatRegistry.cs):
+   - Add `ArchiveFormat.Zst` to [`src/RusZip.Core/Models/ArchiveFormat.cs`](../../src/RusZip.Core/Models/ArchiveFormat.cs) and register descriptor in [`ArchiveFormatRegistry.cs`](../../src/RusZip.Core/Models/ArchiveFormatRegistry.cs):
      ```csharp
      public static readonly ArchiveFormatDescriptor Zst = new(
          Format: ArchiveFormat.Zst,
@@ -45,7 +45,7 @@ While `rus-zip` uses `.zrus` as its primary Tar+Zstd format, users frequently en
          CategoryDescription: "Single file Zstandard compressed stream"
      );
      ```
-   - Extraction decompresses the stream directly without a Tar container (analogous to `.gz` in [`SharpCompressArchiveEngine.cs`](file:///Users/utarn/projects/rus-zip/src/RusZip.Core/Engines/SharpCompressArchiveEngine.cs) or [`ZstdTarArchiveEngine.cs`](file:///Users/utarn/projects/rus-zip/src/RusZip.Core/Engines/ZstdTarArchiveEngine.cs)):
+   - Extraction decompresses the stream directly without a Tar container (analogous to `.gz` in [`SharpCompressArchiveEngine.cs`](../../src/RusZip.Core/Engines/SharpCompressArchiveEngine.cs) or [`ZstdTarArchiveEngine.cs`](../../src/RusZip.Core/Engines/ZstdTarArchiveEngine.cs)):
      ```csharp
      private sealed class ZstSingleFileExtractionSource(string archivePath, IReadOnlyList<string>? entryFilter) : IArchiveExtractionSource
      {
@@ -79,11 +79,11 @@ While `rus-zip` uses `.zrus` as its primary Tar+Zstd format, users frequently en
    - CLI compression of `.zst` validates that exactly one source file (not directory) is provided.
 
 3. **GUI vs CLI Compression Scope**:
-   - In [`src/RusZip.Desktop/ViewModels/CompressionSettingsViewModel.cs`](file:///Users/utarn/projects/rus-zip/src/RusZip.Desktop/ViewModels/CompressionSettingsViewModel.cs), the selectable formats dropdown is explicitly restricted to `[".zrus", ".zip"]`.
-   - In [`src/RusZip.Cli/Commands/CompressCommand.cs`](file:///Users/utarn/projects/rus-zip/src/RusZip.Cli/Commands/CompressCommand.cs), the user may pass any registered extension (`.zrus`, `.tar.zstd`, `.tzstd`, `.zip`, `.zst`). Unregistered extensions produce a validation error.
+   - In [`src/RusZip.Desktop/ViewModels/CompressionSettingsViewModel.cs`](../../src/RusZip.Desktop/ViewModels/CompressionSettingsViewModel.cs), the selectable formats dropdown is explicitly restricted to `[".zrus", ".zip"]`.
+   - In [`src/RusZip.Cli/Commands/CompressCommand.cs`](../../src/RusZip.Cli/Commands/CompressCommand.cs), the user may pass any registered extension (`.zrus`, `.tar.zstd`, `.tzstd`, `.zip`, `.zst`). Unregistered extensions produce a validation error.
 
 4. **Desktop File Associations & Open File Dialogs**:
-   - Update file picker filters in [`src/RusZip.Desktop/Views/MainWindow.axaml.cs`](file:///Users/utarn/projects/rus-zip/src/RusZip.Desktop/Views/MainWindow.axaml.cs) to include `*.tar.zstd`, `*.tzstd`, `*.zst`.
+   - Update file picker filters in [`src/RusZip.Desktop/Views/MainWindow.axaml.cs`](../../src/RusZip.Desktop/Views/MainWindow.axaml.cs) to include `*.tar.zstd`, `*.tzstd`, `*.zst`.
 
 ## Consequences
 - Full compatibility with broader Zstandard ecosystems (`.tar.zstd`, `.tzstd`, `.zst`) across Windows, macOS, and Linux.

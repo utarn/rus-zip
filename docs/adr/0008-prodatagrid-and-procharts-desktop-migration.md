@@ -34,19 +34,35 @@ We decided to migrate the desktop archive viewer from `Avalonia.Controls.TreeDat
 
 ```csharp
 // Telemetry Series in OperationProgressViewModel.cs
-public ObservableCollection<ThroughputPoint> ThroughputHistory { get; } = [];
+public ChartModel ThroughputChartModel { get; }
+private readonly ThroughputSeriesBuffer _throughputSeries = new(TimeSpan.FromSeconds(60), maxCapacity: 600);
+
+public OperationProgressViewModel(TimeSpan? throughputSampleInterval = null)
+{
+    _throughputSeries = new ThroughputSeriesBuffer(TimeSpan.FromSeconds(60), maxCapacity: 600);
+    _throughputSampleInterval = throughputSampleInterval ?? TimeSpan.FromMilliseconds(250);
+
+    ThroughputChartModel = new ChartModel
+    {
+        DataSource = new ThroughputChartDataSource(_throughputSeries)
+    };
+    ThroughputChartModel.Legend.IsVisible = false;
+    ThroughputChartModel.CategoryAxis.Title = "Time";
+    ThroughputChartModel.ValueAxis.Title = "MB/s";
+    ThroughputChartModel.ValueAxis.Minimum = 0;
+    ThroughputChartModel.ValueAxis.LabelFormatter = value => $"{value:0.#}";
+}
 
 public void ReportProgress(ProgressReport report)
 {
     _throughputTracker.Update(report.ProcessedBytes, report.TotalBytes);
+    BytesProgressFormatted = _throughputTracker.FormatProgress(report.TotalBytes);
+    TryAddThroughputSample();
+
     if (_throughputTracker.SmoothedSpeedBytesPerSec > 0)
     {
-        double speedMbps = _throughputTracker.SmoothedSpeedBytesPerSec / (1024.0 * 1024.0);
-        ThroughputHistory.Add(new ThroughputPoint(DateTime.UtcNow, speedMbps));
-        while (ThroughputHistory.Count > 60)
-        {
-            ThroughputHistory.RemoveAt(0);
-        }
+        SpeedFormatted = _throughputTracker.FormatSpeed();
+        EtaFormatted = _throughputTracker.FormatEta(report.TotalBytes);
     }
 }
 ```

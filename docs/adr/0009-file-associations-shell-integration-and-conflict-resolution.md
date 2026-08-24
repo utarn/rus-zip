@@ -26,11 +26,11 @@ namespace RusZip.Core.Abstractions;
 
 public enum FileConflictResolution
 {
-    Overwrite,
-    OverwriteAll,
-    Skip,
-    SkipAll,
-    Abort
+    Abort = 0,
+    Overwrite = 1,
+    OverwriteAll = 2,
+    Skip = 3,
+    SkipAll = 4
 }
 
 public sealed record FileConflictContext(

@@ -73,10 +73,12 @@ public interface IRecentArchivesService
 ```csharp
 namespace RusZip.Desktop.Services;
 
-public interface IArchivePreviewService : IAsyncDisposable
+public interface IArchivePreviewService : IAsyncDisposable, IDisposable
 {
-    Task<bool> PreviewEntryAsync(string archivePath, ArchiveItemViewModel item, CancellationToken cancellationToken = default);
-    Task CleanupSessionAsync();
+    Task<string> ExtractPreviewAsync(string archivePath, string relativeEntryPath, CancellationToken ct = default);
+    Task PreviewEntryAsync(string archivePath, string relativeEntryPath, CancellationToken ct = default);
+    Task CleanupAsync();
+    IReadOnlyCollection<string> ActivePreviewDirectories { get; }
 }
 ```
 
@@ -85,12 +87,13 @@ public interface IArchivePreviewService : IAsyncDisposable
 namespace RusZip.Core.Models;
 
 public sealed record ArchiveTestResult(
-    bool Success,
+    bool IsSuccess,
     string ArchivePath,
+    string Format,
     int TotalEntries,
-    int CorruptedEntriesCount,
     long UncompressedBytes,
-    long ElapsedMilliseconds,
+    double ThroughputMBps,
+    TimeSpan Duration,
     IReadOnlyList<string> Errors
 );
 
