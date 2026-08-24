@@ -162,6 +162,12 @@ public partial class MainWindow : Window
                 await dialog.ShowDialog(this);
             };
 
+            vm.RequestShowAboutDialog = async (aboutVm) =>
+            {
+                var dialog = new AboutDialog(aboutVm);
+                await dialog.ShowDialog(this);
+            };
+
             vm.RequestExit = () =>
             {
                 Close();
