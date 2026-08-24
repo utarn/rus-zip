@@ -1,5 +1,9 @@
 # 0013: Desktop Menu, Navigation, and Interface Architecture
 
+## Status
+
+Accepted (Toolbar, macOS menu row, and display naming superseded by [ADR 0017](0017-compact-toolbar-macos-chrome-alignment-and-display-naming.md))
+
 We decided to implement a full cross-platform application menu bar, a persistent Recent Archives (MRU) manager with empty-state quick-launch cards, standard desktop keyboard accelerators, a sandboxed entry preview pipeline, a non-materializing archive integrity testing engine, an archive/entry properties inspector, and a 3-segment status bar.
 
 ## Context
@@ -21,8 +25,8 @@ Previously, the `rus-zip` desktop application featured only a flat horizontal to
      - **`View`**: Refresh / Reload (`F5`), Expand All (`Ctrl+Shift+E`), Collapse All, Filter Focus (`Ctrl+F`).
      - **`Archive`**: Add Files / Append... (`Ctrl+Shift+A`), Extract All (`Ctrl+E`), Extract Selected..., Test Archive Integrity (`Ctrl+T`), Archive Properties (`Alt+Enter`).
      - **`Tools`**: Settings (`Ctrl+,`), Theme Switcher, Set File Associations.
-     - **`Help`**: Documentation, Supported Formats Matrix, About rus-zip (`F1`).
-   - On **macOS**, seamlessly map top-level menus to `NativeMenu` to match Apple Human Interface Guidelines. On **Windows & Linux**, render the themed in-window menu bar below the custom title bar.
+     - **`Help`**: Documentation, Supported Formats Matrix, About RUS ZIP (`F1`).
+   - On **macOS**, map top-level menus exclusively to screen-top `NativeMenu` (the in-window menu row is hidden on macOS to follow macOS Human Interface Guidelines and avoid duplicate menus; see ADR 0017). On **Windows & Linux**, render the themed in-window menu bar below the custom title bar.
 
 2. **Recent Archives History (MRU) Subsystem**:
    - Create `IRecentArchivesService` in `RusZip.Desktop.Services` storing up to 10 recent archive paths in `~/.config/rus-zip/recent-archives.json` (Linux/macOS) or `%APPDATA%\rus-zip\recent-archives.json` (Windows).

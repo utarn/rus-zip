@@ -217,7 +217,7 @@ Re-running the same version is a no-op; a new version keeps a single backup (`ru
 ## Architecture & Documentation
 
 - **[`CONTEXT.md`](CONTEXT.md)** — the project glossary and ubiquitous language (rus-zip, `.zrus`, Core Engine, Archive Format Registry, Safe Archive Extractor, Data Metrics Formatter & Throughput Tracker, Archive Hierarchy, CLI Command Runner, Supported Formats, Extraction Guardrails).
-- **[`docs/adr/`](docs/adr/)** — Architecture Decision Records for the `.zrus` format, the four-project solution, the unified engine abstraction, the safe extraction pipeline, the format registry, headless hierarchy/metrics, and extraction guardrails.
+- **[`docs/adr/`](docs/adr/)** — Architecture Decision Records for the `.zrus` format, four-project solution, unified engine, safe extraction, format registry, extraction guardrails, file associations, desktop menu navigation, compact toolbar, macOS chrome alignment, and display naming.
 - **[`docs/RUSZIP_ARCHITECTURE_SPEC.md`](docs/RUSZIP_ARCHITECTURE_SPEC.md)** — the deepened architecture specification for the core modules.
 
 ## Building from Source

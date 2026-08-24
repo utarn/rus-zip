@@ -33,14 +33,18 @@ This specification outlines the modernization of the `rus-zip` Avalonia 11 deskt
 ### 2.1 Window Chrome & Layout Architecture
 - **Window Configuration (`MainWindow.axaml`)**:
   - `ExtendClientAreaToDecorationsHint="True"`
-  - `ExtendClientAreaTitleBarHeightHint="46"`
+  - `ExtendClientAreaTitleBarHeightHint="36"`
   - `ExtendClientAreaChromeHints="PreferSystemChrome"`
   - `TransparencyLevelHint="Mica, AcrylicBlur, Blur"`
   - `Background="Transparent"`
+  - `Icon="avares://RusZip.Desktop/Assets/rus-zip.ico"`
+- **Compact Icon-Only Toolbar & Overflow**:
+  - Title-bar toolbar is a compact ~36px strip of icon-only buttons with tooltips (New Archive, Open Archive, Extract All, Add to Archive, Delete Selected, Close, Settings, Theme Switcher).
+  - Trailing buttons collapse into an overflow (⋯) menu flyout in narrow windows (< 780px).
 - **macOS vs Windows Title Bar Handling**:
   - Platform detection in `MainWindow.axaml.cs` (`OperatingSystem.IsMacOS()` vs `OperatingSystem.IsWindows()`):
-    - On macOS: Left titlebar margin is offset by 76px to prevent overlapping standard macOS window traffic lights.
-    - On Windows: Drag region allows window dragging while leaving interactive buttons clickable.
+    - On macOS: Left titlebar margin is offset by 76px to prevent overlapping standard macOS window traffic lights. The in-window application menu bar is hidden (`IsVisible = false`), using screen-top `NativeMenu` exclusively.
+    - On Windows/Linux: Themed in-window menu bar renders below the title bar. Drag region allows window dragging while leaving interactive buttons clickable.
 - **Theme Variant Management (`App.axaml.cs` & `MainWindowViewModel.cs`)**:
   - `MainWindowViewModel` exposes `CurrentTheme` property (`System`, `Dark`, `Light`) and `ToggleThemeCommand`.
   - `App.SetTheme(ThemeVariant)` dynamically changes `Application.Current.RequestedThemeVariant`.
@@ -137,9 +141,11 @@ Targeting **macOS (`osx-arm64`)** and **Windows (`win-x64`)**:
       └── Resources/
   ```
 - Generates `Info.plist` with:
+  - `CFBundleExecutable`: `RusZip`
+  - `CFBundleIconFile`: `RusZip.icns`
   - `CFBundleIdentifier`: `com.ruszip.desktop`
-  - `CFBundleName`: `RusZip`
-  - `CFBundleDisplayName`: `rus-zip`
+  - `CFBundleName`: `RUS ZIP`
+  - `CFBundleDisplayName`: `RUS ZIP`
   - `CFBundleVersion`: `1.0.0`
   - `CFBundlePackageType`: `APPL`
   - `NSHighResolutionCapable`: `true`
