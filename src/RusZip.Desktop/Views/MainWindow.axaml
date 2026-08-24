@@ -221,9 +221,17 @@
                 <MenuItem Header="_File">
                     <MenuItem Header="_New Archive..." Command="{Binding CreateArchiveCommand}" InputGesture="Ctrl+N" />
                     <MenuItem Header="_Open Archive..." Command="{Binding OpenArchivePickerCommand}" InputGesture="Ctrl+O" />
-                    <MenuItem Header="_Recent Archives" IsEnabled="False">
-                        <MenuItem Header="(No Recent Archives)" IsEnabled="False" />
+                    <MenuItem Header="_Recent Archives" ItemsSource="{Binding RecentArchives}" IsEnabled="{Binding HasRecentArchives}">
+                        <MenuItem.Styles>
+                            <Style Selector="MenuItem > MenuItem" x:DataType="vm:RecentArchiveItemViewModel">
+                                <Setter Property="Header" Value="{Binding FileName}" />
+                                <Setter Property="Command" Value="{Binding OpenCommand}" />
+                                <Setter Property="CommandParameter" Value="{Binding FullPath}" />
+                                <Setter Property="ToolTip.Tip" Value="{Binding FullPath}" />
+                            </Style>
+                        </MenuItem.Styles>
                     </MenuItem>
+                    <MenuItem Header="Clear Recent Archives" Command="{Binding ClearRecentArchivesCommand}" IsEnabled="{Binding HasRecentArchives}" />
                     <Separator />
                     <MenuItem Header="_Close Archive" Command="{Binding CloseArchiveCommand}" IsEnabled="{Binding HasOpenArchive}" InputGesture="Ctrl+W" />
                     <Separator />
@@ -356,6 +364,46 @@
                                         <TextBlock Text="Create Archive" FontWeight="SemiBold" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </Button>
+                            </StackPanel>
+
+                            <!-- Recent Archives Quick Launch Section -->
+                            <StackPanel IsVisible="{Binding HasRecentArchives}" Spacing="10" Margin="0,12,0,0">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Text="Recent Archives" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource TextFillColorSecondary}" VerticalAlignment="Center" />
+                                    <Button Grid.Column="1" Command="{Binding ClearRecentArchivesCommand}" Background="Transparent" BorderThickness="0" Padding="4,2">
+                                        <TextBlock Text="Clear" FontSize="11" Foreground="{DynamicResource SystemAccentColor}" />
+                                    </Button>
+                                </Grid>
+                                <ScrollViewer MaxHeight="160" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl ItemsSource="{Binding RecentArchives}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="vm:RecentArchiveItemViewModel">
+                                                <Border Margin="0,3" Padding="8,6" CornerRadius="8"
+                                                        Background="{DynamicResource CardBackgroundFillColorSecondary}"
+                                                        BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
+                                                        BorderThickness="1">
+                                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                                        <Border Grid.Column="0" CornerRadius="4" Padding="5,2" Margin="0,0,8,0"
+                                                                Background="{DynamicResource SystemAccentColor}" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding ExtensionBadge}" FontSize="9" FontWeight="Bold" Foreground="White" />
+                                                        </Border>
+                                                        <Button Grid.Column="1" Command="{Binding OpenCommand}" CommandParameter="{Binding FullPath}"
+                                                                Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                                                            <StackPanel Spacing="1">
+                                                                <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock Text="{Binding DirectoryName}" FontSize="10" Foreground="{DynamicResource TextFillColorTertiary}" TextTrimming="CharacterEllipsis" />
+                                                            </StackPanel>
+                                                        </Button>
+                                                        <Button Grid.Column="2" Command="{Binding RemoveCommand}" CommandParameter="{Binding FullPath}"
+                                                                Background="Transparent" BorderThickness="0" Padding="4" ToolTip.Tip="Remove from recent history">
+                                                            <PathIcon Data="{StaticResource Icon.Close}" Width="10" Height="10" Opacity="0.6" />
+                                                        </Button>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
                             </StackPanel>
                         </StackPanel>
                     </Grid>

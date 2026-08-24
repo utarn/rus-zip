@@ -16,7 +16,14 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         ApplyPlatformWindowChrome();
-        Loaded += (_, _) => ApplyPlatformWindowChrome();
+        Loaded += async (_, _) =>
+        {
+            ApplyPlatformWindowChrome();
+            if (DataContext is MainWindowViewModel vm)
+            {
+                await vm.InitializeRecentArchivesAsync();
+            }
+        };
 
         DragDrop.SetAllowDrop(this, true);
         AddHandler(DragDrop.DragEnterEvent, OnDragEnter);
