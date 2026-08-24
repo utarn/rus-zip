@@ -3,7 +3,7 @@
         xmlns:vm="using:RusZip.Desktop.ViewModels"
         x:Class="RusZip.Desktop.Views.FileAssociationPromptDialog"
         x:DataType="vm:FileAssociationPromptViewModel"
-        Title="Default Archive Application - rus-zip"
+        Title="Default Archive Application - RUS ZIP"
         Width="540" Height="460"
         MinWidth="480" MinHeight="400"
         WindowStartupLocation="CenterOwner"
@@ -24,7 +24,7 @@
                 <PathIcon Data="{StaticResource Icon.FileArchive}"
                           Width="18" Height="18"
                           Foreground="{DynamicResource SystemAccentColor}" />
-                <TextBlock Text="Set rus-zip as Default Archive App"
+                <TextBlock Text="Set RUS ZIP as Default Archive App"
                            FontWeight="SemiBold"
                            FontSize="14"
                            VerticalAlignment="Center" />
@@ -34,7 +34,7 @@
         <!-- Main Content -->
         <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*" Margin="20,16">
             <TextBlock Grid.Row="0"
-                       Text="rus-zip is not the default application for some supported archive formats. Select the formats you would like to open with rus-zip by default:"
+                       Text="RUS ZIP is not the default application for some supported archive formats. Select the formats you would like to open with RUS ZIP by default:"
                        TextWrapping="Wrap"
                        FontSize="13"
                        Foreground="{DynamicResource TextFillColorSecondary}"

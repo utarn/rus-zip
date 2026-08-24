@@ -3,7 +3,7 @@
         xmlns:vm="using:RusZip.Desktop.ViewModels"
         x:Class="RusZip.Desktop.Views.FileConflictDialog"
         x:DataType="vm:FileConflictViewModel"
-        Title="File Conflict - rus-zip"
+        Title="File Conflict - RUS ZIP"
         Width="540" Height="380"
         MinWidth="500" MinHeight="340"
         WindowStartupLocation="CenterOwner"

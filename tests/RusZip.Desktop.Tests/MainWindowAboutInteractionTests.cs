@@ -44,8 +44,8 @@ public sealed class MainWindowAboutInteractionTests : IDisposable
         await vm.ShowAboutCommand.ExecuteAsync(null);
 
         Assert.NotNull(capturedVm);
-        Assert.Equal("rus-zip", capturedVm.AppName);
-        Assert.Contains("About rus-zip opened", vm.StatusText);
+        Assert.Equal("RUS ZIP", capturedVm.AppName);
+        Assert.Contains("About RUS ZIP opened", vm.StatusText);
     }
 
     [AvaloniaFact]

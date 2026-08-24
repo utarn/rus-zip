@@ -3,7 +3,7 @@
         xmlns:vm="using:RusZip.Desktop.ViewModels"
         x:Class="RusZip.Desktop.Views.ArchiveTestResultDialog"
         x:DataType="vm:ArchiveTestResultViewModel"
-        Title="Archive Integrity Test - rus-zip"
+        Title="Archive Integrity Test - RUS ZIP"
         Width="520" Height="420"
         MinWidth="460" MinHeight="340"
         WindowStartupLocation="CenterOwner"

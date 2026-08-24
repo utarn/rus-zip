@@ -4,7 +4,7 @@
         xmlns:views="using:RusZip.Desktop.Views"
         x:Class="RusZip.Desktop.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="rus-zip - Compression Suite"
+        Title="RUS ZIP - Compression Suite"
         Width="900" Height="600"
         MinWidth="700" MinHeight="450"
         ExtendClientAreaToDecorationsHint="True"
@@ -86,7 +86,7 @@
                         <NativeMenuItem Header="Documentation" Command="{Binding OpenDocumentationCommand}" />
                         <NativeMenuItem Header="Supported Formats" Command="{Binding OpenSupportedFormatsCommand}" />
                         <NativeMenuItemSeparator />
-                        <NativeMenuItem Header="About rus-zip" Command="{Binding ShowAboutCommand}" Gesture="F1" />
+                        <NativeMenuItem Header="About RUS ZIP" Command="{Binding ShowAboutCommand}" Gesture="F1" />
                     </NativeMenu>
                 </NativeMenuItem.Menu>
             </NativeMenuItem>
@@ -271,7 +271,7 @@
                     <MenuItem Header="_Documentation" Command="{Binding OpenDocumentationCommand}" />
                     <MenuItem Header="_Supported Formats" Command="{Binding OpenSupportedFormatsCommand}" />
                     <Separator />
-                    <MenuItem Header="_About rus-zip" Command="{Binding ShowAboutCommand}" InputGesture="F1" />
+                    <MenuItem Header="_About RUS ZIP" Command="{Binding ShowAboutCommand}" InputGesture="F1" />
                 </MenuItem>
             </Menu>
         </Border>

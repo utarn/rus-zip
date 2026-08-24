@@ -1,3 +1,4 @@
+using RusZip.Desktop;
 using RusZip.Desktop.ViewModels;
 using Xunit;
 
@@ -10,7 +11,7 @@ public sealed class AboutViewModelTests
     {
         var vm = new AboutViewModel();
 
-        Assert.Equal("rus-zip", vm.AppName);
+        Assert.Equal("RUS ZIP", vm.AppName);
         Assert.False(string.IsNullOrEmpty(vm.Version));
         Assert.NotEmpty(vm.SupportedFormats);
 
@@ -40,7 +41,7 @@ public sealed class AboutViewModelTests
         var report = vm.GenerateDiagnosticsReport();
 
         Assert.NotNull(report);
-        Assert.Contains("rus-zip System Diagnostics", report);
+        Assert.Contains("RUS ZIP System Diagnostics", report);
         Assert.Contains("OS Description:", report);
         Assert.Contains("OS Architecture:", report);
         Assert.Contains("Process Architecture:", report);
@@ -66,7 +67,7 @@ public sealed class AboutViewModelTests
         await vm.CopyDiagnosticsCommand.ExecuteAsync(null);
 
         Assert.NotNull(copiedText);
-        Assert.Contains("rus-zip System Diagnostics", copiedText);
+        Assert.Contains("RUS ZIP System Diagnostics", copiedText);
         Assert.Contains("Copied", vm.DiagnosticsStatus);
     }
 

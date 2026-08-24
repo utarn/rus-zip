@@ -35,7 +35,7 @@ public class FileAssociationServiceTests : IDisposable
         await service.RegisterDefaultAssociationsAsync();
 
         // 1. Check Capabilities & RegisteredApplications
-        Assert.Equal("RusZip", registry.GetValue("HKEY_CURRENT_USER", @"Software\RusZip\Capabilities", "ApplicationName"));
+        Assert.Equal("RUS ZIP", registry.GetValue("HKEY_CURRENT_USER", @"Software\RusZip\Capabilities", "ApplicationName"));
         Assert.Equal(@"Software\RusZip\Capabilities", registry.GetValue("HKEY_CURRENT_USER", @"Software\RegisteredApplications", "RusZip"));
 
         // 2. Check each managed format
@@ -92,9 +92,9 @@ public class FileAssociationServiceTests : IDisposable
         var rar = after.First(a => a.Extension == ".rar");
 
         Assert.True(zrus.IsAssociated);
-        Assert.Equal("RusZip", zrus.CurrentHandler);
+        Assert.Equal("RUS ZIP", zrus.CurrentHandler);
         Assert.True(zip.IsAssociated);
-        Assert.Equal("RusZip", zip.CurrentHandler);
+        Assert.Equal("RUS ZIP", zip.CurrentHandler);
         Assert.False(rar.IsAssociated);
         Assert.False(await service.AreAllFormatsAssociatedAsync());
         Assert.True(await service.IsFormatAssociatedAsync(".zrus"));
@@ -197,7 +197,7 @@ public class FileAssociationServiceTests : IDisposable
 
         Assert.Contains("[Desktop Entry]", content);
         Assert.Contains("Type=Application", content);
-        Assert.Contains("Name=RusZip", content);
+        Assert.Contains("Name=RUS ZIP", content);
         Assert.Contains("Exec=/usr/bin/rus-zip %F", content);
         Assert.Contains("Icon=rus-zip", content);
         Assert.Contains("MimeType=application/zip;application/x-tar;application/gzip;application/x-7z-compressed;application/vnd.rar;application/x-zstd-tar;application/zstd;", content);
@@ -280,7 +280,7 @@ public class FileAssociationServiceTests : IDisposable
         Assert.False(zip.IsAssociated);
         Assert.Equal("org.gnome.FileRoller", zip.CurrentHandler);
         Assert.True(zrus.IsAssociated);
-        Assert.Equal("RusZip", zrus.CurrentHandler);
+        Assert.Equal("RUS ZIP", zrus.CurrentHandler);
     }
 
     [Fact]

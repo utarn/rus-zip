@@ -157,7 +157,7 @@ public class MainWindowMenuAndShortcutsTests
         Assert.Contains("Supported formats", vm.StatusText);
 
         vm.ShowAboutCommand.Execute(null);
-        Assert.Contains("rus-zip", vm.StatusText);
+        Assert.Contains("RUS ZIP", vm.StatusText);
 
         // Test archive state commands
         vm.HasOpenArchive = true;

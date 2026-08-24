@@ -58,12 +58,12 @@ public sealed class WindowsAssociationService : IFileAssociationService
             if (string.Equals(currentProgId, progId, StringComparison.OrdinalIgnoreCase))
             {
                 isAssociated = true;
-                currentHandler = "RusZip";
+                currentHandler = AppBranding.DisplayName;
             }
             else if (!string.IsNullOrEmpty(extractHereCmd) && extractHereCmd.Contains(_executablePath, StringComparison.OrdinalIgnoreCase))
             {
                 isAssociated = true;
-                currentHandler = "RusZip";
+                currentHandler = AppBranding.DisplayName;
             }
             else if (!string.IsNullOrEmpty(currentProgId))
             {
@@ -95,8 +95,8 @@ public sealed class WindowsAssociationService : IFileAssociationService
         var exeStr = $"\"{_executablePath}\"";
 
         // Register Capabilities and RegisteredApplications
-        _registry.SetValue("HKEY_CURRENT_USER", @"Software\RusZip\Capabilities", "ApplicationName", "RusZip");
-        _registry.SetValue("HKEY_CURRENT_USER", @"Software\RusZip\Capabilities", "ApplicationDescription", "rus-zip - High-Performance Cross-Platform Compression Suite");
+        _registry.SetValue("HKEY_CURRENT_USER", @"Software\RusZip\Capabilities", "ApplicationName", AppBranding.DisplayName);
+        _registry.SetValue("HKEY_CURRENT_USER", @"Software\RusZip\Capabilities", "ApplicationDescription", $"{AppBranding.DisplayName} - High-Performance Cross-Platform Compression Suite");
         _registry.SetValue("HKEY_CURRENT_USER", @"Software\RegisteredApplications", "RusZip", @"Software\RusZip\Capabilities");
 
         foreach (var ext in extensions)
@@ -107,7 +107,7 @@ public sealed class WindowsAssociationService : IFileAssociationService
             var displayName = descriptor?.DisplayName ?? $"{normalizedExt.ToUpperInvariant()} Archive ({normalizedExt})";
 
             // 1. ProgID key
-            _registry.SetValue("HKEY_CURRENT_USER", $@"Software\Classes\{progId}", null, $"RusZip {displayName}");
+            _registry.SetValue("HKEY_CURRENT_USER", $@"Software\Classes\{progId}", null, $"{AppBranding.DisplayName} {displayName}");
             _registry.SetValue("HKEY_CURRENT_USER", $@"Software\Classes\{progId}\DefaultIcon", null, $"{exeStr},0");
             _registry.SetValue("HKEY_CURRENT_USER", $@"Software\Classes\{progId}\shell\open\command", null, $"{exeStr} \"%1\"");
 

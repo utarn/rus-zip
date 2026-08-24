@@ -213,9 +213,9 @@ if [[ "$RID" == osx* ]]; then
     <key>CFBundleIdentifier</key>
     <string>com.ruszip.desktop</string>
     <key>CFBundleName</key>
-    <string>RusZip</string>
+    <string>RUS ZIP</string>
     <key>CFBundleDisplayName</key>
-    <string>rus-zip</string>
+    <string>RUS ZIP</string>
     <key>CFBundleVersion</key>
     <string>1.0.0</string>
     <key>CFBundleShortVersionString</key>

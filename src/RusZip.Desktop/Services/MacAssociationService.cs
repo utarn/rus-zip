@@ -64,7 +64,7 @@ public sealed class MacAssociationService : IFileAssociationService
         foreach (var ext in exts)
         {
             var isDetected = ArchiveFormatRegistry.TryDetect(ext, out var desc);
-            var name = desc?.DisplayName ?? $"{ext} Archive";
+            var name = desc != null ? $"{AppBranding.DisplayName} {desc.DisplayName}" : $"{AppBranding.DisplayName} {ext} Archive";
             var uti = ExtensionToUti.GetValueOrDefault(ext, "public.data");
             var cleanExt = ext.TrimStart('.');
 
@@ -108,7 +108,7 @@ public sealed class MacAssociationService : IFileAssociationService
                 if (handler.Equals(_bundleIdentifier, StringComparison.OrdinalIgnoreCase))
                 {
                     isAssociated = true;
-                    currentHandler = "RusZip";
+                    currentHandler = AppBranding.DisplayName;
                 }
                 else
                 {

@@ -11,7 +11,7 @@ public class SettingsViewModelTests
     {
         public List<FileAssociationInfo> AssociationsToReturn { get; set; } =
         [
-            new FileAssociationInfo(".zrus", "Zstandard TAR Archive (.zrus)", true, "RusZip"),
+            new FileAssociationInfo(".zrus", "Zstandard TAR Archive (.zrus)", true, "RUS ZIP"),
             new FileAssociationInfo(".zip", "Standard Zip Archive (.zip)", false),
             new FileAssociationInfo(".7z", "7-Zip Archive (.7z)", false, "7-Zip")
         ];
@@ -37,7 +37,7 @@ public class SettingsViewModelTests
                 var idx = AssociationsToReturn.FindIndex(a => a.Extension == ext);
                 if (idx >= 0)
                 {
-                    AssociationsToReturn[idx] = AssociationsToReturn[idx] with { IsAssociated = true, CurrentHandler = "RusZip" };
+                    AssociationsToReturn[idx] = AssociationsToReturn[idx] with { IsAssociated = true, CurrentHandler = "RUS ZIP" };
                 }
             }
             return Task.CompletedTask;
@@ -194,10 +194,10 @@ public class SettingsViewModelTests
     {
         var allTenExtensions = new List<FileAssociationInfo>
         {
-            new(".zrus", "Zstandard TAR Archive (.zrus)", true, "RusZip"),
-            new(".tar.zstd", "Zstandard TAR Archive (.tar.zstd)", true, "RusZip"),
-            new(".tzstd", "Zstandard TAR Archive (.tzstd)", true, "RusZip"),
-            new(".zst", "Zstandard Compressed File (.zst)", true, "RusZip"),
+            new(".zrus", "Zstandard TAR Archive (.zrus)", true, "RUS ZIP"),
+            new(".tar.zstd", "Zstandard TAR Archive (.tar.zstd)", true, "RUS ZIP"),
+            new(".tzstd", "Zstandard TAR Archive (.tzstd)", true, "RUS ZIP"),
+            new(".zst", "Zstandard Compressed File (.zst)", true, "RUS ZIP"),
             new(".zip", "Zip Archive (.zip)", false),
             new(".tar.gz", "Gzip Tarball (.tar.gz)", false),
             new(".tgz", "Gzip Tarball (.tgz)", false),

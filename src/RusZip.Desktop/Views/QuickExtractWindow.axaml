@@ -3,7 +3,7 @@
         xmlns:vm="using:RusZip.Desktop.ViewModels"
         x:Class="RusZip.Desktop.Views.QuickExtractWindow"
         x:DataType="vm:QuickExtractViewModel"
-        Title="rus-zip - Quick Extract"
+        Title="Quick Extract - RUS ZIP"
         Width="520" Height="320"
         MinWidth="480" MinHeight="280"
         WindowStartupLocation="CenterScreen"

@@ -23,10 +23,10 @@ public sealed record FormatCapabilityItemViewModel(
 
 public sealed partial class AboutViewModel : ObservableObject
 {
-    public string AppName => "rus-zip";
+    public string AppName => AppBranding.DisplayName;
     public string Version { get; }
     public string BuildInfo { get; }
-    public string LicenseSummary => "MIT License • Copyright (c) 2026 rus-zip Contributors";
+    public string LicenseSummary => $"MIT License • Copyright (c) 2026 {AppBranding.DisplayName} Contributors";
     public string Description => "A high-performance modern compression suite with atomic multi-source archiving, streaming integrity verification, and cross-platform desktop interface.";
 
     [ObservableProperty] private string _diagnosticsStatus = "Copy System Diagnostics";
@@ -123,7 +123,7 @@ public sealed partial class AboutViewModel : ObservableObject
     public string GenerateDiagnosticsReport()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("=== rus-zip System Diagnostics ===");
+        sb.AppendLine($"=== {AppBranding.DisplayName} System Diagnostics ===");
         sb.AppendLine($"Application: {AppName} v{Version}");
         sb.AppendLine($"OS Description: {RuntimeInformation.OSDescription}");
         sb.AppendLine($"OS Architecture: {RuntimeInformation.OSArchitecture}");

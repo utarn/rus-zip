@@ -3,7 +3,7 @@
         xmlns:vm="using:RusZip.Desktop.ViewModels"
         x:Class="RusZip.Desktop.Views.ArchivePropertiesDialog"
         x:DataType="vm:ArchivePropertiesViewModel"
-        Title="Archive &amp; Entry Properties - rus-zip"
+        Title="Archive &amp; Entry Properties - RUS ZIP"
         Width="540" Height="480"
         MinWidth="480" MinHeight="380"
         WindowStartupLocation="CenterOwner"

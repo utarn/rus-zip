@@ -3,7 +3,7 @@
         xmlns:vm="using:RusZip.Desktop.ViewModels"
         x:Class="RusZip.Desktop.Views.DeleteConfirmationDialog"
         x:DataType="vm:DeleteConfirmationViewModel"
-        Title="Confirm Deletion - rus-zip"
+        Title="Confirm Deletion - RUS ZIP"
         Width="480" Height="320"
         MinWidth="420" MinHeight="260"
         WindowStartupLocation="CenterOwner"

@@ -37,7 +37,7 @@ public class FileAssociationPromptViewModelTests
                 var idx = AssociationsToReturn.FindIndex(a => a.Extension == ext);
                 if (idx >= 0)
                 {
-                    AssociationsToReturn[idx] = AssociationsToReturn[idx] with { IsAssociated = true, CurrentHandler = "RusZip" };
+                    AssociationsToReturn[idx] = AssociationsToReturn[idx] with { IsAssociated = true, CurrentHandler = "RUS ZIP" };
                 }
             }
             return Task.CompletedTask;

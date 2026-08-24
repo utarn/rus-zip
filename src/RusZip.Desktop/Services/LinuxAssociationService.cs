@@ -86,7 +86,7 @@ public sealed class LinuxAssociationService : IFileAssociationService
         var sb = new StringBuilder();
         sb.AppendLine("[Desktop Entry]");
         sb.AppendLine("Type=Application");
-        sb.AppendLine("Name=RusZip");
+        sb.AppendLine($"Name={AppBranding.DisplayName}");
         sb.AppendLine($"Exec={executablePath} %F");
         sb.AppendLine("Icon=rus-zip");
         sb.AppendLine($"MimeType={mimeTypeStr}");
@@ -130,7 +130,7 @@ public sealed class LinuxAssociationService : IFileAssociationService
                         handler.StartsWith("rus-zip", StringComparison.OrdinalIgnoreCase))
                     {
                         isAssociated = true;
-                        currentHandler = "RusZip";
+                        currentHandler = AppBranding.DisplayName;
                     }
                     else
                     {

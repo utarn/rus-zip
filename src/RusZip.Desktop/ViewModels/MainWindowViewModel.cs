@@ -957,7 +957,7 @@ public partial class MainWindowViewModel : ObservableObject
     public async Task ShowAboutAsync()
     {
         var aboutVm = new AboutViewModel();
-        StatusText = FormatStatus("About rus-zip opened.");
+        StatusText = FormatStatus($"About {AppBranding.DisplayName} opened.");
         if (RequestShowAboutDialog != null)
         {
             await RequestShowAboutDialog.Invoke(aboutVm);
