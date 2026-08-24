@@ -314,7 +314,7 @@ public class QuickExtractViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task ResolveConflictAsync_DefaultsToOverwrite_WhenResolverNotConfigured()
+    public async Task ResolveConflictAsync_DefaultsToAbort_WhenResolverNotConfigured()
     {
         var engine = new FakeArchiveEngine();
         var vm = new QuickExtractViewModel(engine);
@@ -330,7 +330,48 @@ public class QuickExtractViewModelTests : IDisposable
 
         var resolution = await vm.ResolveConflictAsync(context);
 
-        Assert.Equal(FileConflictResolution.Overwrite, resolution);
+        Assert.Equal(FileConflictResolution.Abort, resolution);
+    }
+
+    [Fact]
+    public async Task ExtractArchiveAsync_WhenUnhookedConflictOccurs_ReturnsAbortAndCleansUpPartialOutput()
+    {
+        var archiveFile = Path.Combine(_tempDir, "archive.zip");
+        await File.WriteAllBytesAsync(archiveFile, [0x01]);
+
+        var engine = new FakeArchiveEngine();
+        var options = new QuickExtractOptions(QuickExtractMode.ExtractHere, archiveFile);
+        var vm = new QuickExtractViewModel(engine, options);
+
+        engine.OnExtract = _ =>
+        {
+            var req = engine.LastExtractionRequest;
+            Assert.NotNull(req);
+            Assert.NotNull(req.ConflictResolver);
+
+            var conflictContext = new FileConflictContext(
+                TargetPath: Path.Combine(_tempDir, "file.txt"),
+                RelativeEntryPath: "file.txt",
+                EntryUncompressedSize: 10,
+                EntryLastModified: null,
+                ExistingFileSize: 10,
+                ExistingLastModified: DateTimeOffset.UtcNow
+            );
+
+            var res = req.ConflictResolver.ResolveConflictAsync(conflictContext).AsTask().GetAwaiter().GetResult();
+            Assert.Equal(FileConflictResolution.Abort, res);
+            if (res == FileConflictResolution.Abort)
+            {
+                vm.CancelCommand.Execute(null);
+            }
+        };
+
+        await vm.StartExtractionAsync();
+
+        Assert.True(vm.IsCancelled);
+        Assert.False(vm.IsRunning);
+        Assert.False(vm.IsSuccess);
+        Assert.Equal("Extraction cancelled.", vm.StatusMessage);
     }
 
     [Fact]
