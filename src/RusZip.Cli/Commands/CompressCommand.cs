@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using RusZip.Cli.Commands.Settings;
 using RusZip.Cli.Infrastructure;
 using RusZip.Cli.Models;
@@ -178,11 +179,13 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                 }
 
                 string formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
+                var stopwatch = Stopwatch.StartNew();
 
                 if (settings.Append)
                 {
                     var appendRequest = new ArchiveAppendRequest(destination, sourceArgs, compressionLevel, settings.UpdateOnly);
                     var appendResult = await _engine.AppendAsync(appendRequest, progress, ct);
+                    stopwatch.Stop();
 
                     return new CompressResult(
                         Success: true,
@@ -193,7 +196,7 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                         UncompressedBytes: appendResult.UncompressedBytes,
                         CompressedBytes: appendResult.CompressedBytes,
                         CompressionRatio: appendResult.CompressionRatio,
-                        ElapsedMilliseconds: 0,
+                        ElapsedMilliseconds: stopwatch.ElapsedMilliseconds,
                         SourcePath: string.Join(", ", resolvedSources)
                     );
                 }
@@ -223,6 +226,7 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
 
                 double ratio = uncompressedSize > 0 ? (double)destInfo.Length / uncompressedSize : 1.0;
                 formatStr = formatDescriptor.PrimaryExtension.TrimStart('.');
+                stopwatch.Stop();
 
                 return new CompressResult(
                     Success: true,
@@ -233,7 +237,7 @@ public sealed class CompressCommand(IArchiveEngine engine) : AsyncCommand<Compre
                     UncompressedBytes: uncompressedSize,
                     CompressedBytes: destInfo.Length,
                     CompressionRatio: Math.Round(ratio, 4),
-                    ElapsedMilliseconds: 0,
+                    ElapsedMilliseconds: stopwatch.ElapsedMilliseconds,
                     SourcePath: string.Join(", ", resolvedSources)
                 );
             },

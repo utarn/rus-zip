@@ -34,7 +34,7 @@ public sealed class CompressCommandTests : CliTestBase
         Assert.True(result.UncompressedBytes > 0);
         Assert.True(result.CompressedBytes > 0);
         Assert.True(result.CompressionRatio > 0);
-        Assert.True(result.ElapsedMilliseconds >= 0);
+        Assert.True(result.ElapsedMilliseconds > 0);
     }
 
     [Fact]
@@ -55,6 +55,29 @@ public sealed class CompressCommandTests : CliTestBase
         Assert.True(result.Success);
         Assert.Equal(Path.GetFullPath(sourceDir), result.SourcePath);
         Assert.Equal(4, result.TotalFiles);
+        Assert.True(result.ElapsedMilliseconds > 0);
+    }
+
+    [Fact]
+    public async Task Compress_WithAppend_JsonMode_ReturnsElapsedMillisecondsGreaterThanZero()
+    {
+        // Arrange: create initial zip archive, then compress with --append
+        var file1 = CreateTempFile("append_src1.txt", "Initial file content");
+        var destArchive = Path.Combine(TempDirectory, "append_test.zip");
+        var (initCode, _) = await RunCliAsync("compress", file1, destArchive, "--json");
+        Assert.Equal(0, initCode);
+
+        var file2 = CreateTempFile("append_src2.txt", "Appended file content");
+
+        // Act
+        var (exitCode, stdout) = await RunCliAsync("compress", file2, "-o", destArchive, "--append", "--json");
+
+        // Assert
+        Assert.Equal(0, exitCode);
+        var result = ParseJson<CompressResult>(stdout);
+        Assert.True(result.Success);
+        Assert.Equal(2, result.TotalFiles);
+        Assert.True(result.ElapsedMilliseconds > 0);
     }
 
     [Fact]
