@@ -58,7 +58,7 @@ public class MainWindowChromeTests
         Assert.Equal("Window", root.Name.LocalName);
 
         Assert.Equal("True", root.Attribute("ExtendClientAreaToDecorationsHint")?.Value);
-        Assert.Equal("46", root.Attribute("ExtendClientAreaTitleBarHeightHint")?.Value);
+        Assert.Equal("36", root.Attribute("ExtendClientAreaTitleBarHeightHint")?.Value);
         Assert.Equal("Full", root.Attribute("WindowDecorations")?.Value);
         Assert.Equal("Mica, AcrylicBlur, Blur", root.Attribute("TransparencyLevelHint")?.Value);
         Assert.Equal("Transparent", root.Attribute("Background")?.Value);
@@ -105,8 +105,85 @@ public class MainWindowChromeTests
             .Where(e => e.Name.LocalName == "Button")
             .ToList();
 
-        // Should have New Archive, Open Archive, Extract All, Close, and Theme Switcher
-        Assert.True(buttons.Count >= 5);
+        // Should have New Archive, Open Archive, Extract All, Add to Archive, Delete Selected, Close, Settings, Theme, and Overflow
+        Assert.True(buttons.Count >= 8);
+
+        // Icon-only verification: Toolbar buttons in PrimaryToolbarButtons & TrailingToolbarButtons must not have TextBlock children
+        var primaryPanel = titleBarGrid.Descendants()
+            .FirstOrDefault(e => e.Attributes().Any(a => a.Name.LocalName == "Name" && a.Value == "PrimaryToolbarButtons"));
+        Assert.NotNull(primaryPanel);
+        Assert.DoesNotContain(primaryPanel.Descendants(), e => e.Name.LocalName == "TextBlock");
+
+        var trailingPanel = titleBarGrid.Descendants()
+            .FirstOrDefault(e => e.Attributes().Any(a => a.Name.LocalName == "Name" && a.Value == "TrailingToolbarButtons"));
+        Assert.NotNull(trailingPanel);
+        Assert.DoesNotContain(trailingPanel.Descendants(), e => e.Name.LocalName == "TextBlock");
+    }
+
+    [AvaloniaFact]
+    public void MainWindow_ToolbarButtons_AreIconOnlyWithToolTips()
+    {
+        var window = new MainWindow();
+        var newBtn = window.FindControl<Button>("NewArchiveButton");
+        var openBtn = window.FindControl<Button>("OpenArchiveButton");
+        var extractBtn = window.FindControl<Button>("ExtractAllButton");
+        var appendBtn = window.FindControl<Button>("AppendFilesButton");
+        var deleteBtn = window.FindControl<Button>("DeleteSelectedButton");
+        var closeBtn = window.FindControl<Button>("CloseArchiveButton");
+        var settingsBtn = window.FindControl<Button>("SettingsButton");
+        var themeBtn = window.FindControl<Button>("ThemeButton");
+
+        Assert.NotNull(newBtn);
+        Assert.NotNull(openBtn);
+        Assert.NotNull(extractBtn);
+        Assert.NotNull(appendBtn);
+        Assert.NotNull(deleteBtn);
+        Assert.NotNull(closeBtn);
+        Assert.NotNull(settingsBtn);
+        Assert.NotNull(themeBtn);
+
+        Assert.NotNull(ToolTip.GetTip(newBtn));
+        Assert.NotNull(ToolTip.GetTip(openBtn));
+        Assert.NotNull(ToolTip.GetTip(extractBtn));
+        Assert.NotNull(ToolTip.GetTip(appendBtn));
+        Assert.NotNull(ToolTip.GetTip(deleteBtn));
+        Assert.NotNull(ToolTip.GetTip(closeBtn));
+        Assert.NotNull(ToolTip.GetTip(settingsBtn));
+    }
+
+    [AvaloniaFact]
+    public void MainWindow_UpdateToolbarOverflow_CollapsesTrailingButtonsWhenNarrow()
+    {
+        var window = new MainWindow();
+        var trailingPanel = window.FindControl<StackPanel>("TrailingToolbarButtons");
+        var overflowButton = window.FindControl<Button>("ToolbarOverflowButton");
+
+        Assert.NotNull(trailingPanel);
+        Assert.NotNull(overflowButton);
+
+        // Wide window: trailing buttons visible, overflow button hidden
+        window.UpdateToolbarOverflow(900);
+        Assert.True(trailingPanel.IsVisible);
+        Assert.False(overflowButton.IsVisible);
+
+        // Narrow window: trailing buttons hidden, overflow button visible
+        window.UpdateToolbarOverflow(600);
+        Assert.False(trailingPanel.IsVisible);
+        Assert.True(overflowButton.IsVisible);
+
+        // Overflow button has flyout with menu items for all toolbar commands
+        var flyout = overflowButton.Flyout as MenuFlyout;
+        Assert.NotNull(flyout);
+        var menuItems = flyout.Items.OfType<MenuItem>().ToList();
+        Assert.True(menuItems.Count >= 7);
+        Assert.Contains(menuItems, m => (m.Header as string)?.Contains("New Archive") == true);
+        Assert.Contains(menuItems, m => (m.Header as string)?.Contains("Open Archive") == true);
+        Assert.Contains(menuItems, m => (m.Header as string)?.Contains("Extract All") == true);
+        Assert.Contains(menuItems, m => (m.Header as string)?.Contains("Add to Archive") == true);
+        Assert.Contains(menuItems, m => (m.Header as string)?.Contains("Delete Selected") == true);
+        Assert.Contains(menuItems, m => (m.Header as string)?.Contains("Close Archive") == true);
+        Assert.Contains(menuItems, m => (m.Header as string)?.Contains("Settings") == true);
+        Assert.Contains(menuItems, m => (m.Header as string)?.Contains("Toggle Theme") == true);
     }
 
     [AvaloniaFact]
@@ -149,7 +226,7 @@ public class MainWindowChromeTests
         var window = new MainWindow();
 
         Assert.True(window.ExtendClientAreaToDecorationsHint);
-        Assert.Equal(46, window.ExtendClientAreaTitleBarHeightHint);
+        Assert.Equal(36, window.ExtendClientAreaTitleBarHeightHint);
         Assert.Equal(WindowDecorations.Full, window.WindowDecorations);
     }
 

@@ -10,6 +10,7 @@ namespace RusZip.Desktop.Views;
 public partial class MainWindow : Window
 {
     public const double MacOsTrafficLightMargin = 76.0;
+    public const double NarrowWindowWidthThreshold = 780.0;
 
     public MainWindow()
     {
@@ -19,17 +20,37 @@ public partial class MainWindow : Window
         Loaded += async (_, _) =>
         {
             ApplyPlatformWindowChrome();
+            UpdateToolbarOverflow(Bounds.Width > 0 ? Bounds.Width : Width);
             if (DataContext is MainWindowViewModel vm)
             {
                 await vm.InitializeRecentArchivesAsync();
             }
         };
 
+        SizeChanged += (_, e) => UpdateToolbarOverflow(e.NewSize.Width);
+
         DragDrop.SetAllowDrop(this, true);
         AddHandler(DragDrop.DragEnterEvent, OnDragEnter);
         AddHandler(DragDrop.DragLeaveEvent, OnDragLeave);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
+    }
+
+    public void UpdateToolbarOverflow(double windowWidth)
+    {
+        var isNarrow = windowWidth < NarrowWindowWidthThreshold;
+        var trailingButtons = this.FindControl<StackPanel>("TrailingToolbarButtons");
+        var overflowButton = this.FindControl<Button>("ToolbarOverflowButton");
+
+        if (trailingButtons != null)
+        {
+            trailingButtons.IsVisible = !isNarrow;
+        }
+
+        if (overflowButton != null)
+        {
+            overflowButton.IsVisible = isNarrow;
+        }
     }
 
     public void ApplyPlatformWindowChrome(bool? isMacOSOverride = null)

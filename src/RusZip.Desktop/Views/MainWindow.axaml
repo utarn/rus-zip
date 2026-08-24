@@ -8,7 +8,7 @@
         Width="900" Height="600"
         MinWidth="700" MinHeight="450"
         ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaTitleBarHeightHint="46"
+        ExtendClientAreaTitleBarHeightHint="36"
         WindowDecorations="Full"
         TransparencyLevelHint="Mica, AcrylicBlur, Blur"
         Background="Transparent">
@@ -113,85 +113,90 @@
     </Window.KeyBindings>
 
     <Grid RowDefinitions="Auto,Auto,*,Auto" Background="{DynamicResource SolidBackgroundFillColorBase}">
-        <!-- Modern Ribbon / Toolbar & Custom Title Bar -->
+        <!-- Compact Toolbar & Custom Title Bar (~36px) -->
         <Border Grid.Row="0"
                 x:Name="TitleBarArea"
                 Background="{DynamicResource CardBackgroundFillColorDefault}"
                 BorderBrush="{DynamicResource SurfaceStrokeColorDefault}"
                 BorderThickness="0,0,0,1"
-                Padding="12,8"
+                Padding="8,2"
+                Height="36"
                 PointerPressed="OnTitleBarPointerPressed">
             <Grid ColumnDefinitions="*,Auto" x:Name="TitleBarContentGrid">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                    <Button Command="{Binding ShowCompressDialogCommand}"
-                            Padding="12,8">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource Icon.NewArchive}" Width="16" Height="16" />
-                            <TextBlock Text="New Archive" VerticalAlignment="Center" />
-                        </StackPanel>
+                <!-- Primary Actions -->
+                <StackPanel Grid.Column="0"
+                            x:Name="PrimaryToolbarButtons"
+                            Orientation="Horizontal"
+                            Spacing="4"
+                            VerticalAlignment="Center">
+                    <Button x:Name="NewArchiveButton"
+                            Command="{Binding ShowCompressDialogCommand}"
+                            Padding="6,5"
+                            ToolTip.Tip="New Archive (Ctrl+N)">
+                        <PathIcon Data="{StaticResource Icon.NewArchive}" Width="16" Height="16" />
                     </Button>
 
-                    <Button Click="OnOpenArchiveClicked"
-                            Padding="12,8">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource Icon.OpenFolder}" Width="16" Height="16" />
-                            <TextBlock Text="Open Archive" VerticalAlignment="Center" />
-                        </StackPanel>
+                    <Button x:Name="OpenArchiveButton"
+                            Click="OnOpenArchiveClicked"
+                            Padding="6,5"
+                            ToolTip.Tip="Open Archive (Ctrl+O)">
+                        <PathIcon Data="{StaticResource Icon.OpenFolder}" Width="16" Height="16" />
                     </Button>
 
-                    <Button Click="OnExtractAllClicked"
+                    <Button x:Name="ExtractAllButton"
+                            Click="OnExtractAllClicked"
                             IsEnabled="{Binding HasOpenArchive}"
-                            Padding="12,8">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource Icon.Extract}" Width="16" Height="16" />
-                            <TextBlock Text="Extract All" VerticalAlignment="Center" />
-                        </StackPanel>
+                            Padding="6,5"
+                            ToolTip.Tip="Extract All (Ctrl+E)">
+                        <PathIcon Data="{StaticResource Icon.Extract}" Width="16" Height="16" />
                     </Button>
 
-                    <Button Command="{Binding AppendFilesCommand}"
+                    <Button x:Name="AppendFilesButton"
+                            Command="{Binding AppendFilesCommand}"
                             IsEnabled="{Binding CanAppendToArchive}"
-                            Padding="12,8">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource Icon.NewArchive}" Width="16" Height="16" />
-                            <TextBlock Text="Add to Archive" VerticalAlignment="Center" />
-                        </StackPanel>
+                            Padding="6,5"
+                            ToolTip.Tip="Add to Archive (Ctrl+Shift+A)">
+                        <PathIcon Data="{StaticResource Icon.NewArchive}" Width="16" Height="16" />
                     </Button>
 
-                    <Button Command="{Binding DeleteSelectedCommand}"
+                    <Button x:Name="DeleteSelectedButton"
+                            Command="{Binding DeleteSelectedCommand}"
                             IsEnabled="{Binding CanDeleteFromArchive}"
-                            Padding="12,8">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource Icon.Close}" Width="16" Height="16" />
-                            <TextBlock Text="Delete Selected" VerticalAlignment="Center" />
-                        </StackPanel>
+                            Padding="6,5"
+                            ToolTip.Tip="Delete Selected (Delete)">
+                        <PathIcon Data="{StaticResource Icon.Close}" Width="16" Height="16" />
                     </Button>
 
-                    <Button Command="{Binding CloseArchiveCommand}"
+                    <Button x:Name="CloseArchiveButton"
+                            Command="{Binding CloseArchiveCommand}"
                             IsEnabled="{Binding HasOpenArchive}"
-                            Padding="12,8">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource Icon.Close}" Width="16" Height="16" />
-                            <TextBlock Text="Close" VerticalAlignment="Center" />
-                        </StackPanel>
+                            Padding="6,5"
+                            ToolTip.Tip="Close Archive (Ctrl+W)">
+                        <PathIcon Data="{StaticResource Icon.Close}" Width="16" Height="16" />
                     </Button>
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                    <!-- Settings Button -->
-                    <Button Command="{Binding OpenSettingsCommand}"
-                            Padding="10,8"
-                            ToolTip.Tip="Settings and File Associations">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
+                <!-- Trailing / Utility Actions & Overflow -->
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="4"
+                            VerticalAlignment="Center">
+                    <StackPanel x:Name="TrailingToolbarButtons"
+                                Orientation="Horizontal"
+                                Spacing="4">
+                        <!-- Settings Button -->
+                        <Button x:Name="SettingsButton"
+                                Command="{Binding OpenSettingsCommand}"
+                                Padding="6,5"
+                                ToolTip.Tip="Settings (Ctrl+,)">
                             <PathIcon Data="{StaticResource Icon.Settings}" Width="16" Height="16" />
-                            <TextBlock Text="Settings" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
+                        </Button>
 
-                    <!-- Theme Switcher Toggle -->
-                    <Button Command="{Binding ToggleThemeCommand}"
-                            Padding="10,8"
-                            ToolTip.Tip="Toggle Theme (System / Dark / Light)">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
+                        <!-- Theme Switcher Toggle -->
+                        <Button x:Name="ThemeButton"
+                                Command="{Binding ToggleThemeCommand}"
+                                Padding="6,5"
+                                ToolTip.Tip="{Binding ThemeDisplayName, StringFormat='Theme: {0}'}">
                             <Panel Width="16" Height="16">
                                 <PathIcon Data="{StaticResource Icon.ThemeDark}"
                                           Width="16" Height="16"
@@ -204,8 +209,79 @@
                                           Opacity="0.7"
                                           IsVisible="{Binding IsSystemTheme}" />
                             </Panel>
-                            <TextBlock Text="{Binding ThemeDisplayName}" VerticalAlignment="Center" />
-                        </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- Overflow Button (⋯) with Flyout -->
+                    <Button x:Name="ToolbarOverflowButton"
+                            Padding="6,5"
+                            ToolTip.Tip="More Actions"
+                            IsVisible="False">
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuItem Header="New Archive..."
+                                          Command="{Binding ShowCompressDialogCommand}"
+                                          InputGesture="Ctrl+N">
+                                    <MenuItem.Icon>
+                                        <PathIcon Data="{StaticResource Icon.NewArchive}" Width="14" Height="14" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="Open Archive..."
+                                          Command="{Binding OpenArchivePickerCommand}"
+                                          InputGesture="Ctrl+O">
+                                    <MenuItem.Icon>
+                                        <PathIcon Data="{StaticResource Icon.OpenFolder}" Width="14" Height="14" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="Extract All"
+                                          Command="{Binding ExtractAllMenuCommand}"
+                                          IsEnabled="{Binding HasOpenArchive}"
+                                          InputGesture="Ctrl+E">
+                                    <MenuItem.Icon>
+                                        <PathIcon Data="{StaticResource Icon.Extract}" Width="14" Height="14" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="Add to Archive..."
+                                          Command="{Binding AppendFilesCommand}"
+                                          IsEnabled="{Binding CanAppendToArchive}"
+                                          InputGesture="Ctrl+Shift+A">
+                                    <MenuItem.Icon>
+                                        <PathIcon Data="{StaticResource Icon.NewArchive}" Width="14" Height="14" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="Delete Selected"
+                                          Command="{Binding DeleteSelectedCommand}"
+                                          IsEnabled="{Binding CanDeleteFromArchive}"
+                                          InputGesture="Delete">
+                                    <MenuItem.Icon>
+                                        <PathIcon Data="{StaticResource Icon.Close}" Width="14" Height="14" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="Close Archive"
+                                          Command="{Binding CloseArchiveCommand}"
+                                          IsEnabled="{Binding HasOpenArchive}"
+                                          InputGesture="Ctrl+W">
+                                    <MenuItem.Icon>
+                                        <PathIcon Data="{StaticResource Icon.Close}" Width="14" Height="14" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator />
+                                <MenuItem Header="Settings..."
+                                          Command="{Binding OpenSettingsCommand}"
+                                          InputGesture="Ctrl+,">
+                                    <MenuItem.Icon>
+                                        <PathIcon Data="{StaticResource Icon.Settings}" Width="14" Height="14" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="Toggle Theme"
+                                          Command="{Binding ToggleThemeCommand}">
+                                    <MenuItem.Icon>
+                                        <PathIcon Data="{StaticResource Icon.ThemeLight}" Width="14" Height="14" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                        <PathIcon Data="{StaticResource Icon.More}" Width="16" Height="16" />
                     </Button>
                 </StackPanel>
             </Grid>

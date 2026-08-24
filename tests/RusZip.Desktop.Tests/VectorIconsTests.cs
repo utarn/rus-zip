@@ -24,7 +24,8 @@ public class VectorIconsTests
         "Icon.CollapseAll",
         "Icon.Chevron",
         "Icon.Zap",
-        "Icon.Clock"
+        "Icon.Clock",
+        "Icon.More"
     ];
 
     private static string FindDesktopProjectPath()
