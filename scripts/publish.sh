@@ -203,6 +203,10 @@ if [[ "$RID" == osx* ]]; then
     cp "$DESKTOP_BIN" "$MACOS_DIR/RusZip"
     chmod +x "$MACOS_DIR/RusZip"
 
+    if [ -f "$ROOT_DIR/src/RusZip.Desktop/Assets/rus-zip.icns" ]; then
+        cp "$ROOT_DIR/src/RusZip.Desktop/Assets/rus-zip.icns" "$RESOURCES_DIR/RusZip.icns"
+    fi
+
     cat << 'PLIST' > "$APP_DIR/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -210,6 +214,8 @@ if [[ "$RID" == osx* ]]; then
 <dict>
     <key>CFBundleExecutable</key>
     <string>RusZip</string>
+    <key>CFBundleIconFile</key>
+    <string>RusZip.icns</string>
     <key>CFBundleIdentifier</key>
     <string>com.ruszip.desktop</string>
     <key>CFBundleName</key>

@@ -4,6 +4,7 @@
         x:Class="RusZip.Desktop.Views.QuickExtractWindow"
         x:DataType="vm:QuickExtractViewModel"
         Title="Quick Extract - RUS ZIP"
+        Icon="avares://RusZip.Desktop/Assets/rus-zip.ico"
         Width="520" Height="320"
         MinWidth="480" MinHeight="280"
         WindowStartupLocation="CenterScreen"

@@ -5,6 +5,7 @@
         x:Class="RusZip.Desktop.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="RUS ZIP - Compression Suite"
+        Icon="avares://RusZip.Desktop/Assets/rus-zip.ico"
         Width="900" Height="600"
         MinWidth="700" MinHeight="450"
         ExtendClientAreaToDecorationsHint="True"
