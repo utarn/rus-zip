@@ -283,7 +283,7 @@ public partial class QuickExtractViewModel : ObservableObject, IFileConflictReso
             return await RequestConflictResolution.Invoke(context);
         }
 
-        return FileConflictResolution.Overwrite;
+        return FileConflictResolution.Abort;
     }
 
     public void StartAutoCloseCountdown(int seconds = 3)
