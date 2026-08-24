@@ -125,5 +125,38 @@ The query and classification engine in `ArchiveBrowserView` filtering entries vi
 ### Interactive Format Matrix
 The Help/About inspector displaying live engine capabilities, supported read/write formats, compression profiles, and system diagnostic data.
 
+### Multi-Volume Archive
+An archive partitioned into a sequence of maximum-sized storage chunks (`.part1`, `.part2`, ...) that seamlessly reconstitute the contiguous compressed data stream upon extraction.
+
+### Volume Part Infix
+The canonical naming standard `<base>.part<N>.<ext>` used to identify split volumes in ordinal sequence, with backwards-compatible parsing for zero-padded variants (`.part01`, `.part001`).
+
+### Split Size Preset
+Standardized maximum volume threshold definitions (`100 MB`, `250 MB`, `1 GB`, `2 GB`, `4 GB`, `10 GB`) and custom size parsing expressions configured via CLI (`-s`, `--split-size`) or Desktop dropdown.
+
+### Encrypted Archive Envelope
+The authenticated cryptographic wrapper encapsulating a `.zrus` data stream using PBKDF2 key derivation, an explicit password verification tag for instant validation, and AES-256-GCM authenticated chunks.
+
+### Password Verification Tag
+A pre-computed cryptographic digest stored in the archive header that enables instant verification of user passwords before beginning decompression or entry parsing.
+
+### Multi-Volume Reader Stream
+A composite virtual input stream in `RusZip.Core` that seamlessly stitches ordered volume files into a unified readable stream while enforcing continuity checks and missing volume detection.
+
+### Incremental Archive Compression
+The process of generating a new `.zrus` archive containing only the differential (added or modified) entries compared against one or more baseline `.zrus` archives.
+
+### Baseline Archive Set
+The collection of reference `.zrus` archives supplied during incremental compression against which candidate source files are diffed.
+
+### Baseline Version Resolution
+The multi-tiered comparison policy resolving the authoritative baseline version of an entry across multiple archives: primarily by entry internal modification timestamp (`LastModified`), secondarily by the baseline `.zrus` archive file's modification timestamp (`FileInfo.LastWriteTimeUtc`), and tertiarily by argument order.
+
+### Incremental Diff Criteria
+The rule determining entry inclusion in an incremental archive: candidate files are included if absent from the baseline set, or if their filesystem modification time is strictly newer, or if modification time is equal but uncompressed file size differs.
+
+### Incremental Archive Chain Extraction
+The restoration workflow where baseline archives and differential archives are sequentially layered to reconstruct the full filesystem state.
+
 
 
