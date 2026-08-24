@@ -187,7 +187,7 @@ public class ArchiveBrowserViewModelTests
         Assert.NotNull(menu);
 
         var menuItems = menu.Items.OfType<MenuItem>().ToList();
-        Assert.Equal(5, menuItems.Count);
+        Assert.Equal(6, menuItems.Count);
 
         // Simulate a right-click on row B: every item receives B as CommandParameter (F-40).
         var itemB = browser.FindItemByPath("fileB.txt")!;

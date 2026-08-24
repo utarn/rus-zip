@@ -98,6 +98,7 @@ public partial class ArchiveBrowserViewModel : ObservableObject
     public event Func<IReadOnlyList<ArchiveItemViewModel>, Task>? DeleteRequested;
     public event Func<string, Task>? CopyPathRequested;
     public event Func<ArchiveItemViewModel, Task>? PreviewItemRequested;
+    public event Func<ArchiveItemViewModel?, Task>? PropertiesRequested;
 
     public Func<int, IReadOnlyList<string>, Task<bool>>? ConfirmDeleteAsync { get; set; }
     public Func<string, Task>? CopyToClipboardService { get; set; }
@@ -433,6 +434,16 @@ public partial class ArchiveBrowserViewModel : ObservableObject
         if (CopyPathRequested != null)
         {
             await CopyPathRequested.Invoke(path);
+        }
+    }
+
+    [RelayCommand]
+    public async Task ShowPropertiesAsync(object? parameter = null)
+    {
+        var target = parameter as ArchiveItemViewModel ?? SelectedItem;
+        if (PropertiesRequested != null)
+        {
+            await PropertiesRequested.Invoke(target);
         }
     }
 

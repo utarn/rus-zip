@@ -276,6 +276,14 @@
                             <PathIcon Data="{StaticResource Icon.FileGeneric}" Width="14" Height="14" />
                         </MenuItem.Icon>
                     </MenuItem>
+                    <Separator />
+                    <MenuItem Header="Properties"
+                              Command="{Binding ShowPropertiesCommand}"
+                              InputGesture="Alt+Enter">
+                        <MenuItem.Icon>
+                            <PathIcon Data="{StaticResource Icon.FileArchive}" Width="14" Height="14" />
+                        </MenuItem.Icon>
+                    </MenuItem>
                 </ContextMenu>
             </DataGrid.ContextMenu>
             <DataGrid.Columns>
