@@ -172,6 +172,7 @@ public partial class MainWindowViewModel : ObservableObject
     public Func<int, IReadOnlyList<string>, Task<bool>>? ConfirmDeleteAsync { get; set; }
     public Func<ArchiveTestResult, Task>? RequestShowTestResultDialog { get; set; }
     public Func<ArchivePropertiesViewModel, Task>? RequestShowPropertiesDialog { get; set; }
+    public Func<AboutViewModel, Task>? RequestShowAboutDialog { get; set; }
 
     public bool CanAppendToArchive => HasOpenArchive && Browser.CanCompress;
     public bool CanDeleteFromArchive => HasOpenArchive && Browser.CanCompress && (Browser.SelectedItem != null || Browser.SelectedItems.Count > 0);
@@ -953,9 +954,14 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public void ShowAbout()
+    public async Task ShowAboutAsync()
     {
-        StatusText = FormatStatus("rus-zip - Modern High-Performance Compression Suite v1.0");
+        var aboutVm = new AboutViewModel();
+        StatusText = FormatStatus("About rus-zip opened.");
+        if (RequestShowAboutDialog != null)
+        {
+            await RequestShowAboutDialog.Invoke(aboutVm);
+        }
     }
 
     public async Task HandleDroppedPathsAsync(IReadOnlyList<string> paths)
