@@ -158,5 +158,16 @@ The rule determining entry inclusion in an incremental archive: candidate files 
 ### Incremental Archive Chain Extraction
 The restoration workflow where baseline archives and differential archives are sequentially layered to reconstruct the full filesystem state.
 
+### Logical Processors
+The number of processing units the operating system reports as available, including SMT/hyperthread siblings. rus-zip treats it as the hard ceiling for the Thread Budget and the basis of its default: half (rounded down, minimum one).
+_Avoid_: vCPU, cores, CPU count.
+
+### Thread Budget
+The user-configured number of worker threads a single archive operation may run in parallel. An unset budget follows the Logical Processors default; an explicit budget is capped at the Logical Processors count when the operation starts. The budget counts worker threads only — UI and coordination threads are excluded — and each operation's request carries its own.
+_Avoid_: thread count, worker pool, degree of parallelism.
+
+### Stream Workers
+Compression worker threads operating inside a single codec stream (Zstandard), the mechanism through which the Thread Budget applies to single-stream formats such as `.zrus` and `.zst` whose entries are serialized into one compressed stream and cannot be processed independently.
+
 
 
