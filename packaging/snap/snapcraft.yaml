@@ -1,0 +1,39 @@
+name: rus-zip
+base: core22
+version: '1.0.0'
+summary: Modern cross-platform archive utility (.zrus, .zip, .tar.zstd)
+description: |
+  RUS ZIP is a high-performance cross-platform archive utility powered by
+  Tar+Zstandard (.zrus), SharpCompress, and Avalonia 12.
+
+grade: stable
+confinement: strict
+
+apps:
+  rus-zip:
+    command: bin/rus-zip
+    plugs:
+      - home
+      - removable-media
+
+  desktop:
+    command: bin/RusZip.Desktop
+    extensions:
+      - gnome
+    plugs:
+      - home
+      - removable-media
+      - x11
+      - wayland
+      - desktop
+      - desktop-legacy
+      - opengl
+
+parts:
+  ruszip-binaries:
+    plugin: dump
+    source: https://github.com/utarn/rus-zip/releases/download/v1.0.0/rus-zip-linux-x64.tar.gz
+    source-checksum: sha256:<SHA256_LINUX_TAR_GZ>
+    organize:
+      rus-zip: bin/rus-zip
+      RusZip.Desktop: bin/RusZip.Desktop
