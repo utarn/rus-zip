@@ -69,6 +69,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         }
 
         var tempOutput = destination + ".tmp." + Guid.NewGuid().ToString("N");
+        var isMultiVolume = request.SplitSizeBytes.HasValue && request.SplitSizeBytes.Value > 0;
 
         if (!string.IsNullOrEmpty(request.Password))
         {
@@ -143,18 +144,16 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 int processedFiles = 0;
 
                 Stream outputStream;
-                MultiVolumeWriteStream? multiVolumeStream = null;
-                if (request.SplitSizeBytes.HasValue && request.SplitSizeBytes.Value > 0)
+                if (isMultiVolume)
                 {
-                    if (request.SplitSizeBytes.Value < MultiVolumeWriteStream.MinimumVolumeBytes)
+                    if (request.SplitSizeBytes!.Value < MultiVolumeWriteStream.MinimumVolumeBytes)
                     {
                         throw new ArgumentOutOfRangeException(
                             nameof(request.SplitSizeBytes),
                             request.SplitSizeBytes.Value,
                             $"Split volume size must be at least {MultiVolumeWriteStream.MinimumVolumeBytes:N0} bytes (64 KB).");
                     }
-                    multiVolumeStream = new MultiVolumeWriteStream(destination, request.SplitSizeBytes.Value);
-                    outputStream = multiVolumeStream;
+                    outputStream = new MultiVolumeWriteStream(destination, request.SplitSizeBytes.Value);
                 }
                 else
                 {
@@ -172,7 +171,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                     var compressionType = request.CompressionLevel == 0 ? SharpCompress.Common.CompressionType.None : SharpCompress.Common.CompressionType.Deflate;
                     var writerOptions = new ZipWriterOptions(compressionType)
                     {
-                        UseZip64 = true,
+                        UseZip64 = !isMultiVolume,
                         LeaveStreamOpen = false,
                         ArchiveEncoding = new ArchiveEncoding
                         {
@@ -345,12 +344,12 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
                 // archive is fully written we patch the central directory in place: set the "version made
                 // by" upper byte to 3 (Unix) and store each source file's POSIX mode in the external
                 // attributes field (F-13 write side). Best-effort: a failure here never fails compression.
-                if (modesByPath.Count > 0 && multiVolumeStream == null)
+                if (modesByPath.Count > 0 && !isMultiVolume)
                 {
                     PatchZipExternalAttributes(tempOutput, modesByPath);
                 }
 
-                if (multiVolumeStream == null)
+                if (!isMultiVolume)
                 {
                     File.Move(tempOutput, destination, overwrite: true);
                 }
@@ -358,7 +357,7 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         }
         finally
         {
-            if (multiVolumeStream == null && File.Exists(tempOutput))
+            if (!isMultiVolume && File.Exists(tempOutput))
             {
                 try { File.Delete(tempOutput); } catch { /* Ignore */ }
             }
@@ -500,138 +499,140 @@ public sealed class SharpCompressArchiveEngine : IArchiveEngine
         }
 
         await using (fs)
-        using var bw = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true);
-
-        var centralDirectoryHeaders = new List<byte[]>();
-
-        foreach (var (relPath, sourceFilePath, isDir, lastModified) in entriesToWrite)
         {
-            ct.ThrowIfCancellationRequested();
-            var nameBytes = Encoding.UTF8.GetBytes(relPath);
-            long localHeaderPos = fs.Position;
+            using var bw = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true);
 
-            ushort time = (ushort)((lastModified.Hour << 11) | (lastModified.Minute << 5) | (lastModified.Second / 2));
-            ushort date = (ushort)(((lastModified.Year - 1980) << 9) | (lastModified.Month << 5) | lastModified.Day);
+            var centralDirectoryHeaders = new List<byte[]>();
 
-            if (isDir)
+            foreach (var (relPath, sourceFilePath, isDir, lastModified) in entriesToWrite)
             {
-                // Write directory entry (uncompressed, no encryption)
-                bw.Write(0x04034b50); // local header signature
-                bw.Write((short)20);   // version needed (2.0)
-                bw.Write((short)0x0800); // flags: UTF-8
-                bw.Write((short)0);    // compression: stored
-                bw.Write(time);
-                bw.Write(date);
-                bw.Write((int)0);      // CRC-32
-                bw.Write((int)0);      // compressed size
-                bw.Write((int)0);      // uncompressed size
-                bw.Write((short)nameBytes.Length);
-                bw.Write((short)0);    // extra length
-                bw.Write(nameBytes);
+                ct.ThrowIfCancellationRequested();
+                var nameBytes = Encoding.UTF8.GetBytes(relPath);
+                long localHeaderPos = fs.Position;
 
-                // Build central directory record
-                using var cdMs = new MemoryStream();
-                using var cdBw = new BinaryWriter(cdMs, Encoding.UTF8);
-                cdBw.Write(0x02014b50); // CD signature
-                cdBw.Write((short)0x0314); // Version made by: Unix (3) + 2.0 (20)
-                cdBw.Write((short)20);   // Version needed (20)
-                cdBw.Write((short)0x0800); // flags: UTF-8
-                cdBw.Write((short)0);    // compression
-                cdBw.Write(time);
-                cdBw.Write(date);
-                cdBw.Write((int)0);      // CRC
-                cdBw.Write((int)0);      // compressed size
-                cdBw.Write((int)0);      // uncompressed size
-                cdBw.Write((short)nameBytes.Length);
-                cdBw.Write((short)0);    // extra length
-                cdBw.Write((short)0);    // comment length
-                cdBw.Write((short)0);    // disk number
-                cdBw.Write((short)0);    // internal attrs
-                uint extAttrs = (0x41EDu << 16) | 0x10u; // Directory attributes
-                cdBw.Write(extAttrs);
-                cdBw.Write((int)localHeaderPos);
-                cdBw.Write(nameBytes);
-                centralDirectoryHeaders.Add(cdMs.ToArray());
-            }
-            else
-            {
-                byte[] fileBytes = await File.ReadAllBytesAsync(sourceFilePath!, ct);
-                byte[] encryptedPayload = WinZipAesCrypto.EncryptPayload(fileBytes, request.Password!, compLevel);
+                ushort time = (ushort)((lastModified.Hour << 11) | (lastModified.Minute << 5) | (lastModified.Second / 2));
+                ushort date = (ushort)(((lastModified.Year - 1980) << 9) | (lastModified.Month << 5) | lastModified.Day);
 
-                bw.Write(0x04034b50); // local header signature
-                bw.Write((short)51);   // version needed (5.1 for AES)
-                bw.Write((short)(0x0800 | 1)); // flags: UTF-8 + encrypted
-                bw.Write(WinZipAesCrypto.WinZipAesCompressionMethod); // 99
-                bw.Write(time);
-                bw.Write(date);
-                bw.Write((int)0);      // CRC-32 (0 for AE-2)
-                bw.Write(encryptedPayload.Length);
-                bw.Write(fileBytes.Length);
-                bw.Write((short)nameBytes.Length);
-                bw.Write((short)WinZipAesCrypto.WinZipAesExtraField.Length);
-                bw.Write(nameBytes);
-                bw.Write(WinZipAesCrypto.WinZipAesExtraField);
-                bw.Write(encryptedPayload);
-
-                // Build central directory record
-                using var cdMs = new MemoryStream();
-                using var cdBw = new BinaryWriter(cdMs, Encoding.UTF8);
-                cdBw.Write(0x02014b50); // CD signature
-                cdBw.Write((short)0x0333); // Version made by: Unix (3) + 5.1 (51)
-                cdBw.Write((short)51);   // Version needed (51)
-                cdBw.Write((short)(0x0800 | 1)); // flags: UTF-8 + encrypted
-                cdBw.Write(WinZipAesCrypto.WinZipAesCompressionMethod); // 99
-                cdBw.Write(time);
-                cdBw.Write(date);
-                cdBw.Write((int)0);      // CRC
-                cdBw.Write(encryptedPayload.Length);
-                cdBw.Write(fileBytes.Length);
-                cdBw.Write((short)nameBytes.Length);
-                cdBw.Write((short)WinZipAesCrypto.WinZipAesExtraField.Length);
-                cdBw.Write((short)0);    // comment length
-                cdBw.Write((short)0);    // disk number
-                cdBw.Write((short)0);    // internal attrs
-                uint extAttrs = 0x81A4u << 16; // Regular file attributes (0644)
-                if (modesByPath.TryGetValue(relPath, out var customMode))
+                if (isDir)
                 {
-                    extAttrs = ((uint)customMode << 16);
+                    // Write directory entry (uncompressed, no encryption)
+                    bw.Write(0x04034b50); // local header signature
+                    bw.Write((short)20);   // version needed (2.0)
+                    bw.Write((short)0x0800); // flags: UTF-8
+                    bw.Write((short)0);    // compression: stored
+                    bw.Write(time);
+                    bw.Write(date);
+                    bw.Write((int)0);      // CRC-32
+                    bw.Write((int)0);      // compressed size
+                    bw.Write((int)0);      // uncompressed size
+                    bw.Write((short)nameBytes.Length);
+                    bw.Write((short)0);    // extra length
+                    bw.Write(nameBytes);
+
+                    // Build central directory record
+                    using var cdMs = new MemoryStream();
+                    using var cdBw = new BinaryWriter(cdMs, Encoding.UTF8);
+                    cdBw.Write(0x02014b50); // CD signature
+                    cdBw.Write((short)0x0314); // Version made by: Unix (3) + 2.0 (20)
+                    cdBw.Write((short)20);   // Version needed (20)
+                    cdBw.Write((short)0x0800); // flags: UTF-8
+                    cdBw.Write((short)0);    // compression
+                    cdBw.Write(time);
+                    cdBw.Write(date);
+                    cdBw.Write((int)0);      // CRC
+                    cdBw.Write((int)0);      // compressed size
+                    cdBw.Write((int)0);      // uncompressed size
+                    cdBw.Write((short)nameBytes.Length);
+                    cdBw.Write((short)0);    // extra length
+                    cdBw.Write((short)0);    // comment length
+                    cdBw.Write((short)0);    // disk number
+                    cdBw.Write((short)0);    // internal attrs
+                    uint extAttrs = (0x41EDu << 16) | 0x10u; // Directory attributes
+                    cdBw.Write(extAttrs);
+                    cdBw.Write((int)localHeaderPos);
+                    cdBw.Write(nameBytes);
+                    centralDirectoryHeaders.Add(cdMs.ToArray());
                 }
-                cdBw.Write(extAttrs);
-                cdBw.Write((int)localHeaderPos);
-                cdBw.Write(nameBytes);
-                cdBw.Write(WinZipAesCrypto.WinZipAesExtraField);
-                centralDirectoryHeaders.Add(cdMs.ToArray());
+                else
+                {
+                    byte[] fileBytes = await File.ReadAllBytesAsync(sourceFilePath!, ct);
+                    byte[] encryptedPayload = WinZipAesCrypto.EncryptPayload(fileBytes, request.Password!, compLevel);
 
-                processedBytes += fileBytes.Length;
-                processedFiles++;
-                progress?.Report(new DomainProgressReport(
-                    ProcessedBytes: processedBytes,
-                    TotalBytes: totalBytes,
-                    CurrentFileName: relPath,
-                    Percentage: totalBytes > 0 ? (double)processedBytes / totalBytes * 100.0 : 0,
-                    ProcessedFiles: processedFiles,
-                    TotalFiles: totalFiles
-                ));
+                    bw.Write(0x04034b50); // local header signature
+                    bw.Write((short)51);   // version needed (5.1 for AES)
+                    bw.Write((short)(0x0800 | 1)); // flags: UTF-8 + encrypted
+                    bw.Write(WinZipAesCrypto.WinZipAesCompressionMethod); // 99
+                    bw.Write(time);
+                    bw.Write(date);
+                    bw.Write((int)0);      // CRC-32 (0 for AE-2)
+                    bw.Write(encryptedPayload.Length);
+                    bw.Write(fileBytes.Length);
+                    bw.Write((short)nameBytes.Length);
+                    bw.Write((short)WinZipAesCrypto.WinZipAesExtraField.Length);
+                    bw.Write(nameBytes);
+                    bw.Write(WinZipAesCrypto.WinZipAesExtraField);
+                    bw.Write(encryptedPayload);
+
+                    // Build central directory record
+                    using var cdMs = new MemoryStream();
+                    using var cdBw = new BinaryWriter(cdMs, Encoding.UTF8);
+                    cdBw.Write(0x02014b50); // CD signature
+                    cdBw.Write((short)0x0333); // Version made by: Unix (3) + 5.1 (51)
+                    cdBw.Write((short)51);   // Version needed (51)
+                    cdBw.Write((short)(0x0800 | 1)); // flags: UTF-8 + encrypted
+                    cdBw.Write(WinZipAesCrypto.WinZipAesCompressionMethod); // 99
+                    cdBw.Write(time);
+                    cdBw.Write(date);
+                    cdBw.Write((int)0);      // CRC
+                    cdBw.Write(encryptedPayload.Length);
+                    cdBw.Write(fileBytes.Length);
+                    cdBw.Write((short)nameBytes.Length);
+                    cdBw.Write((short)WinZipAesCrypto.WinZipAesExtraField.Length);
+                    cdBw.Write((short)0);    // comment length
+                    cdBw.Write((short)0);    // disk number
+                    cdBw.Write((short)0);    // internal attrs
+                    uint extAttrs = 0x81A4u << 16; // Regular file attributes (0644)
+                    if (modesByPath.TryGetValue(relPath, out var customMode))
+                    {
+                        extAttrs = ((uint)customMode << 16);
+                    }
+                    cdBw.Write(extAttrs);
+                    cdBw.Write((int)localHeaderPos);
+                    cdBw.Write(nameBytes);
+                    cdBw.Write(WinZipAesCrypto.WinZipAesExtraField);
+                    centralDirectoryHeaders.Add(cdMs.ToArray());
+
+                    processedBytes += fileBytes.Length;
+                    processedFiles++;
+                    progress?.Report(new DomainProgressReport(
+                        ProcessedBytes: processedBytes,
+                        TotalBytes: totalBytes,
+                        CurrentFileName: relPath,
+                        Percentage: totalBytes > 0 ? (double)processedBytes / totalBytes * 100.0 : 0,
+                        ProcessedFiles: processedFiles,
+                        TotalFiles: totalFiles
+                    ));
+                }
             }
-        }
 
-        long centralDirStart = fs.Position;
-        foreach (var cdRecord in centralDirectoryHeaders)
-        {
-            bw.Write(cdRecord);
-        }
-        long centralDirEnd = fs.Position;
+            long centralDirStart = fs.Position;
+            foreach (var cdRecord in centralDirectoryHeaders)
+            {
+                bw.Write(cdRecord);
+            }
+            long centralDirEnd = fs.Position;
 
-        // Write EOCD
-        bw.Write(0x06054b50); // EOCD signature
-        bw.Write((short)0);    // disk number
-        bw.Write((short)0);    // disk with CD
-        bw.Write((short)centralDirectoryHeaders.Count); // entries on disk
-        bw.Write((short)centralDirectoryHeaders.Count); // total entries
-        bw.Write((int)(centralDirEnd - centralDirStart)); // CD size
-        bw.Write((int)centralDirStart); // CD offset
-        bw.Write((short)0);    // comment length
-        bw.Flush();
+            // Write EOCD
+            bw.Write(0x06054b50); // EOCD signature
+            bw.Write((short)0);    // disk number
+            bw.Write((short)0);    // disk with CD
+            bw.Write((short)centralDirectoryHeaders.Count); // entries on disk
+            bw.Write((short)centralDirectoryHeaders.Count); // total entries
+            bw.Write((int)(centralDirEnd - centralDirStart)); // CD size
+            bw.Write((int)centralDirStart); // CD offset
+            bw.Write((short)0);    // comment length
+            bw.Flush();
+        }
 
         if (multiVolumeStream == null)
         {

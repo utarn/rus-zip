@@ -192,7 +192,73 @@ The rus-zip Desktop application is built with Avalonia UI and includes:
 - **Compression wizard** — pick a source, destination format (`.zrus` or `.zip`), compression profile, and level.
 - **Themes** — switch between `System`, `Dark`, and `Light` themes from the main window.
 
-## Publishing & Installing
+## Installation & Package Managers
+
+### macOS & Linux via Homebrew (Custom Tap)
+
+You can install `rus-zip` CLI or Desktop directly from this repository using Homebrew:
+
+```bash
+# Add this repository as a tap
+brew tap utarn/rus-zip
+
+# Install the CLI tool
+brew install rus-zip
+
+# Install the Desktop GUI application (macOS)
+brew install --cask rus-zip
+```
+
+Or install directly in a single command without explicit tapping:
+
+```bash
+# CLI
+brew install utarn/rus-zip/rus-zip
+
+# Desktop GUI (.app)
+brew install --cask utarn/rus-zip/rus-zip
+```
+
+---
+
+### Windows via WinGet
+
+Install the portable Windows bundle (containing both `rus-zip` CLI and `RusZip` Desktop):
+
+```powershell
+winget install rus.zip
+# OR
+winget install rus-zip
+# OR
+winget install ruszip
+```
+
+---
+
+### Linux via Flatpak & Snap
+
+```bash
+# Flatpak (Desktop GUI)
+flatpak install flathub com.ruszip.desktop
+
+# Snap (CLI & Desktop)
+snap install rus-zip
+```
+
+---
+
+### Standalone Executable Downloads
+
+Pre-built self-contained binaries for all platforms are available on [GitHub Releases](https://github.com/utarn/rus-zip/releases):
+- **Windows (`win-x64`)**: `rus-zip-win-x64.zip` (Portable CLI + Desktop `.exe`)
+- **macOS Apple Silicon (`osx-arm64`)**: `rus-zip-cli-osx-arm64.tar.gz` (CLI) and `RusZip-mac-arm64.zip` (Desktop `.app`)
+- **macOS Intel (`osx-x64`)**: `rus-zip-cli-osx-x64.tar.gz` (CLI) and `RusZip-mac-x64.zip` (Desktop `.app`)
+- **Linux (`linux-x64`)**: `rus-zip-linux-x64.tar.gz` (Portable CLI + Desktop)
+- **Integrity**: Every release publishes a cryptographically signed `SHA256SUMS.txt`.
+
+---
+
+## Publishing & Local Installation
 
 The `scripts/` directory contains cross-platform publish and install scripts.
 
@@ -213,6 +279,25 @@ Output goes to `dist/<rid>/` with the CLI binary (`rus-zip` / `rus-zip.exe`) and
 ```
 
 Re-running the same version is a no-op; a new version keeps a single backup (`rus-zip.bak`). Use `--uninstall` / `-Uninstall` to remove it.
+
+### Version Management & Bumping
+
+To bump semantic versions across the solution:
+
+```bash
+./bump_version.sh patch    # 1.0.0 -> 1.0.1 (default)
+./bump_version.sh minor    # 1.0.0 -> 1.1.0
+./bump_version.sh major    # 1.0.0 -> 2.0.0
+./bump_version.sh 1.2.3    # Explicit version
+```
+
+On PowerShell:
+```powershell
+.\bump_version.ps1 patch
+.\bump_version.ps1 minor
+.\bump_version.ps1 major
+.\bump_version.ps1 1.2.3
+```
 
 ## Architecture & Documentation
 

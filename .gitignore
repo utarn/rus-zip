@@ -484,3 +484,19 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# rus-zip release and staging artifacts (binaries are hosted on public GitHub releases only)
+dist/
+release-assets/
+publish/
+publish_*/
+*.tmp.*
+*.dbg
+*.exe
+*.dll
+*.so
+*.dylib
+*.app/
+TestResults/
+test-results/
+

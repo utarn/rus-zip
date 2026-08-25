@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>RusZip.Cli</RootNamespace>
+    <!-- CLI uses Standard JIT deployment to maintain lean distribution binary size (~74MB) -->
+    <PublishReadyToRun>false</PublishReadyToRun>
   </PropertyGroup>
 
   <ItemGroup>

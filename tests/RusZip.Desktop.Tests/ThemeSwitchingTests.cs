@@ -27,6 +27,8 @@ public class ThemeSwitchingTests
             => Task.FromResult<IReadOnlyList<ArchiveEntry>>([]);
         public Task<bool> IsEncryptedAsync(string archivePath, CancellationToken ct = default)
             => Task.FromResult(false);
+        public Task<IReadOnlyList<string>> GetVolumePartsAsync(string archivePath, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<string>>([archivePath]);
     }
 
     [Fact]

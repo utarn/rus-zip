@@ -9,7 +9,7 @@ namespace RusZip.Core.Engines;
 /// <remarks>
 /// The CLI maps this dedicated type to <c>EXECUTION_ERROR</c> (exit 1).
 /// </remarks>
-public sealed class ArchiveIntegrityException : Exception
+public class ArchiveIntegrityException : Exception
 {
     /// <summary>The archive entry whose integrity check failed, when known.</summary>
     public string? EntryName { get; }

@@ -80,9 +80,9 @@ try {
     }
     New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-    # 1. Publish CLI (Self-contained, single file)
+    # 1. Publish CLI (Self-contained, single file, Standard JIT)
     Write-Host ""
-    Write-Host "--> Publishing RusZip CLI..."
+    Write-Host "--> Publishing RusZip CLI (Standard JIT)..."
     $cliProject = Join-Path $RootDir "src\RusZip.Cli\RusZip.Cli.csproj"
     & dotnet publish $cliProject `
         -c $Configuration `
@@ -90,6 +90,7 @@ try {
         --self-contained true `
         -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:PublishReadyToRun=false `
         -o $tempCliDir
 
     if ($LASTEXITCODE -ne 0) {
@@ -115,9 +116,9 @@ try {
     $cliDest = Join-Path $OutputDir $cliDestName
     Copy-Item -Path $cliSource -Destination $cliDest -Force
 
-    # 2. Publish Desktop (Self-contained, single file)
+    # 2. Publish Desktop (Self-contained, single file, ReadyToRun)
     Write-Host ""
-    Write-Host "--> Publishing RusZip Desktop..."
+    Write-Host "--> Publishing RusZip Desktop (ReadyToRun)..."
     $desktopProject = Join-Path $RootDir "src\RusZip.Desktop\RusZip.Desktop.csproj"
     & dotnet publish $desktopProject `
         -c $Configuration `
@@ -125,6 +126,8 @@ try {
         --self-contained true `
         -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:PublishReadyToRun=true `
+        -p:PublishReadyToRunShowWarnings=true `
         -o $tempDesktopDir
 
     if ($LASTEXITCODE -ne 0) {

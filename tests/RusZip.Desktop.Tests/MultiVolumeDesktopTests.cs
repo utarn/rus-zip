@@ -43,6 +43,8 @@ public sealed class MultiVolumeDesktopTests : IDisposable
             => Task.FromResult<IReadOnlyList<ArchiveEntry>>([new ArchiveEntry("file.txt", 100, 50, DateTimeOffset.UtcNow, false)]);
         public Task<bool> IsEncryptedAsync(string archivePath, CancellationToken ct = default)
             => Task.FromResult(false);
+        public Task<IReadOnlyList<string>> GetVolumePartsAsync(string archivePath, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<string>>([archivePath]);
     }
 
     [Fact]

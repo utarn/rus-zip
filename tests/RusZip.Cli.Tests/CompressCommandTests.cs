@@ -765,6 +765,9 @@ public sealed class CompressCommandTests : CliTestBase
 
         public Task<bool> IsEncryptedAsync(string archivePath, CancellationToken ct = default)
             => _inner.IsEncryptedAsync(archivePath, ct);
+
+        public Task<IReadOnlyList<string>> GetVolumePartsAsync(string archivePath, CancellationToken ct = default)
+            => _inner.GetVolumePartsAsync(archivePath, ct);
     }
 
     private sealed class EmptyRemainingArguments : IRemainingArguments

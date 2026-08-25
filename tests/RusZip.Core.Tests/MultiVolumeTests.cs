@@ -114,8 +114,10 @@ public sealed class MultiVolumeTests : IDisposable
     public async Task MultiVolume_StartingFromSiblingPart_DiscoversAndExtractsAllParts()
     {
         // Arrange
-        var srcFile = Path.Combine(_tempDir, "sibling_test.txt");
-        await File.WriteAllTextAsync(srcFile, new string('X', 300 * 1024));
+        var srcFile = Path.Combine(_tempDir, "sibling_test.bin");
+        var originalData = new byte[300 * 1024];
+        new Random(42).NextBytes(originalData);
+        await File.WriteAllBytesAsync(srcFile, originalData);
 
         var zrusPath = Path.Combine(_tempDir, "sibling.zrus");
         await _engine.CompressAsync(new ArchiveCompressionRequest([srcFile], zrusPath, 3, SplitSizeBytes: 65536));
@@ -129,17 +131,19 @@ public sealed class MultiVolumeTests : IDisposable
 
         // Assert
         Assert.Equal(1, result.FilesExtracted);
-        var extractedFile = Path.Combine(extractDir, "sibling_test.txt");
+        var extractedFile = Path.Combine(extractDir, "sibling_test.bin");
         Assert.True(File.Exists(extractedFile));
-        Assert.Equal(300 * 1024, new FileInfo(extractedFile).Length);
+        Assert.Equal(originalData, await File.ReadAllBytesAsync(extractedFile));
     }
 
     [Fact]
     public async Task MultiVolume_ZeroPaddedParts_ResolvedAndDecompressedCorrectly()
     {
         // Arrange: create unpadded split archive, then rename to .part01.zrus, .part02.zrus
-        var srcFile = Path.Combine(_tempDir, "padded.txt");
-        await File.WriteAllTextAsync(srcFile, new string('Z', 250 * 1024));
+        var srcFile = Path.Combine(_tempDir, "padded.bin");
+        var originalData = new byte[250 * 1024];
+        new Random(43).NextBytes(originalData);
+        await File.WriteAllBytesAsync(srcFile, originalData);
 
         var zrusPath = Path.Combine(_tempDir, "padded.zrus");
         await _engine.CompressAsync(new ArchiveCompressionRequest([srcFile], zrusPath, 3, SplitSizeBytes: 65536));
@@ -158,15 +162,19 @@ public sealed class MultiVolumeTests : IDisposable
 
         // Assert
         Assert.Equal(1, result.FilesExtracted);
-        Assert.True(File.Exists(Path.Combine(extractDir, "padded.txt")));
+        var extractedFile = Path.Combine(extractDir, "padded.bin");
+        Assert.True(File.Exists(extractedFile));
+        Assert.Equal(originalData, await File.ReadAllBytesAsync(extractedFile));
     }
 
     [Fact]
     public async Task MultiVolume_MissingVolume_ThrowsMissingVolumeException_AndCleansPartialFiles()
     {
         // Arrange: create 3-volume archive and delete part 2
-        var srcFile = Path.Combine(_tempDir, "gap.txt");
-        await File.WriteAllTextAsync(srcFile, new string('G', 300 * 1024));
+        var srcFile = Path.Combine(_tempDir, "gap.bin");
+        var originalData = new byte[300 * 1024];
+        new Random(44).NextBytes(originalData);
+        await File.WriteAllBytesAsync(srcFile, originalData);
 
         var zrusPath = Path.Combine(_tempDir, "gap_test.zrus");
         await _engine.CompressAsync(new ArchiveCompressionRequest([srcFile], zrusPath, 3, SplitSizeBytes: 65536));

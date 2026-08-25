@@ -14,6 +14,11 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_RID="osx-arm64"
 RID="$DEFAULT_RID"
 CONFIGURATION="Release"
+VERSION_FILE="$ROOT_DIR/VERSION"
+APP_VERSION="1.0.0"
+if [ -f "$VERSION_FILE" ]; then
+    APP_VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
+fi
 
 print_usage() {
     cat << 'EOF'
@@ -136,15 +141,16 @@ trap cleanup EXIT
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
-# 1. Publish CLI (Self-contained, single file)
+# 1. Publish CLI (Self-contained, single file, Standard JIT)
 echo ""
-echo "--> Publishing RusZip CLI..."
+echo "--> Publishing RusZip CLI (Standard JIT)..."
 dotnet publish "$ROOT_DIR/src/RusZip.Cli/RusZip.Cli.csproj" \
     -c "$CONFIGURATION" \
     -r "$RID" \
     --self-contained true \
     -p:PublishSingleFile=true \
     -p:IncludeNativeLibrariesForSelfExtract=true \
+    -p:PublishReadyToRun=false \
     -o "$TMP_CLI_DIR"
 
 # Copy CLI binary to dist/<rid>/
@@ -163,15 +169,17 @@ else
     exit 1
 fi
 
-# 2. Publish Desktop
+# 2. Publish Desktop (Self-contained, single file, ReadyToRun)
 echo ""
-echo "--> Publishing RusZip Desktop..."
+echo "--> Publishing RusZip Desktop (ReadyToRun)..."
 dotnet publish "$ROOT_DIR/src/RusZip.Desktop/RusZip.Desktop.csproj" \
     -c "$CONFIGURATION" \
     -r "$RID" \
     --self-contained true \
     -p:PublishSingleFile=true \
     -p:IncludeNativeLibrariesForSelfExtract=true \
+    -p:PublishReadyToRun=true \
+    -p:PublishReadyToRunShowWarnings=true \
     -o "$TMP_DESKTOP_DIR"
 
 # Find published Desktop binary
@@ -223,9 +231,9 @@ if [[ "$RID" == osx* ]]; then
     <key>CFBundleDisplayName</key>
     <string>RUS ZIP</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>$APP_VERSION</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>$APP_VERSION</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleSignature</key>

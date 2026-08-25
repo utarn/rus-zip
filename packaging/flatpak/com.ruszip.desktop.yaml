@@ -1,0 +1,25 @@
+app-id: com.ruszip.desktop
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+command: RusZip.Desktop
+finish-args:
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=host
+  - --filesystem=xdg-run/dconf
+  - --talk-name=ca.desrt.dconf
+
+modules:
+  - name: rus-zip
+    buildsystem: simple
+    build-commands:
+      - install -D RusZip.Desktop /app/bin/RusZip.Desktop
+      - install -D rus-zip /app/bin/rus-zip
+    sources:
+      - type: archive
+        url: https://github.com/utarn/rus-zip/releases/download/v1.0.0/rus-zip-linux-x64.tar.gz
+        sha256: <SHA256_LINUX_TAR_GZ>

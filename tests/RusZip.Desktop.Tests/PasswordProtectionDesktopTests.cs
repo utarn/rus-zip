@@ -79,6 +79,9 @@ public sealed class PasswordProtectionDesktopTests : IDisposable
         {
             return Task.FromResult(IsEncrypted);
         }
+
+        public Task<IReadOnlyList<string>> GetVolumePartsAsync(string archivePath, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<string>>([archivePath]);
     }
 
     [Fact]

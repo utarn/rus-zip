@@ -93,6 +93,9 @@ public sealed class DesktopEndToEndRegressionTests : IDisposable
         {
             return Task.FromResult(false);
         }
+
+        public Task<IReadOnlyList<string>> GetVolumePartsAsync(string archivePath, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<string>>([archivePath]);
     }
 
     [Fact]

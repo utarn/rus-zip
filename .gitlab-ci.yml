@@ -1,0 +1,164 @@
+image: mcr.microsoft.com/dotnet/sdk:10.0
+
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+  TARGET_REPO: "utarn/rus-zip"
+
+stages:
+  - build-and-publish
+
+publish-release:
+  stage: build-and-publish
+  retry: 2
+  only:
+    - main
+    - tags
+    - drr_saraban
+  before_script:
+    - apt-get update -y && apt-get install -y curl jq zip tar git
+    - |
+      if ! command -v gh >/dev/null 2>&1; then
+        echo "Installing GitHub CLI (gh)..."
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+        chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+        apt-get update -y && apt-get install -y gh
+      fi
+    - export GH_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}"
+    - |
+      if [ -z "$GH_TOKEN" ]; then
+        echo "Error: GH_TOKEN (or GITHUB_TOKEN) is required for GitHub release upload." >&2
+        exit 1
+      fi
+    - gh auth status
+
+  script:
+    # -------------------------------------------------------------------------
+    # 0. Version Computation (Auto-increment 1.0.1, 1.0.2, ... or Git tag)
+    # -------------------------------------------------------------------------
+    - |
+      BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
+      IFS='.' read -r MAJOR MINOR PATCH_BASE <<< "$BASE_VERSION"
+      MAJOR="${MAJOR:-1}"
+      MINOR="${MINOR:-0}"
+
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        BUILD_VERSION="${CI_COMMIT_TAG#v}"
+        RELEASE_TAG="$CI_COMMIT_TAG"
+      else
+        # Autoincrement patch version using monotonically increasing pipeline IID
+        PIPELINE_NUM="${CI_PIPELINE_IID:-1}"
+        BUILD_VERSION="${MAJOR}.${MINOR}.${PIPELINE_NUM}"
+        RELEASE_TAG="v${BUILD_VERSION}"
+      fi
+
+      echo "=================================================="
+      echo "RUS ZIP Build Version: $BUILD_VERSION (Tag: $RELEASE_TAG)"
+      echo "=================================================="
+      echo "$BUILD_VERSION" > VERSION
+
+    - chmod +x ./scripts/publish.sh
+    - mkdir -p ./release-assets
+
+    # -------------------------------------------------------------------------
+    # 1. Build All Target Platforms (CLI = JIT, Desktop = ReadyToRun)
+    # -------------------------------------------------------------------------
+    - echo "Building Linux x64..."
+    - ./scripts/publish.sh --rid linux-x64 -c Release
+
+    - echo "Building Windows x64..."
+    - ./scripts/publish.sh --rid win-x64 -c Release
+
+    - echo "Building macOS ARM64 (Apple Silicon)..."
+    - ./scripts/publish.sh --rid osx-arm64 -c Release
+
+    - echo "Building macOS x64 (Intel)..."
+    - ./scripts/publish.sh --rid osx-x64 -c Release
+
+    # -------------------------------------------------------------------------
+    # 2. Package Standard Release Archives for Package Managers
+    # -------------------------------------------------------------------------
+
+    # [Windows -> WinGet portable bundle]
+    - (cd dist/win-x64 && zip -r ../../release-assets/rus-zip-win-x64.zip rus-zip.exe RusZip.Desktop.exe)
+    - cp dist/win-x64/rus-zip.exe ./release-assets/rus-zip-win-x64.exe
+    - cp dist/win-x64/RusZip.Desktop.exe ./release-assets/RusZip.Desktop-win-x64.exe
+
+    # [macOS -> Homebrew Formula (CLI) & Homebrew Cask (Desktop .app)]
+    - tar -czvf ./release-assets/rus-zip-cli-osx-arm64.tar.gz -C dist/osx-arm64 rus-zip
+    - tar -czvf ./release-assets/rus-zip-cli-osx-x64.tar.gz -C dist/osx-x64 rus-zip
+    - (cd dist/osx-arm64 && zip -r -y ../../release-assets/RusZip-mac-arm64.zip RusZip.app)
+    - (cd dist/osx-x64 && zip -r -y ../../release-assets/RusZip-mac-x64.zip RusZip.app)
+
+    # [Linux -> Flatpak / Snap / Portable Tarball]
+    - tar -czvf ./release-assets/rus-zip-linux-x64.tar.gz -C dist/linux-x64 rus-zip RusZip.Desktop
+
+    # -------------------------------------------------------------------------
+    # 3. Generate SHA256 Checksums and Render Package Manifests
+    # -------------------------------------------------------------------------
+    - |
+      cd release-assets
+      sha256sum * > SHA256SUMS.txt
+      cat SHA256SUMS.txt
+
+      WIN_ZIP_SHA=$(sha256sum rus-zip-win-x64.zip | awk '{print $1}')
+      CLI_ARM64_SHA=$(sha256sum rus-zip-cli-osx-arm64.tar.gz | awk '{print $1}')
+      CLI_X64_SHA=$(sha256sum rus-zip-cli-osx-x64.tar.gz | awk '{print $1}')
+      MAC_ARM64_ZIP_SHA=$(sha256sum RusZip-mac-arm64.zip | awk '{print $1}')
+      MAC_X64_ZIP_SHA=$(sha256sum RusZip-mac-x64.zip | awk '{print $1}')
+      LINUX_TAR_SHA=$(sha256sum rus-zip-linux-x64.tar.gz | awk '{print $1}')
+      cd ..
+
+      # Generate filled WinGet manifest
+      sed -e "s|PackageVersion:.*|PackageVersion: $BUILD_VERSION|g" \
+          -e "s|releases/download/v1.0.0/|releases/download/$RELEASE_TAG/|g" \
+          -e "s|releases/tag/v1.0.0|releases/tag/$RELEASE_TAG|g" \
+          -e "s|<SHA256_WIN_ZIP>|$WIN_ZIP_SHA|g" \
+          packaging/winget/rus.zip.yaml > release-assets/rus.zip.yaml
+
+      # Generate filled Homebrew Formula
+      sed -e "s|version \".*\"|version \"$BUILD_VERSION\"|g" \
+          -e "s|releases/download/v1.0.0/|releases/download/$RELEASE_TAG/|g" \
+          -e "s|<SHA256_CLI_OSX_ARM64>|$CLI_ARM64_SHA|g" \
+          -e "s|<SHA256_CLI_OSX_X64>|$CLI_X64_SHA|g" \
+          packaging/homebrew/rus-zip.rb > release-assets/rus-zip.rb
+
+      # Generate filled Homebrew Cask
+      sed -e "s|version \".*\"|version \"$BUILD_VERSION\"|g" \
+          -e "s|releases/download/v1.0.0/|releases/download/$RELEASE_TAG/|g" \
+          -e "s|<SHA256_MAC_ARM64_ZIP>|$MAC_ARM64_ZIP_SHA|g" \
+          -e "s|<SHA256_MAC_X64_ZIP>|$MAC_X64_ZIP_SHA|g" \
+          packaging/homebrew/rus-zip-cask.rb > release-assets/rus-zip-cask.rb
+
+    # -------------------------------------------------------------------------
+    # 4. Upload Release to GitHub (utarn/rus-zip) via gh CLI
+    # -------------------------------------------------------------------------
+    - |
+      echo "Creating GitHub Release $RELEASE_TAG in $TARGET_REPO..."
+      gh release create "$RELEASE_TAG" \
+        ./release-assets/* \
+        --repo "$TARGET_REPO" \
+        --title "RUS ZIP $RELEASE_TAG" \
+        --notes "Release $RELEASE_TAG (v$BUILD_VERSION) built automatically by GitLab CI pipeline #$CI_PIPELINE_ID."
+
+    # -------------------------------------------------------------------------
+    # 5. LINE API Notification
+    # -------------------------------------------------------------------------
+    - |
+      AUTH_RESPONSE=$(curl -s -X POST "https://lineoa.scigrad.com/api/auth/login" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\": \"$LINE_API_USER\", \"password\": \"$LINE_API_PASSWORD\"}")
+      TOKEN=$(echo "$AUTH_RESPONSE" | jq -r '.token')
+
+      if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+        curl -s -X POST "https://lineoa.scigrad.com/api/registration/send" \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "{\"code\": \"REGIS:utharn.b@rmutsb.ac.th\", \"messages\": [{\"type\": \"text\", \"text\": \"RUS ZIP $RELEASE_TAG (v$BUILD_VERSION) published to GitHub release successfully. Homebrew, WinGet, and Linux assets available.\"}]}"
+      fi
+
+  artifacts:
+    name: "ruszip-release-assets-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - release-assets/
+    expire_in: 1 month

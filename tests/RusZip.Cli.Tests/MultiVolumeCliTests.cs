@@ -11,7 +11,11 @@ public sealed class MultiVolumeCliTests : CliTestBase
     public async Task Cli_CompressWithSplitOption_ProducesSequentialParts()
     {
         // Arrange
-        var srcFile = CreateTempFile("bigfile.txt", new string('B', 300 * 1024));
+        var srcFile = Path.Combine(TempDirectory, "bigfile.bin");
+        var data = new byte[300 * 1024];
+        new Random(42).NextBytes(data);
+        await File.WriteAllBytesAsync(srcFile, data);
+
         var zrusPath = Path.Combine(TempDirectory, "backup.zrus");
 
         // Act: compress with -s 64KB
@@ -48,7 +52,11 @@ public sealed class MultiVolumeCliTests : CliTestBase
     public async Task Cli_Extract_MultiVolumeArchive_ExtractsCleanly()
     {
         // Arrange
-        var srcFile = CreateTempFile("data.bin", new string('Q', 250 * 1024));
+        var srcFile = Path.Combine(TempDirectory, "data.bin");
+        var data = new byte[250 * 1024];
+        new Random(43).NextBytes(data);
+        await File.WriteAllBytesAsync(srcFile, data);
+
         var zrusPath = Path.Combine(TempDirectory, "split_cli.zrus");
         var extractDir = Path.Combine(TempDirectory, "split_cli_out");
 

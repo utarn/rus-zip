@@ -87,7 +87,7 @@ public static partial class VolumeNameResolver
     /// </summary>
     public static (string BasePath, string Extension) SplitBaseAndExtension(string path)
     {
-        if (TryParseVolumePath(path, out var basePart, out var extPart, out _, _))
+        if (TryParseVolumePath(path, out var basePart, out var extPart, out _, out _))
         {
             return (basePart, extPart);
         }
@@ -124,7 +124,7 @@ public static partial class VolumeNameResolver
         var dir = Path.GetDirectoryName(fullPath) ?? string.Empty;
 
         int paddingLength = 0;
-        if (TryParseVolumePath(fullPath, out _, _, out _, out var pad))
+        if (TryParseVolumePath(fullPath, out _, out _, out _, out var pad))
         {
             paddingLength = pad;
         }
@@ -170,7 +170,7 @@ public static partial class VolumeNameResolver
             foreach (var f in Directory.EnumerateFiles(dir))
             {
                 var fname = Path.GetFileName(f);
-                if (TryParseVolumePath(fname, out var fbase, out var fext, out var fidx, _) &&
+                if (TryParseVolumePath(fname, out var fbase, out var fext, out var fidx, out _) &&
                     string.Equals(fbase, prefix, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(fext, extension, StringComparison.OrdinalIgnoreCase))
                 {

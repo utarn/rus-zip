@@ -9,6 +9,9 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <RootNamespace>RusZip.Desktop</RootNamespace>
     <ApplicationIcon>Assets/rus-zip.ico</ApplicationIcon>
+    <!-- Desktop uses ReadyToRun (R2R) ahead-of-time pre-compilation for instant cold startup and fast window activation -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishReadyToRunShowWarnings>true</PublishReadyToRunShowWarnings>
   </PropertyGroup>
 
   <ItemGroup>

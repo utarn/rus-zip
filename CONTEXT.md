@@ -169,5 +169,12 @@ _Avoid_: thread count, worker pool, degree of parallelism.
 ### Stream Workers
 Compression worker threads operating inside a single codec stream (Zstandard), the mechanism through which the Thread Budget applies to single-stream formats such as `.zrus` and `.zst` whose entries are serialized into one compressed stream and cannot be processed independently.
 
+### Hybrid Deployment Strategy
+The cross-platform publishing model applying Standard JIT compilation to `RusZip.Cli` for lean single-file distribution size, and ReadyToRun (R2R) ahead-of-time pre-compilation to `RusZip.Desktop` for instant UI initialization and smooth window activation.
+
+### ReadyToRun Pre-Compilation
+The ahead-of-time compilation format in .NET that pre-compiles managed assemblies into native machine code while preserving full runtime reflection and cross-OS publishing capabilities.
+
+
 
 
