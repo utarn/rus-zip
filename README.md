@@ -80,7 +80,7 @@ Upgrading later: `brew upgrade rus-zip` and `brew upgrade --cask rus-zip`.
 
 > `xattr -dr com.apple.quarantine "/Applications/RUS ZIP.app"`
 
-A drag-to-Applications **`.dmg`** (`RusZip-<version>-mac-<arch>.dmg`) is attached to the release when built on a Mac via `scripts/build-macos-release.sh`; check the [release page](https://github.com/utarn/rus-zip/releases) for it.
+A drag-to-Applications **`.dmg`** is also attached to some [releases](https://github.com/utarn/rus-zip/releases) when available; the `.zip` above works exactly the same — just unzip and drag.
 
 ### Linux — CLI only
 
@@ -113,8 +113,8 @@ Every asset is a self-contained binary (single executable, `.exe` installer, or 
 | Windows x64 | `RusZip.Desktop-win-x64.exe` | Desktop only, single file |
 | macOS Apple Silicon | `rus-zip-cli-osx-arm64.tar.gz` | CLI only |
 | macOS Intel | `rus-zip-cli-osx-x64.tar.gz` | CLI only |
-| macOS Apple Silicon | `RusZip-mac-arm64.zip` | Desktop `.app` (drag to Applications; Homebrew cask source) |
-| macOS Intel | `RusZip-mac-x64.zip` | Desktop `.app` (drag to Applications; Homebrew cask source) |
+| macOS Apple Silicon | `RusZip-mac-arm64.zip` | Desktop `.app` (drag to Applications) |
+| macOS Intel | `RusZip-mac-x64.zip` | Desktop `.app` (drag to Applications) |
 | Linux x64 | `rus-zip-cli-linux-x64` | CLI only, single file |
 | Linux x64 | `rus-zip-linux-x64.tar.gz` | CLI + Desktop + icon (portable) |
 
