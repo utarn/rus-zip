@@ -1,12 +1,12 @@
 cask "rus-zip" do
-  version "1.0.2"
+  version "1.0.3"
 
   if Hardware::CPU.arm?
-    url "https://github.com/utarn/rus-zip/releases/download/v1.0.2/RusZip-mac-arm64.zip"
-    sha256 "7996522b62f51221c65165266bca2bd9a078f0dfb0c7908ea7772d2523afd0ad"
+    url "https://github.com/utarn/rus-zip/releases/download/v1.0.3/RusZip-mac-arm64.zip"
+    sha256 "c262ff9c92338c44af0c0eaf1ec9742e2c876b8201f50771f56fe2bf95c119cc"
   else
-    url "https://github.com/utarn/rus-zip/releases/download/v1.0.2/RusZip-mac-x64.zip"
-    sha256 "5ec6eb030cfba3ff43da0ac29930389f9d13704ae08f0d169fa17f33539d78d3"
+    url "https://github.com/utarn/rus-zip/releases/download/v1.0.3/RusZip-mac-x64.zip"
+    sha256 "9750e286f53ba47f220227f905489b8ba41628125a2fdacaa8995944f1e5dec4"
   end
 
   name "RUS ZIP"
