@@ -1,5 +1,5 @@
 PackageIdentifier: rus.zip
-PackageVersion: 1.0.1
+PackageVersion: 1.0.2
 PackageLocale: en-US
 Publisher: rus
 PublisherUrl: https://github.com/utarn/rus-zip
@@ -20,6 +20,6 @@ Tags:
   - tar
   - compression
   - archiver
-ReleaseNotesUrl: https://github.com/utarn/rus-zip/releases/tag/v1.0.1
+ReleaseNotesUrl: https://github.com/utarn/rus-zip/releases/tag/v1.0.2
 ManifestType: defaultLocale
 ManifestVersion: 1.12.0
