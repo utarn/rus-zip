@@ -7,7 +7,7 @@ class RusZip < Formula
   on_macos do
     # Apple Silicon only — Intel (osx-x64) builds are discontinued.
     url "https://github.com/utarn/rus-zip/releases/download/v1.0.4/rus-zip-cli-osx-arm64.zip"
-    sha256 "60fbda049c05ae3ecc977c165dd974f473dcb52a23c77c9d77a2b13fe6e09532"
+    sha256 "1746ce782e2dbe01a73723eac8f0642e7275f35d3a589e489caaa31e87b62aed"
   end
 
   on_linux do
