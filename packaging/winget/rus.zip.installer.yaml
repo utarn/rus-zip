@@ -1,5 +1,5 @@
 PackageIdentifier: rus.zip
-PackageVersion: 1.0.3
+PackageVersion: 1.0.4
 Installers:
   - Architecture: x64
     InstallerType: zip
@@ -9,7 +9,7 @@ Installers:
         PortableCommandAlias: rus-zip
       - RelativeFilePath: RusZip.Desktop.exe
         PortableCommandAlias: RusZip
-    InstallerUrl: https://github.com/utarn/rus-zip/releases/download/v1.0.3/rus-zip-win-x64.zip
-    InstallerSha256: b240879c92cc00a3a539698b28649a4a8df03dc60b2bfe985a5c27907d998439
+    InstallerUrl: https://github.com/utarn/rus-zip/releases/download/v1.0.4/rus-zip-win-x64.zip
+    InstallerSha256: 69c87e8da9f2970283c1b5f13173236bb48de564a2a9b0d73f973c1b7d3e8850
 ManifestType: installer
 ManifestVersion: 1.12.0
