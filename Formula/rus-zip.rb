@@ -5,13 +5,9 @@ class RusZip < Formula
   license "Proprietary"
 
   on_macos do
-    if Hardware::CPU.arm?
-      url "https://github.com/utarn/rus-zip/releases/download/v1.0.4/rus-zip-cli-osx-arm64.tar.gz"
-      sha256 "31ac1f280cca6b6354129d4ad1150dc9cbd629f8f4f1bf4a8d69538b4c439881"
-    else
-      url "https://github.com/utarn/rus-zip/releases/download/v1.0.4/rus-zip-cli-osx-x64.tar.gz"
-      sha256 "a19b674ec17d3b14dfaba09d1892c62667fc45058f34e2604eba5a2f29d6d69e"
-    end
+    # Apple Silicon only — Intel (osx-x64) builds are discontinued.
+    url "https://github.com/utarn/rus-zip/releases/download/v1.0.4/rus-zip-cli-osx-arm64.zip"
+    sha256 "60fbda049c05ae3ecc977c165dd974f473dcb52a23c77c9d77a2b13fe6e09532"
   end
 
   on_linux do
