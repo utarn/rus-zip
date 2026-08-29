@@ -54,11 +54,14 @@ winget install rus.zip
 
 ### macOS — Homebrew (CLI and Desktop are installed differently)
 
-Add the tap once:
+Add the tap once, then trust it (recent Homebrew versions refuse to load third-party taps until trusted — you'll see `Refusing to load formula ... from untrusted tap` otherwise):
 
 ```bash
 brew tap utarn/rus-zip
+brew trust utarn/rus-zip
 ```
+
+The package name is **`rus-zip`** (hyphenated — not `ruszip`).
 
 **CLI** — installed by the Homebrew *formula* into `$(brew --prefix)/bin`:
 
@@ -67,12 +70,16 @@ brew install rus-zip        # or: brew install utarn/rus-zip/rus-zip
 rus-zip --version
 ```
 
+> If you get `Refusing to load formula utarn/rus-zip/rus-zip from untrusted tap`, run `brew trust utarn/rus-zip` and retry.
+
 **Desktop** — installed by the Homebrew *cask* into `/Applications` (this is a GUI `.app`, so it is a cask, not a formula):
 
 ```bash
 brew install --cask rus-zip # or: brew install --cask utarn/rus-zip/rus-zip
 open -a "RUS ZIP"
 ```
+
+> Same for the cask: `brew trust utarn/rus-zip` if Homebrew refuses the untrusted tap.
 
 Upgrading later: `brew upgrade rus-zip` and `brew upgrade --cask rus-zip`.
 
