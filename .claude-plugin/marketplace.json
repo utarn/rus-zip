@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "rus-zip",
+  "description": "Agent skills for the rus-zip cross-platform archive CLI, installable as Claude Code plugins.",
+  "owner": {
+    "name": "utarn"
+  },
+  "plugins": [
+    {
+      "name": "rus-zip",
+      "source": "./",
+      "description": "Agent skills for the rus-zip archive CLI: compress/decompress competence and database & storage backup/restore workflows.",
+      "version": "1.0.0",
+      "author": {
+        "name": "utarn"
+      },
+      "homepage": "https://github.com/utarn/rus-zip",
+      "license": "MIT",
+      "keywords": [
+        "archive",
+        "compression",
+        "backup",
+        "zrus",
+        "zstandard"
+      ]
+    }
+  ]
+}
