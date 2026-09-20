@@ -127,6 +127,30 @@ Every asset is a self-contained binary (single executable, `.exe` installer, or 
 
 ---
 
+## Agent Skills
+
+RUS ZIP ships two [agent skills](https://skills.sh/utarn/rus-zip) that teach AI coding agents how to drive the CLI:
+
+- **`rus-zip`** — compress, extract, list, and integrity-test archives (`.zrus`, `.zip`, `.tar.zst`, plus decompress-only formats like `.rar` and `.7z`) with safe defaults and machine-readable `--json` output.
+- **`rus-zip-backup`** — verified database (Postgres, MySQL, SQLite, …) and storage-tree backup/restore workflows: full and `--baseline` incremental chains, encryption, split volumes, checksums.
+
+Install with the [skills CLI](https://skills.sh) — works with any supported agent (Claude Code, Cursor, Codex, …) and offers both skills:
+
+```bash
+npx skills add utarn/rus-zip
+```
+
+For **Claude Code**, install as a plugin from this repo's marketplace:
+
+```bash
+/plugin marketplace add utarn/rus-zip
+/plugin install rus-zip@rus-zip
+```
+
+> **Versioning:** each skill's `metadata.version` (in its `SKILL.md`) and the plugin/marketplace manifest versions in `.claude-plugin/` are bumped together manually when a skill changes — they are not tied to the product release version.
+
+---
+
 ## CLI quick start
 
 ```bash

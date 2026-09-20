@@ -1,0 +1,14 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "Backup & Compression",
+      "description": "Skills for compressing and extracting archives, and for verified database and storage backup/restore workflows, with the rus-zip CLI.",
+      "skills": [
+        "rus-zip",
+        "rus-zip-backup"
+      ]
+    }
+  ]
+}
