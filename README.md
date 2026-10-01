@@ -173,4 +173,4 @@ rus-zip --help
 
 ## License
 
-[MIT](LICENSE)
+rus-zip is distributed under the terms in [LICENSE](LICENSE): compression requires a valid rus-zip license; decompression (`extract`, `list`, `test`) remains free forever.
