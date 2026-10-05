@@ -1,15 +1,26 @@
 PackageIdentifier: rus.zip
-PackageVersion: 1.0.4
+PackageVersion: 1.0.15
+InstallerLocale: en-US
+Platform:
+  - Windows.Desktop
+InstallerType: nullsoft
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+InstallerSwitches:
+  Silent: /S
+  SilentWithProgress: /S
+UpgradeBehavior: install
+ReleaseDate: 2026-10-05
 Installers:
   - Architecture: x64
-    InstallerType: zip
-    NestedInstallerType: portable
-    NestedInstallerFiles:
-      - RelativeFilePath: rus-zip.exe
-        PortableCommandAlias: rus-zip
-      - RelativeFilePath: RusZip.Desktop.exe
-        PortableCommandAlias: RusZip
-    InstallerUrl: https://github.com/utarn/rus-zip/releases/download/v1.0.4/rus-zip-win-x64.zip
-    InstallerSha256: 69c87e8da9f2970283c1b5f13173236bb48de564a2a9b0d73f973c1b7d3e8850
+    InstallerUrl: https://github.com/utarn/rus-zip/releases/download/v1.0.15/rus-zip-desktop_with_cli-1.0.15-setup.exe
+    InstallerSha256: 11EFAD05F2938C1F7A1FE0BBD47D96ED0685B62F6191908764DC3129C6E553FE
+    ProductCode: RUS ZIP
+    AppsAndFeaturesEntries:
+      - DisplayName: RUS ZIP
+        Publisher: rus-zip
+        ProductCode: RUS ZIP
 ManifestType: installer
 ManifestVersion: 1.12.0
