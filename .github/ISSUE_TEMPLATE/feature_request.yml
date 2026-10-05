@@ -1,0 +1,48 @@
+name: Feature Request
+description: Suggest an idea, enhancement, or new feature for rus-zip
+title: "[Feat]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an improvement to rus-zip!
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component Area
+      description: Which part of rus-zip does this feature apply to?
+      options:
+        - "area:core-engine (Compression/Decompression engine, .zrus container, formats, safe extraction)"
+        - "area:cli (Command-line interface, flags, JSON output)"
+        - "area:desktop-gui (Avalonia desktop application, archive browser, wizard)"
+        - "area:mobile (Android or iOS mobile application)"
+        - "area:shell-integration (Windows Explorer preview handler, thumbnails, context menus)"
+        - "area:packaging-install (Installer, WinGet, Homebrew, Flatpak, Snap, updates)"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a problem or limitation? A clear and concise description of what the problem is.
+      placeholder: "I'm always frustrated when..."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution / Feature
+      description: A clear and concise description of what you want to happen and how it should work.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or features you've considered.
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Mockups / Additional Context
+      description: Add any other context, screenshots, or mockups about the feature request here.

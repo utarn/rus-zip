@@ -1,0 +1,92 @@
+name: Bug Report
+description: Report a defect, crash, corruption, or unexpected behavior in rus-zip
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue! Please provide as much detail as possible to help us reproduce and fix it.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component Area
+      description: Which part of rus-zip is affected?
+      options:
+        - "area:core-engine (Compression/Decompression engine, .zrus container, formats, safe extraction)"
+        - "area:cli (Command-line interface, flags, JSON output)"
+        - "area:desktop-gui (Avalonia desktop application, archive browser, wizard)"
+        - "area:mobile (Android or iOS mobile application)"
+        - "area:shell-integration (Windows Explorer preview handler, thumbnails, context menus)"
+        - "area:packaging-install (Installer, WinGet, Homebrew, Flatpak, Snap, updates)"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you running rus-zip on?
+      options:
+        - "Windows 11"
+        - "Windows 10"
+        - "Windows Server"
+        - "macOS Apple Silicon (M1/M2/M3/M4)"
+        - "macOS Intel (x86_64)"
+        - "Linux x86_64"
+        - "Linux arm64 / aarch64"
+        - "Android"
+        - "iOS"
+        - "Other"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: rus-zip Version
+      description: What version are you using? (Run `rus-zip --version` or check Desktop About / Mobile Settings)
+      placeholder: "e.g., 1.0.2"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description of the Bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed step-by-step instructions to reproduce the problem. Include exact commands or UI actions.
+      placeholder: |
+        1. Run `rus-zip compress ...` or open archive in Desktop
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened? (Include error messages, unexpected exit codes, etc.)
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console Logs / Stack Traces
+      description: Paste any terminal output, `--json` output, or crash logs here.
+      render: shell
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Screenshots, Sample Files, or Recordings
+      description: Drag and drop screenshots, sample archives (if non-confidential), or screen recordings here.

@@ -167,6 +167,30 @@ rus-zip --help
 - **Compression wizard** — pick sources, format (`.zrus` / `.zip`), profile, and level.
 - **Themes** — System / Dark / Light.
 
+## Bug Tracker & Feedback
+
+This repository serves as the public bug tracker and feedback portal for RUS ZIP.
+
+- [Report a Bug](https://github.com/utarn/rus-zip/issues/new?template=bug_report.yml) — file a defect, crash, corruption, or unexpected behavior.
+- [Request a Feature](https://github.com/utarn/rus-zip/issues/new?template=feature_request.yml) — suggest a new capability or improvement.
+
+### Triage Workflow & Labels
+
+Issues follow a structured lifecycle:
+
+| Group | Labels | Description |
+| --- | --- | --- |
+| **State** | `needs-triage`, `needs-info`, `in-progress`, `resolved`, `wontfix` | Current status of the report |
+| **Execution** | `ready-for-agent`, `ready-for-human` | Whether the task is ready for an AFK coding agent or requires human action |
+| **Type** | `bug`, `enhancement`, `feedback`, `documentation`, `question` | Category of the issue |
+| **Priority** | `priority:critical`, `priority:high`, `priority:medium`, `priority:low` | Severity and urgency |
+| **Verification** | `tester-verified`, `needs-reproduction` | QA and reproduction status |
+| **Component Area** | `area:core-engine`, `area:cli`, `area:desktop-gui`, `area:mobile`, `area:shell-integration`, `area:packaging-install` | Affected subsystem |
+
+### Security & Privacy
+
+Please do not post confidential files, passwords, or personal credentials in public issues or attachments. When reporting issues with password-protected archives or proprietary file formats, create an isolated minimal reproduction archive using non-sensitive sample files.
+
 ## Also on
 
 [WinGet](https://winget.run/pkg/rus/zip) (`winget install rus.zip`) · Flatpak (`flatpak install flathub com.ruszip.desktop`) · Snap (`snap install rus-zip`)
@@ -174,3 +198,4 @@ rus-zip --help
 ## License
 
 rus-zip is distributed under the terms in [LICENSE](LICENSE): compression requires a valid rus-zip license; decompression (`extract`, `list`, `test`) remains free forever.
+
